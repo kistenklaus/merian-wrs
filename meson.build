@@ -1,6 +1,6 @@
 project(
     'merian-example',
-    'cpp',
+    ['cpp', 'c'],
     version : '1.0.0',
     default_options : [
         'warning_level=3',
@@ -16,15 +16,15 @@ if get_option('buildtype').startswith('debug')
 endif
 
 # Dependencies
-merian = dependency('merian', version: ['>=1.0.0'], fallback: ['merian', 'merian_dep'], default_options: {'shaderc': 'enabled'})
+merian_subp = subproject('merian')
+merian = merian_subp.get_variable('merian_dep')
 shader_generator = merian_subp.get_variable('shader_generator')
 
-src_files = files(
-    'src/main.cpp',
-)
-inc_dirs = [
-]
-shader_generator.process('src/compute_sum.comp')
+
+src_files = []
+inc_dirs = []
+
+subdir('src')
 
 exe = executable(
     'merian-example',

@@ -1,0 +1,3 @@
+[submodule "subprojects/merian"]
+	path = subprojects/merian
+	url = https://github.com/LDAP/merian
