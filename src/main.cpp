@@ -1,4 +1,3 @@
-#include "merian/utils/stopwatch.hpp"
 #include "merian/vk/context.hpp"
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
