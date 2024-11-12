@@ -81,12 +81,10 @@ int main() {
         {
             MERIAN_PROFILE_SCOPE(profiler, "create pipeline");
 
-            const auto desc_layout =
-                merian::DescriptorSetLayoutBuilder()
-                    .add_binding_storage_buffer()
-                    .add_binding_storage_buffer()
-                    .build_layout(context,
-                                  vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR);
+            const auto desc_layout = merian::DescriptorSetLayoutBuilder()
+                                         .add_binding_storage_buffer()
+                                         .add_binding_storage_buffer()
+                                         .build_push_descriptor_layout(context);
             const merian::ShaderModuleHandle shader =
                 context->shader_compiler->find_compile_glsl_to_shadermodule(context,
                                                                             "src/compute_sum.comp");
@@ -104,8 +102,6 @@ int main() {
         }
 
         std::array<merian::BufferHandle, 2> ping_pong_buffers = {buffer1, buffer2};
-        std::array<vk::DescriptorBufferInfo, 2> ping_pong_info = {buffer1->get_descriptor_info(),
-                                                                  buffer2->get_descriptor_info()};
         uint32_t ping_pong_i = 0;
         {
             MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "record commands");
@@ -116,23 +112,8 @@ int main() {
                 MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, fmt::format("iteration {}", iteration++));
                 pipe->bind(cmd);
                 pipe->push_descriptor_set(
-                    cmd, 0,
-                    {
-                        vk::WriteDescriptorSet{{},
-                                               0,
-                                               0,
-                                               1,
-                                               vk::DescriptorType::eStorageBuffer,
-                                               nullptr,
-                                               &ping_pong_info[ping_pong_i]},
-                        vk::WriteDescriptorSet{{},
-                                               1,
-                                               0,
-                                               1,
-                                               vk::DescriptorType::eStorageBuffer,
-                                               nullptr,
-                                               &ping_pong_info[ping_pong_i ^ 1]},
-                    });
+                    cmd, ping_pong_buffers[ping_pong_i]->get_descriptor_info(),
+                    ping_pong_buffers[ping_pong_i ^ 1]->get_descriptor_info());
                 pipe->push_constant(cmd, current_size);
 
                 const uint32_t group_count_x =
