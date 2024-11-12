@@ -8,7 +8,6 @@
 #include <iostream>
 #include <random>
 
-#include "compute_sum.comp.spv.h"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "merian/vk/shader/shader_module.hpp"
@@ -88,9 +87,9 @@ int main() {
                     .add_binding_storage_buffer()
                     .build_layout(context,
                                   vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR);
-
-            merian::ShaderModuleHandle shader = std::make_shared<merian::ShaderModule>(
-                context, merian_compute_sum_comp_spv_size(), merian_compute_sum_comp_spv());
+            const merian::ShaderModuleHandle shader =
+                context->shader_compiler->find_compile_glsl_to_shadermodule(context,
+                                                                            "src/compute_sum.comp");
             const auto pipe_layout = merian::PipelineLayoutBuilder(context)
                                          .add_descriptor_set_layout(desc_layout)
                                          .add_push_constant<uint32_t>()
