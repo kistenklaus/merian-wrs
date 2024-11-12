@@ -17,11 +17,12 @@ int main() {
     spdlog::set_level(spdlog::level::debug);
 
     // Setup Vulkan context.
+    const auto core = std::make_shared<merian::ExtensionVkCore>();
     const auto debug_utils = std::make_shared<merian::ExtensionVkDebugUtils>(false);
     const auto resources = std::make_shared<merian::ExtensionResources>();
     const auto push_descriptor = std::make_shared<merian::ExtensionVkPushDescriptor>();
-    const std::vector<std::shared_ptr<merian::Extension>> extensions = {resources, debug_utils,
-                                                                        push_descriptor};
+    const std::vector<std::shared_ptr<merian::Extension>> extensions = {
+        core, resources, debug_utils, push_descriptor};
     const merian::ContextHandle context = merian::Context::create(extensions, "merian-example");
 
     merian::ResourceAllocatorHandle alloc = resources->resource_allocator();
