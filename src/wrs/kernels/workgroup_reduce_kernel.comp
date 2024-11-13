@@ -1,0 +1,57 @@
+#version 460
+#extension GL_GOOGLE_include_directive    : enable
+#extension GL_KHR_shader_subgroup_arithmetic    : enable
+#extension GL_EXT_scalar_block_layout    : enable
+
+#include "merian-shaders/common.glsl"
+
+layout(constant_id = 0) const uint GROUP_SIZE = 0;
+layout(constant_id = 1) const uint SUBGROUP_SIZE = 0;
+layout(constant_id = 2) const uint ROWS = 0;
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, scalar) buffer readonly restrict buf_src {
+    float src[];
+};
+layout(set = 0, binding = 1, scalar) buffer writeonly restrict buf_dst {
+    float dst[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint size;
+} pc;
+
+shared float subgroup_sums[(gl_WorkGroupSize.x * gl_WorkGroupSize.y + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE];
+
+void main() {
+    dst[0] = 42;
+    return;
+    const uint read_index = MERIAN_GLOBAL_INVOCATION_INDEX;
+
+    float element;
+    if (read_index < pc.size) {
+        element = src[read_index];
+    } else {
+        element = 0.0;
+    }
+
+    float subgroup_sum = subgroupAdd(element);
+
+    if (subgroupElect()) {
+        subgroup_sums[gl_SubgroupID] = subgroup_sum;
+    }
+
+    barrier();
+
+    for (uint split = (gl_NumSubgroups >> 1); split > 0; split >>= 1) {
+        if (uint(gl_LocalInvocationIndex) < split) {
+            subgroup_sums[gl_LocalInvocationIndex] += subgroup_sums[gl_LocalInvocationIndex + split];
+        }
+        barrier();
+    }
+
+    if (gl_LocalInvocationIndex == 0) {
+        dst[MERIAN_WORKGROUP_INDEX] = subgroup_sums[0];
+    }
+}
