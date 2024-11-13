@@ -111,9 +111,8 @@ int main() {
             while (current_size > 1) {
                 MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, fmt::format("iteration {}", iteration++));
                 pipe->bind(cmd);
-                pipe->push_descriptor_set(
-                    cmd, ping_pong_buffers[ping_pong_i]->get_descriptor_info(),
-                    ping_pong_buffers[ping_pong_i ^ 1]->get_descriptor_info());
+                pipe->push_descriptor_set(cmd, ping_pong_buffers[ping_pong_i],
+                                          ping_pong_buffers[ping_pong_i ^ 1]);
                 pipe->push_constant(cmd, current_size);
 
                 const uint32_t group_count_x =
