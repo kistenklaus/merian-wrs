@@ -25,18 +25,16 @@ layout(push_constant) uniform PushConstant {
 shared float subgroup_sums[(gl_WorkGroupSize.x * gl_WorkGroupSize.y + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE];
 
 void main() {
-    dst[0] = 42;
-    return;
-    const uint read_index = MERIAN_GLOBAL_INVOCATION_INDEX;
+    const uint read_index = MERIAN_GLOBAL_INVOCATION_INDEX * ROWS;
 
-    float element;
-    if (read_index < pc.size) {
-        element = src[read_index];
-    } else {
-        element = 0.0;
+    float thread_sum = 0.0f;
+    for (uint i = 0; i < ROWS; ++i) {
+        if (read_index + i < pc.size) {
+            thread_sum += src[read_index + i];
+        }
     }
 
-    float subgroup_sum = subgroupAdd(element);
+    float subgroup_sum = subgroupAdd(thread_sum);
 
     if (subgroupElect()) {
         subgroup_sums[gl_SubgroupID] = subgroup_sum;

@@ -1,0 +1,164 @@
+#version 460
+
+#define weight_t float
+#define state_t uint
+#define STATE_RESULT_FOUND 0
+#define STATE_CONTINUE_LEFT 1
+#define STATE_CONTINUE_RIGHT 2
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+#pragma use_vulkan_memory_model
+
+layout(constant_id = 0) const uint SUBGROUP_SIZE = 1;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer in_values {
+    weight_t weights[];
+};
+
+layout(set = 0, binding = 1) readonly buffer out_average_and_prefix_sum {
+    weight_t average;
+    weight_t prefix_sum[];
+};
+
+layout(set = 0, binding = 2) readonly buffer out_partition {
+    uint heavyCount;
+    weight_t heavyLightPartition[];
+};
+
+layout(set = 0, binding = 3) readonly buffer out_prefix {
+    weight_t heavyLightPrefix[];
+};
+
+struct SplitDescription {
+    uint heavyCount;
+    uint lightCount;
+    weight_t spill;
+};
+
+layout(set = 0, binding = 4) writeonly buffer out_splits {
+    SplitDescription splitDescriptions[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint N; //amount of weights
+    uint K; //amount of splits
+} pc;
+
+int h_size;
+int l_size;
+int N;
+
+weight_t getHeavyPrefix(uint j) {
+    return heavyLightPrefix[j];
+}
+
+weight_t getLightPrefix(uint i) {
+    return heavyLightPrefix[(N - 1) - i];
+}
+
+void main(void)
+{
+    const uint k = gl_GlobalInvocationID.x;
+    const int K = int(pc.K);
+    N = int(pc.N);
+    barrier();
+
+    h_size = int(heavyCount);
+    l_size = N - h_size;
+    barrier();
+
+    if (k == 0) {
+        if (subgroupElect()) {
+            splitDescriptions[k].heavyCount = 0;
+            splitDescriptions[k].lightCount = 0;
+            splitDescriptions[k].spill = 0.0f;
+        }
+        return;
+    } else if (k == K - 1) {
+        if (subgroupElect()) {
+            splitDescriptions[k].heavyCount = N;
+            splitDescriptions[k].lightCount = N;
+            splitDescriptions[k].spill = 0.0f;
+        }
+        return;
+    } else if (k > K - 1) {
+        return;
+    }
+
+    const uint K_ = K - 1;
+    const uint n_ = N * k;
+    const int n = int((n_ + K_ - 1) / K_);
+
+    const weight_t localW = average * n;
+
+    int a = 1; // inclusive
+    int b = min(n, h_size); // inclusive
+
+    uint it = 0;
+    uint aStep = 0;
+    uint bStep = 0;
+    uint boundStepA = 0;
+    uint boundStepB = 0;
+    weight_t sigma = 0;
+    weight_t l_prefix = 0;
+    weight_t h_prefix = 0;
+    weight_t next;
+
+    const uint LOG_N = uint(ceil(log2(n)));
+
+    while (true) {
+        it += 1;
+        const int j = (a + b) / 2; //Amount of heavy items
+        const int i = n - j; // Amount of light items
+
+        if (j >= h_size || i < 1) {
+            b = j - 1;
+            boundStepB += 1;
+        } else if (j < 1 || i >= l_size) {
+            boundStepA += 1;
+            a = j + 1;
+        } else {
+            l_prefix = getLightPrefix(i - 1);
+            h_prefix = getHeavyPrefix(j - 1);
+            sigma = l_prefix + h_prefix;
+
+            if (sigma <= localW) {
+                next = heavyLightPartition[j];
+                if (sigma + next > localW) {
+                    if (subgroupElect()) {
+                        splitDescriptions[k].heavyCount = j;
+                        splitDescriptions[k].lightCount = i;
+                        splitDescriptions[k].spill = 
+                            next + (sigma - localW);
+                    }
+                    return;
+                } else {
+                    aStep += 1;
+                    a = j + 1;
+                }
+            } else {
+                bStep += 1;
+                b = j - 1;
+            }
+        }
+
+        if (it > LOG_N * 2) {
+            if (subgroupElect()) {
+                l_prefix = getLightPrefix(i - 1);
+                h_prefix = getHeavyPrefix(j - 1);
+                sigma = l_prefix + h_prefix;
+                weight_t next = heavyLightPartition[j];
+                splitDescriptions[k].heavyCount = i;
+                splitDescriptions[k].lightCount = j;
+                splitDescriptions[k].spill =
+                    next + (sigma - localW);
+            }
+            break;
+        }
+    }
+}

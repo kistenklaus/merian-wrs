@@ -11,15 +11,14 @@ project(
 )
 
 # Debug configuration
-if get_option('buildtype').startswith('debug')
-  add_project_arguments('-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG', language : 'cpp')
-endif
 
 # Dependencies
 merian_subp = subproject('merian')
 merian = merian_subp.get_variable('merian_dep')
 shader_generator = merian_subp.get_variable('shader_generator')
 
+# Debug configuration
+# add_project_arguments('-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG', language : 'cpp')
 
 src_files = []
 inc_dirs = []

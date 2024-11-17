@@ -7,11 +7,20 @@
 
 namespace wrs {
 
+class Foo {
+    Foo() {
+        std::cout << "construct" << std::endl;
+    }
+    ~Foo() {
+        std::cout << "deconstruct" << std::endl;
+    }
+};
+
 class Reduce {
     using weight_t = WorkgroupReduceKernel::weight_t;
 
   public:
-    Reduce(const merian::ContextHandle& context, uint32_t workgroup_size = 512, uint32_t rows = 1)
+    Reduce(const merian::ContextHandle& context, uint32_t workgroup_size = 512, uint32_t rows = 4)
         : m_workgroupReduceKernel(context, workgroup_size, rows) {}
 
     merian::BufferHandle run(vk::CommandBuffer cmd,
@@ -21,22 +30,25 @@ class Reduce {
                              std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
         uint32_t currentSize = elementCount.value_or(in_weights->get_size() / sizeof(weight_t));
 
+        /* merian ::ProfileScopeGPU merian_profile_scope(*profiler, cmd, "abc"); */
+
 #ifdef MERIAN_PROFILER_ENABLE
         uint32_t iteration = 0;
-        std::optional<merian::ProfileScopeGPU> merian_profile_scope;
-        if (profiler) {
-            merian_profile_scope = {*profiler, cmd, "record Reduce"};
+        std::optional<merian::ProfileScopeGPU> merian_profile_scope = std::nullopt;
+        if (profiler.has_value()) {
+            merian_profile_scope.emplace(profiler.value(), cmd, "reduce");
         }
 #endif
 
         std::array<merian::BufferHandle, 2> pingPong = {in_weights, out_reduction};
-        uint32_t pingPongX = 1;
+        uint32_t pingPongX = 0;
         while (currentSize > 1) {
 
 #ifdef MERIAN_PROFILER_ENABLE
             std::optional<merian::ProfileScopeGPU> merian_profile_scope;
-            if (profiler) {
-                merian_profile_scope = {*profiler, cmd, fmt ::format("iteration {}", iteration++)};
+            if (profiler.has_value()) {
+                merian_profile_scope.emplace(profiler.value(), cmd,
+                                             fmt::format("iteration {} with {} elements", iteration++, currentSize));
             }
 #endif
 

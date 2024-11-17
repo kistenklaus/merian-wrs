@@ -1,0 +1,212 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#pragma use_vulkan_memory_model
+
+#define monoid float
+
+layout(constant_id = 0) const uint GROUP_SIZE = 1;
+layout(constant_id = 1) const uint SUBGROUP_SIZE = 1;
+layout(constant_id = 2) const uint ROWS = 1;
+const uint PARTITION_SIZE = GROUP_SIZE * ROWS;
+const uint SUBGROUP_COUNT = (GROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+#define STATE_NO_AGGREGATE 0u
+#define STATE_AGGREGATE 1u
+#define STATE_PREFIX 2u
+#define STATE_DONT_CARE 3u
+
+struct PartitionDescriptor {
+    uint flaggedElementAgg;
+    uint flaggedElementInclusivePrefix;
+    uint state;
+};
+
+layout(set = 0, binding = 0) readonly buffer in_values {
+    monoid values[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer out_flagged_partition {
+    uint flaggedCount;
+    monoid flaggedValues[];
+};
+
+// layout(set = 0, binding = 2) writeonly buffer out_unflagged_partition {
+//     monoid unflaggedValues[];
+// };
+
+layout(set = 0, binding = 2) coherent buffer parition_descriptors {
+    uint atomicWorkIDCounter;
+    PartitionDescriptor partitions[];
+};
+
+layout(set = 0, binding = 3) readonly buffer partition_predicate {
+    monoid pivot;
+} predicate;
+
+layout(push_constant) uniform PushConstant {
+    uint size;
+} pc;
+
+#define LOOK_BACK_STATE_SPIN 1u
+#define LOOK_BACK_STATE_DONE 0u
+
+shared uint lookBackState;
+shared uint groupID;
+shared uint partPrefix;
+shared uint scratch[GROUP_SIZE + 1];
+
+#define ATOMIC_LOOK_BACK_STATE
+#define ATOMIC_PARTITION_STATE
+
+#define PARALLEL_LOOK_BACK
+
+bool partitionPredicate(in monoid v, in monoid pivot) {
+    // return true;
+    return v > pivot;
+}
+
+uint partitionPredicateU(in monoid v, in monoid pivot) {
+    return partitionPredicate(v, pivot) ? 1 : 0;
+}
+
+monoid local[ROWS];
+bool localFlagged[ROWS];
+uint flaggedLocal[ROWS];
+
+void main(void) {
+    const monoid pivot = predicate.pivot;
+
+    const uint invocID = gl_LocalInvocationID.x;
+    const uint subInvocID = gl_SubgroupInvocationID.x;
+    const uint subgroupID = gl_SubgroupID.x;
+    const uint subgroupCount = gl_NumSubgroups.x;
+    const uint subgroupSize = gl_SubgroupSize.x;
+    const uint lookBackMaxStepSize = min(subgroupSize, 32);
+    if (invocID == 0) {
+        groupID = atomicAdd(atomicWorkIDCounter, 1);
+    }
+    controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
+
+    uint partID = groupID;
+    uint ix = partID * PARTITION_SIZE + invocID * ROWS;
+    bool seqInvoc = invocID == gl_WorkGroupSize.x - 1;
+    bool seqSubgroup = subgroupID == subgroupCount - 1;
+
+    for (uint i = 0; i < ROWS; ++i) {
+        local[i] = values[ix + i];
+        localFlagged[i] = partitionPredicate(local[i], pivot);
+    }
+
+    // 1. Step calculate local index exclusive prefix
+    flaggedLocal[0] = 0;
+    for (uint i = 0; i < ROWS - 1; ++i) {
+        flaggedLocal[i + 1] = flaggedLocal[i] + partitionPredicateU(local[i], pivot);
+    }
+    uint agg = flaggedLocal[ROWS - 1] + partitionPredicateU(local[ROWS - 1], pivot);
+
+    scratch[invocID + 1] = agg;
+    if (invocID == 0) {
+        scratch[0] = 0;
+    }
+
+    // 1.1 Workgroup exclusive prefix sum over rows
+    for (uint shift = 1; shift <= (GROUP_SIZE >> 1); shift <<= 1) {
+        barrier();
+        // controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
+        if (invocID >= shift) {
+            uint other = scratch[invocID - shift + 1];
+            agg = agg + other;
+        }
+        barrier();
+        // controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
+        scratch[invocID + 1] = agg;
+    }
+
+    // 2. Publish Aggregate and state
+    // 2.1 Publish aggregate
+    if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+        partitions[partID].flaggedElementAgg = agg;
+        if (partID == 0) {
+            partitions[partID].flaggedElementInclusivePrefix = agg;
+        }
+    }
+
+    // memoryBarrierBuffer();
+
+    if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+        uint state = STATE_AGGREGATE;
+        if (partID == 0) {
+            state = STATE_PREFIX;
+        }
+        atomicStore(partitions[partID].state, state, gl_ScopeQueueFamily,
+            gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+    }
+
+    uint exclusive = 0;
+    if (partID != 0) {
+        uint lookBackIndex = partID - 1;
+        lookBackState = LOOK_BACK_STATE_SPIN;
+        while (true) {
+            uint lookState;
+            if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+                lookState = atomicLoad(partitions[lookBackIndex].state, gl_ScopeQueueFamily,
+                        gl_StorageSemanticsBuffer, gl_SemanticsAcquire | gl_SemanticsMakeVisible);
+                if (lookState == STATE_AGGREGATE) {
+                    exclusive += partitions[lookBackIndex].flaggedElementAgg;
+                    lookBackIndex--;
+                    lookBackState = LOOK_BACK_STATE_SPIN;
+                } else if (lookState == STATE_PREFIX) {
+                    exclusive += partitions[lookBackIndex].flaggedElementInclusivePrefix;
+                    lookBackState = LOOK_BACK_STATE_DONE;
+                } else if (lookBackState == STATE_NO_AGGREGATE) {
+                    lookBackState = LOOK_BACK_STATE_SPIN;
+                }
+            }
+            barrier();
+            lookState = lookBackState;
+            if (lookState == LOOK_BACK_STATE_DONE) {
+                break;
+            }
+        }
+        if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+            partPrefix = exclusive;
+            partitions[partID].flaggedElementInclusivePrefix = exclusive + agg;
+        }
+        controlBarrier(gl_ScopeWorkgroup, gl_ScopeQueueFamily, gl_StorageSemanticsBuffer | gl_StorageSemanticsShared,
+            gl_SemanticsAcquireRelease);
+        if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+            atomicStore(partitions[partID].state, STATE_PREFIX,
+                gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsRelease | gl_SemanticsMakeAvailable);
+        } else {
+            exclusive = partPrefix;
+        }
+    }
+
+    uint row = exclusive;
+    if (invocID > 0) {
+        uint other = scratch[invocID];
+        row = row + other;
+    }
+    for (uint i = 0; i < ROWS; ++i) {
+        if (ix + i < pc.size) {
+            uint h = row + flaggedLocal[i]; //flagged element prefix
+            uint index = h;
+            if (!localFlagged[i]) {
+                uint l = (ix + i) - h; // unflagged element prefix
+                index = (pc.size - 1) - l;
+            }
+            flaggedValues[index] = local[i];
+        }
+    }
+    if (partID == gl_NumWorkGroups.x - 1) {
+        if (gl_LocalInvocationID.x == GROUP_SIZE - 1) {
+            flaggedCount = row + flaggedLocal[ROWS - 1];
+        }
+    }
+}
