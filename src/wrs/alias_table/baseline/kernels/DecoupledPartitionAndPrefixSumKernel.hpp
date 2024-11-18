@@ -63,7 +63,7 @@ class DecoupledPartitionAndPrefixSumKernel {
 
     vk::DeviceSize partitionDescriptorBufferSize(uint32_t workgroupCount) const {
         return sizeof(unsigned int) +
-               (4 * sizeof(weight_t) + sizeof(unsigned int)) * workgroupCount;
+               (65 * sizeof(weight_t) + sizeof(unsigned int)) * workgroupCount;
     }
 
     uint32_t partitionSize() const {

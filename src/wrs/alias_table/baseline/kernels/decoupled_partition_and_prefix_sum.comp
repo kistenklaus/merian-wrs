@@ -28,6 +28,8 @@ struct BatchDescriptor {
     uint heavyCountInclusivePrefix;
     monoid heavySum;
     monoid heavyInclusivePrefix;
+    monoid lightSum;
+    monoid lightInclusivePrefix;
     state_t state;
 };
 
@@ -68,7 +70,9 @@ shared uint sh_batchHeavyCountPrefix;
 shared uint sh_heavyCountScratch[GROUP_SIZE + 1];
 
 shared monoid sh_batchHeavyPrefix;
+shared monoid sh_batchLightPrefix;
 shared monoid sh_heavyScratch[GROUP_SIZE];
+shared monoid sh_lightScratch[GROUP_SIZE];
 
 #define ATOMIC_LOOK_BACK_STATE
 #define ATOMIC_PARTITION_STATE
@@ -84,7 +88,7 @@ uint partitionPredicateU(in monoid v, in monoid pivot) {
 
 monoid localWeights[ROWS];
 monoid localHeavyPrefix[ROWS];
-// monoid localLightPrefix[ROWS];
+monoid localLightPrefix[ROWS];
 bool localIsHeavy[ROWS];
 uint localHeavyCountExclusivePrefix[ROWS];
 
@@ -114,28 +118,32 @@ void main(void) {
         localIsHeavy[i] = partitionPredicate(localWeights[i], pivot);
     }
 
-    localHeavyPrefix[0] = 0;
-    // localLightPrefix[0] = 0;
+    localHeavyPrefix[0] = 0.0f;
+    localLightPrefix[0] = 0.0f;
     if (localIsHeavy[0]) {
         localHeavyPrefix[0] = localWeights[0];
-    }else {
-        // localLightPrefix[0] = localWeights[0];
+    } else {
+        localLightPrefix[0] = localWeights[0];
     }
     for (uint i = 1; i < ROWS; ++i) {
         monoid h = localHeavyPrefix[i - 1];
-        // monoid l = localLightPrefix[i - 1];
+        monoid l = localLightPrefix[i - 1];
         if (localIsHeavy[i]) {
             h += localWeights[i];
-        }else {
-            // l += localWeights[i];
+        } else {
+            l += localWeights[i];
         }
         localHeavyPrefix[i] = h;
+        localLightPrefix[i] = l;
     }
     const monoid localHeavySum = localHeavyPrefix[ROWS - 1];
+    const monoid localLightSum = localLightPrefix[ROWS - 1];
 
     sh_heavyScratch[invocID] = localHeavySum;
+    sh_lightScratch[invocID] = localLightSum;
 
     monoid batchHeavySum = localHeavySum;
+    monoid batchLightSum = localLightSum;
 
     // 1. Step calculate local index exclusive prefix
     localHeavyCountExclusivePrefix[0] = 0;
@@ -161,10 +169,14 @@ void main(void) {
 
             monoid otherHeavySum = sh_heavyScratch[invocID - shift];
             batchHeavySum += otherHeavySum;
+
+            monoid otherLightSum = sh_lightScratch[invocID - shift];
+            batchLightSum += otherLightSum;
         }
         barrier();
         sh_heavyCountScratch[invocID + 1] = batchHeavyCount;
         sh_heavyScratch[invocID] = batchHeavySum;
+        sh_lightScratch[invocID] = batchLightSum;
     }
 
     // 2. Publish Aggregate and state
@@ -172,9 +184,11 @@ void main(void) {
     if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
         batchInfo[batchID].heavyCount = batchHeavyCount;
         batchInfo[batchID].heavySum = batchHeavySum;
+        batchInfo[batchID].lightSum = batchLightSum;
         if (batchID == 0) {
             batchInfo[batchID].heavyCountInclusivePrefix = batchHeavyCount;
             batchInfo[batchID].heavyInclusivePrefix = batchHeavySum;
+            batchInfo[batchID].lightInclusivePrefix = batchLightSum;
         }
     }
 
@@ -190,7 +204,8 @@ void main(void) {
     }
 
     uint batchHeavyCountPrefix = 0;
-    monoid batchHeavySumExclusivePrefix = 0.0f;
+    monoid batchHeavySumExclusivePrefix = 0;
+    monoid batchLightSumExclusivePrefix = 0;
     if (batchID != 0) {
         lbstate_t lookBackIndex = batchID - 1;
         sh_lookBackState = LOOK_BACK_STATE_SPIN;
@@ -202,11 +217,13 @@ void main(void) {
                 if (lookBatchState == STATE_AGGREGATE) {
                     batchHeavyCountPrefix += batchInfo[lookBackIndex].heavyCount;
                     batchHeavySumExclusivePrefix += batchInfo[lookBackIndex].heavySum;
+                    batchLightSumExclusivePrefix += batchInfo[lookBackIndex].lightSum;
                     lookBackIndex--;
                     sh_lookBackState = LOOK_BACK_STATE_SPIN;
                 } else if (lookBatchState == STATE_PREFIX) {
                     batchHeavyCountPrefix += batchInfo[lookBackIndex].heavyCountInclusivePrefix;
                     batchHeavySumExclusivePrefix += batchInfo[lookBackIndex].heavyInclusivePrefix;
+                    batchLightSumExclusivePrefix += batchInfo[lookBackIndex].lightInclusivePrefix;
                     sh_lookBackState = LOOK_BACK_STATE_DONE;
                 } else if (lookBatchState == STATE_NO_AGGREGATE) {
                     sh_lookBackState = LOOK_BACK_STATE_SPIN;
@@ -222,8 +239,10 @@ void main(void) {
         if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
             sh_batchHeavyCountPrefix = batchHeavyCountPrefix;
             sh_batchHeavyPrefix = batchHeavySumExclusivePrefix;
+            sh_batchLightPrefix = batchLightSumExclusivePrefix;
             batchInfo[batchID].heavyCountInclusivePrefix = batchHeavyCountPrefix + batchHeavyCount;
             batchInfo[batchID].heavyInclusivePrefix = batchHeavySumExclusivePrefix + batchHeavySum;
+            batchInfo[batchID].lightInclusivePrefix = batchLightSumExclusivePrefix + batchLightSum;
         }
 
         controlBarrier(gl_ScopeWorkgroup, gl_ScopeQueueFamily, gl_StorageSemanticsBuffer | gl_StorageSemanticsShared,
@@ -235,14 +254,21 @@ void main(void) {
         } else {
             batchHeavyCountPrefix = sh_batchHeavyCountPrefix;
             batchHeavySumExclusivePrefix = sh_batchHeavyPrefix;
+            batchLightSumExclusivePrefix = sh_batchLightPrefix;
         }
     }
 
     uint rowHeavyCountExclusivePrefix = batchHeavyCountPrefix;
     monoid rowHeavyExclusivePrefixSum = batchHeavySumExclusivePrefix;
+    monoid rowLightExclusivePrefixSum = batchLightSumExclusivePrefix;
+
+    memoryBarrierBuffer(); // trying to ensure numerical stability.
+    monoid rowLightInclusivePrefixSum = batchInfo[batchID].lightInclusivePrefix;
+
     if (invocID > 0) {
         rowHeavyCountExclusivePrefix += sh_heavyCountScratch[invocID];
         rowHeavyExclusivePrefixSum += sh_heavyScratch[invocID - 1];
+        rowLightExclusivePrefixSum += sh_lightScratch[invocID - 1];
     }
     for (uint i = 0; i < ROWS; ++i) {
         if (ix + i < size) {
@@ -254,22 +280,20 @@ void main(void) {
             }
             heavyLightPartition[index] = localWeights[i];
 
-            monoid heavyPrefix = rowHeavyExclusivePrefixSum + localHeavyPrefix[i];
             // heavyLightPrefix[ix + i] = heavyPrefix;
             if (localIsHeavy[i]) {
+                monoid heavyPrefix = rowHeavyExclusivePrefixSum + localHeavyPrefix[i];
                 heavyLightPrefix[index] = heavyPrefix;
             } else {
-                monoid lightPrefix = weightPrefix[ix + i] - heavyPrefix;
-                heavyLightPrefix[index] = lightPrefix;
-            }
-            
+                monoid lightPrefix = rowLightExclusivePrefixSum + localLightPrefix[i];
+                heavyLightPrefix[index] = min(lightPrefix, rowLightInclusivePrefixSum); }
             // NOTE: Does not have to be in the loop only has the performed for the last batch
             if (ix + i == size - 1) {
-              if (localIsHeavy[i]) {
-                heavyCount = h + 1;
-              }else {
-                heavyCount = h;
-              }
+                if (localIsHeavy[i]) {
+                    heavyCount = h + 1;
+                } else {
+                    heavyCount = h;
+                }
             }
         }
     }

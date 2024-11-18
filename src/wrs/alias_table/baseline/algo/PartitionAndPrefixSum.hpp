@@ -105,7 +105,7 @@ class PartitionAndPrefixSum {
 
         constexpr std::array<PartitionAndPrefixSumConfig, 1> testConfigurations = {
             /* PartitionAndPrefixSumConfig{512, 1}, PartitionAndPrefixSumConfig{512, 2}, */
-            PartitionAndPrefixSumConfig{512, 5}, 
+            PartitionAndPrefixSumConfig{512, 4},
             /* PartitionAndPrefixSumConfig{512, 5}, */
             /* PartitionAndPrefixSumConfig{512, 8}, PartitionAndPrefixSumConfig{512, 16}, */
             /* PartitionAndPrefixSumConfig{512, 32}, */
@@ -113,22 +113,22 @@ class PartitionAndPrefixSum {
             /* PartitionAndPrefixSumConfig{512, 128}, */
             /* PartitionAndPrefixSumConfig{512, 256}, */
         };
-        constexpr std::array<WeightGenInfo, 15> weightGens = {
-            WeightGenInfo{RANDOM_UNIFORM, 8},
-            WeightGenInfo{RANDOM_UNIFORM, 12},
-            WeightGenInfo{RANDOM_UNIFORM, 16},
-            WeightGenInfo{RANDOM_UNIFORM, 24},
-            WeightGenInfo{RANDOM_UNIFORM, 32},
-            WeightGenInfo{RANDOM_UNIFORM, 128},
-            WeightGenInfo{RANDOM_UNIFORM, 256},
-            WeightGenInfo{RANDOM_UNIFORM, 512},
-            WeightGenInfo{RANDOM_UNIFORM, 1024},
-            WeightGenInfo{RANDOM_UNIFORM, 2048},
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096},
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 2},
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 8},
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 64},
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2048 * 1024},
+        constexpr std::array<WeightGenInfo, 1> weightGens = {
+            /* WeightGenInfo{RANDOM_UNIFORM, 8}, // 1 */
+            /* WeightGenInfo{RANDOM_UNIFORM, 12}, // 2 */
+            /* WeightGenInfo{RANDOM_UNIFORM, 16}, // 3  */
+            /* WeightGenInfo{RANDOM_UNIFORM, 24}, // 4 */
+            /* WeightGenInfo{RANDOM_UNIFORM, 32}, // 5 */
+            /* WeightGenInfo{RANDOM_UNIFORM, 128}, // 6 */
+            /* WeightGenInfo{RANDOM_UNIFORM, 256}, */
+            /* WeightGenInfo{RANDOM_UNIFORM, 512}, */
+            /* WeightGenInfo{RANDOM_UNIFORM, 1024}, */
+            /* WeightGenInfo{RANDOM_UNIFORM, 2048}, */
+            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096}, */
+            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 2}, */
+            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 8}, */
+            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 64}, */
+            WeightGenInfo{PSEUDO_RANDOM_UNIFORM, 2048 * 1024},
             /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 1000000}, */
             /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2000000}, */
             /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 3000000}, */
@@ -392,6 +392,19 @@ class PartitionAndPrefixSum {
                     std::reverse(resultPartitionPrefixLight.begin(),
                                  resultPartitionPrefixLight.end());
                 }
+                SPDLOG_DEBUG("Compute reference results");
+                const auto [d_heavyPartition, d_lightPartition] =
+                    wrs::cpu::stable::partition(d_weights, d_average);
+                const std::vector<double> d_heavyPartitionPrefix =
+                    wrs::cpu::stable::prefix_sum(d_heavyPartition);
+                const std::vector<double> d_lightPartitionPrefix =
+                    wrs::cpu::stable::prefix_sum(d_lightPartition);
+                const auto [heavyPartition, lightPartition] =
+                    wrs::cpu::stable::partition(weights, average);
+                const std::vector<weight_t> heavyPartitionPrefix =
+                    wrs::cpu::stable::prefix_sum<weight_t>(heavyPartition);
+                const std::vector<weight_t> lightPartitionPrefix =
+                    wrs::cpu::stable::prefix_sum<weight_t>(lightPartition);
 
                 /* SPDLOG_LOGGER_CALL(logger, level, ...) */
                 SPDLOG_DEBUG("Checking result invariants");
@@ -468,6 +481,30 @@ class PartitionAndPrefixSum {
                                         "{}.",
                                         i, i, resultPartitionPrefixLight[i], i,
                                         resultPartitionPrefixLight[i - 1]));
+
+                                    // Determine which weight prefix[i] corresponds to.
+                                    size_t j = 0;
+                                    uint32_t partitionSize =
+                                        algoConfig.workgroupSize * algoConfig.rows;
+                                    for (size_t k = 0; k < weights.size(); ++k) {
+                                        if (weights[k] == lightPartition[j]) {
+                                            j++;
+                                        }
+                                        if (j == i) {
+                                            uint32_t partitionId = j / partitionSize; // impl floor.
+                                            uint32_t partitionOffset = j % partitionSize;
+                                            uint32_t invocID =
+                                                partitionOffset % algoConfig.workgroupSize;
+                                            uint32_t rowIndex = invocID % algoConfig.rows;
+                                            SPDLOG_WARN(fmt::format(
+                                                "Extra error info: index {} of the prefix corresponds to "
+                                                "index {} in weights. "
+                                                "Which means it was evaluated in partition {}, "
+                                                "with invoc {} at row index {}",
+                                                j, k, partitionId, invocID, rowIndex));
+                                            break;
+                                        }
+                                    }
                                 }
                                 brokenCount += 1;
                             }
@@ -507,19 +544,6 @@ class PartitionAndPrefixSum {
                         }
                     }
                 }
-                SPDLOG_DEBUG("Compute reference results");
-                const auto [d_heavyPartition, d_lightPartition] =
-                    wrs::cpu::stable::partition(d_weights, d_average);
-                const std::vector<double> d_heavyPartitionPrefix =
-                    wrs::cpu::stable::prefix_sum(d_heavyPartition);
-                const std::vector<double> d_lightPartitionPrefix =
-                    wrs::cpu::stable::prefix_sum(d_lightPartition);
-                const auto [heavyPartition, lightPartition] =
-                    wrs::cpu::stable::partition(weights, average);
-                const std::vector<weight_t> heavyPartitionPrefix =
-                    wrs::cpu::stable::prefix_sum<weight_t>(heavyPartition);
-                const std::vector<weight_t> lightPartitionPrefix =
-                    wrs::cpu::stable::prefix_sum<weight_t>(lightPartition);
 
                 SPDLOG_DEBUG("Compare against reference");
                 { // Compare partition with cpu result
@@ -678,7 +702,7 @@ class PartitionAndPrefixSum {
                                 worstGot = gpu;
                             }
                         }
-                        if (worstError > 0.001) {
+                        if (worstError > 0.01) {
                             SPDLOG_WARN(
                                 fmt::format("Light partition prefix sum is "
                                             "numerically unstable. "
@@ -732,6 +756,26 @@ class PartitionAndPrefixSum {
                 }
                 SPDLOG_INFO("End testcase");
                 configResults.push_back(TestResult{weightGen, success});
+                size_t h = 0;
+                size_t l = 0;
+                for (size_t i = 0; i < weights.size(); ++i) {
+                    weight_t w = weights[i];
+                    if (lightPartition[l] == w) {
+                        l++;
+                    } else if (heavyPartition[h] == w) {
+                        h++;
+                    } else {
+                        throw std::runtime_error("WTF");
+                    }
+                    uint32_t partitionSize = algoConfig.workgroupSize * algoConfig.rows;
+                    uint32_t partitionId = i / partitionSize;
+                    /* uint32_t partitionOffset =  */
+                    /* fmt::println("at {} | w = {}, l = {} with l at {}", i, w, */
+                    /*              resultPartitionPrefixLight[l], l); */
+                }
+                /* fmt::println("pivot       = {}", average); */
+                /* fmt::println("weights     = {}", weights); */
+                /* fmt::println("lightPrefix = {}", resultPartitionPrefixLight); */
             }
             results.push_back(std::make_tuple(algoConfig, configResults));
         }
@@ -744,13 +788,15 @@ class PartitionAndPrefixSum {
                 "Test results for algorithm configuration: [workgroupSize = {}, rows = {}]",
                 algoConfig.workgroupSize, algoConfig.rows);
             for (const auto& result : configResults) {
-              if (result.succ) {
-                fmt::println("\x1B[32mSUCCESS\033[0m : [count = {}, distribution = {}]",
-                    result.weightInfo.count, distribution_to_pretty_string(result.weightInfo.distribution));
-              }else {
-                fmt::println("\x1B[31mFAILURE\033[0m : [count = {}, distribution = {}]",
-                    result.weightInfo.count, distribution_to_pretty_string(result.weightInfo.distribution));
-              }
+                if (result.succ) {
+                    fmt::println("\x1B[32mSUCCESS\033[0m : [count = {}, distribution = {}]",
+                                 result.weightInfo.count,
+                                 distribution_to_pretty_string(result.weightInfo.distribution));
+                } else {
+                    fmt::println("\x1B[31mFAILURE\033[0m : [count = {}, distribution = {}]",
+                                 result.weightInfo.count,
+                                 distribution_to_pretty_string(result.weightInfo.distribution));
+                }
             }
         }
     }

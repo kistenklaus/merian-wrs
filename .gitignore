@@ -6,4 +6,5 @@
 !/subprojects/*.wrap
 
 vgcore.*
+*.test
 imgui.ini
