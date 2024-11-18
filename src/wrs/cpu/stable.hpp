@@ -24,6 +24,15 @@ template <typename T> static std::vector<T> prefix_sum(const std::vector<T>& wei
     return prefix;
 }
 
+template <typename T> static std::vector<T> work_efficient_prefix_sum(const std::vector<T>& weights) {
+  // up sweep 
+  std::vector<T> prefix = weights;
+  uint64_t N = weights.size();
+  for (size_t d = 0; d < 0; d++) {
+    /* kkfor (size_t p =  */
+  }
+}
+
 template <typename T>
 static std::tuple<std::vector<T>, std::vector<T>> partition(const std::vector<T>& weights,
                                                             T pivot) {

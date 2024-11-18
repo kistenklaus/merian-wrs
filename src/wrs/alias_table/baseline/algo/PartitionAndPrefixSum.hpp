@@ -103,37 +103,40 @@ class PartitionAndPrefixSum {
             uint32_t rows;
         };
 
-        constexpr std::array<PartitionAndPrefixSumConfig, 1> testConfigurations = {
-            /* PartitionAndPrefixSumConfig{512, 1}, PartitionAndPrefixSumConfig{512, 2}, */
-            PartitionAndPrefixSumConfig{512, 4},
-            /* PartitionAndPrefixSumConfig{512, 5}, */
-            /* PartitionAndPrefixSumConfig{512, 8}, PartitionAndPrefixSumConfig{512, 16}, */
-            /* PartitionAndPrefixSumConfig{512, 32}, */
-            /* PartitionAndPrefixSumConfig{512, 64}, */
-            /* PartitionAndPrefixSumConfig{512, 128}, */
-            /* PartitionAndPrefixSumConfig{512, 256}, */
+        constexpr std::array<PartitionAndPrefixSumConfig, 11> testConfigurations = {
+            PartitionAndPrefixSumConfig{512, 1}, // 1
+            PartitionAndPrefixSumConfig{512, 2}, // 2
+            PartitionAndPrefixSumConfig{512, 4}, // 3
+            PartitionAndPrefixSumConfig{512, 5}, // 4
+            PartitionAndPrefixSumConfig{512, 8}, // 5
+            PartitionAndPrefixSumConfig{500, 4}, // 6
+            PartitionAndPrefixSumConfig{400, 4}, // 7
+            PartitionAndPrefixSumConfig{256, 4}, // 8
+            PartitionAndPrefixSumConfig{128, 4}, // 9
+            PartitionAndPrefixSumConfig{64, 4}, // 10
+            PartitionAndPrefixSumConfig{32, 4}, // 11
         };
-        constexpr std::array<WeightGenInfo, 1> weightGens = {
-            /* WeightGenInfo{RANDOM_UNIFORM, 8}, // 1 */
-            /* WeightGenInfo{RANDOM_UNIFORM, 12}, // 2 */
-            /* WeightGenInfo{RANDOM_UNIFORM, 16}, // 3  */
-            /* WeightGenInfo{RANDOM_UNIFORM, 24}, // 4 */
-            /* WeightGenInfo{RANDOM_UNIFORM, 32}, // 5 */
-            /* WeightGenInfo{RANDOM_UNIFORM, 128}, // 6 */
-            /* WeightGenInfo{RANDOM_UNIFORM, 256}, */
-            /* WeightGenInfo{RANDOM_UNIFORM, 512}, */
-            /* WeightGenInfo{RANDOM_UNIFORM, 1024}, */
-            /* WeightGenInfo{RANDOM_UNIFORM, 2048}, */
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096}, */
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 2}, */
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 8}, */
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 64}, */
-            WeightGenInfo{PSEUDO_RANDOM_UNIFORM, 2048 * 1024},
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 1000000}, */
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2000000}, */
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 3000000}, */
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4000000}, */
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 5000000}, */
+        constexpr std::array<WeightGenInfo, 20> weightGens = {
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 8}, // 1
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 12}, // 2
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 16}, // 3 
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 24}, // 4
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 32}, // 5
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 128}, // 6
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 256}, // 7
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 512}, // 8
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 1024}, // 9
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2048}, // 10
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096}, // 11
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 2}, //12
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 8}, // 13
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 64}, // 14
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 1024 * 2048}, // 15
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 1000000}, // 16
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2000000}, // 17
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 3000000}, // 18
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4000000}, // 19
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 5000000}, // 20
         };
 
         // Setup queue & command pool
@@ -156,7 +159,8 @@ class PartitionAndPrefixSum {
             std::max_element(
                 weightGens.begin(), weightGens.end(),
                 [](const WeightGenInfo& a, const WeightGenInfo& b) { return a.count < b.count; })
-                ->count;
+                ->count *
+            16;
         merian::BufferHandle weightBuffer = alloc->createBuffer(
             maxWeightCount * sizeof(weight_t),
             vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst,
@@ -314,6 +318,16 @@ class PartitionAndPrefixSum {
                                 vk::AccessFlagBits::eTransferRead),
                         },
                         {});
+                    cmd.pipelineBarrier(
+                        vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eHost, {},
+                        {},
+                        {
+                            partitionBufferStage->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
+                                                                 vk::AccessFlagBits::eHostRead),
+                            partitionPrefixBufferStage->buffer_barrier(
+                                vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eHostRead),
+                        },
+                        {});
                 }
                 SPDLOG_DEBUG("Downloading results");
                 {
@@ -406,6 +420,22 @@ class PartitionAndPrefixSum {
                 const std::vector<weight_t> lightPartitionPrefix =
                     wrs::cpu::stable::prefix_sum<weight_t>(lightPartition);
 
+                SPDLOG_DEBUG("Checking reference invariants");
+                {
+                    {
+                        for (size_t i = 0; i < lightPartitionPrefix.size() - 1; ++i) {
+                            if (lightPartitionPrefix[i] > lightPartitionPrefix[i + 1]) {
+                                SPDLOG_WARN(fmt::format(
+                                    "Invalid reference: lp[{}] = {} > {} = lp[{} + 1]", i,
+                                    lightPartitionPrefix[i], lightPartitionPrefix[i + 1], i));
+                                /* throw std::runtime_error("Light partition reference weights are
+                                 * not monotone. Aborting process"); */
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 /* SPDLOG_LOGGER_CALL(logger, level, ...) */
                 SPDLOG_DEBUG("Checking result invariants");
                 { // Test partition invariants
@@ -469,41 +499,93 @@ class PartitionAndPrefixSum {
                     // Invariant: lightPartitionPrefix is monotone
                     {
                         uint32_t brokenCount = 0;
-                        uint32_t maxBrokenCountLog = 4;
+                        uint32_t maxBrokenCountLog = 1;
                         for (size_t i = 1; i < resultPartitionPrefixLight.size(); ++i) {
                             if (resultPartitionPrefixLight[i] < resultPartitionPrefixLight[i - 1]) {
                                 success = false;
                                 if (brokenCount < maxBrokenCountLog) {
                                     SPDLOG_ERROR(fmt::format(
                                         "Broken Invariant: \"light "
-                                        "partition prefix sum is monotone\"."
+                                        "partition prefix sum is monotone\".\n"
                                         "Broken at index = {}. prefix[{}] = {}, prefix[{} - 1] = "
                                         "{}.",
                                         i, i, resultPartitionPrefixLight[i], i,
                                         resultPartitionPrefixLight[i - 1]));
 
-                                    // Determine which weight prefix[i] corresponds to.
-                                    size_t j = 0;
-                                    uint32_t partitionSize =
-                                        algoConfig.workgroupSize * algoConfig.rows;
-                                    for (size_t k = 0; k < weights.size(); ++k) {
-                                        if (weights[k] == lightPartition[j]) {
-                                            j++;
+                                    constexpr bool ENABLE_EXTRA_INFO = true;
+                                    if (ENABLE_EXTRA_INFO) {
+
+                                        // Determine wi such that weights[wi] == lightPartition[i];
+                                        size_t wi;
+                                        size_t i2 = 0;
+                                        for (wi = 0; wi < weights.size(); wi++) {
+                                            if (weights[wi] == lightPartition[i2]) {
+                                                i2 += 1;
+                                                if (i2 == i) {
+                                                    break;
+                                                }
+                                            }
                                         }
-                                        if (j == i) {
-                                            uint32_t partitionId = j / partitionSize; // impl floor.
-                                            uint32_t partitionOffset = j % partitionSize;
-                                            uint32_t invocID =
-                                                partitionOffset % algoConfig.workgroupSize;
-                                            uint32_t rowIndex = invocID % algoConfig.rows;
-                                            SPDLOG_WARN(fmt::format(
-                                                "Extra error info: index {} of the prefix corresponds to "
-                                                "index {} in weights. "
-                                                "Which means it was evaluated in partition {}, "
-                                                "with invoc {} at row index {}",
-                                                j, k, partitionId, invocID, rowIndex));
-                                            break;
+                                        size_t batchSize =
+                                            algoConfig.workgroupSize * algoConfig.rows;
+                                        size_t batchId = wi / batchSize;
+                                        size_t inBatchOffset = wi % batchSize;
+                                        size_t invocId = (inBatchOffset / 4);
+                                        size_t row = inBatchOffset % algoConfig.rows;
+
+                                        SPDLOG_ERROR(fmt::format(
+                                            "Extra error info:\nindex {} of the prefix corresponds "
+                                            "to "
+                                            "index {} in weights. "
+                                            "Which means it invariant was broken in batch {}, "
+                                            "with invoc {} at row index {}",
+                                            i, wi, batchId, invocId, row));
+
+                                        uint32_t wiBatchOffset = batchId * batchSize;
+
+                                        // Determine amount of light elements before wiBatchOffset
+                                        uint32_t lightElementBeforeBatch = 0;
+                                        for (size_t wi = 0; wi < wiBatchOffset; wi++) {
+                                            if (weights[wi] ==
+                                                lightPartition[lightElementBeforeBatch]) {
+                                                lightElementBeforeBatch += 1;
+                                            }
                                         }
+                                        SPDLOG_ERROR(
+                                            "Extra error info: Dump of the partition where "
+                                            "the error occured");
+                                        fmt::println("pivot       = {}", average);
+                                        fmt::println(
+                                            "batchPrefix = {}",
+                                            resultPartitionPrefixLight.at(lightElementBeforeBatch));
+                                        uint32_t lightInBatch = 0;
+                                        for (size_t k = 0; k < batchSize; ++k) {
+                                            bool b = false;
+                                            uint32_t i2 = lightElementBeforeBatch + lightInBatch;
+                                            if (weights[wiBatchOffset + k] == lightPartition[i2]) {
+                                                lightInBatch += 1;
+                                                b = true;
+                                            }
+                                            i2 += 1;
+                                            if (b) {
+                                                fmt::print("w[{} * {} + {} ({})] = {}, l[{}] = {}",
+                                                           batchId, batchSize, k, wiBatchOffset + k,
+                                                           weights[wiBatchOffset + k], i2,
+                                                           resultPartitionPrefixLight[i2]);
+                                            } else {
+                                                fmt::print("w[{} * {} + {} ({})] = {}", batchId,
+                                                           batchSize, k, wiBatchOffset + k,
+                                                           weights[wiBatchOffset + k]);
+                                            }
+
+                                            if (b && lightElementBeforeBatch + lightInBatch == i) {
+                                                fmt::println("   <--- monotonicity broken here!");
+                                            } else {
+                                                fmt::println("");
+                                            }
+                                        }
+
+                                        // Check if the cpu prefix scan also encouters non monotonicity
                                     }
                                 }
                                 brokenCount += 1;
@@ -512,7 +594,7 @@ class PartitionAndPrefixSum {
                         if (brokenCount > maxBrokenCountLog) {
                             SPDLOG_ERROR(
                                 fmt::format("Broken Invariant: \"light "
-                                            "partition prefix sum is monotone\". Broken at {} out "
+                                            "partition prefix sum is monotone\".\nBroken at {} out "
                                             "of {} indices",
                                             brokenCount, lightCount));
                         }
@@ -755,6 +837,11 @@ class PartitionAndPrefixSum {
                     }
                 }
                 SPDLOG_INFO("End testcase");
+                /* fmt::println("LightSum = {}, Expected = {}", resultPartitionPrefixLight.back(), */
+                /*              d_lightPartitionPrefix.back()); */
+                /* fmt::println("HeavySum = {}, Expected = {}", resultPartitionPrefixHeavy.back(), */
+                /*              d_heavyPartitionPrefix.back()); */
+
                 configResults.push_back(TestResult{weightGen, success});
                 size_t h = 0;
                 size_t l = 0;
@@ -775,7 +862,12 @@ class PartitionAndPrefixSum {
                 }
                 /* fmt::println("pivot       = {}", average); */
                 /* fmt::println("weights     = {}", weights); */
-                /* fmt::println("lightPrefix = {}", resultPartitionPrefixLight); */
+                for (size_t i = 0; i < resultPartitionPrefixLight.size(); ++i) {
+                  /* fmt::println("l[{}] = {}", i, resultPartitionPrefixLight[i]); */
+                }
+                for (size_t i = 0; i < weights.size(); ++i) {
+                  /* fmt::println("w[{}] = {}", i, weights[i]); */
+                }
             }
             results.push_back(std::make_tuple(algoConfig, configResults));
         }
