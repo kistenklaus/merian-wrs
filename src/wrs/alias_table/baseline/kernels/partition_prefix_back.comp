@@ -84,7 +84,6 @@ uint partitionPredicateU(in monoid v, in monoid pivot) {
 
 monoid localWeights[ROWS];
 monoid localHeavyPrefix[ROWS];
-// monoid localLightPrefix[ROWS];
 bool localIsHeavy[ROWS];
 uint localHeavyCountExclusivePrefix[ROWS];
 
@@ -115,21 +114,15 @@ void main(void) {
     }
 
     localHeavyPrefix[0] = 0;
-    // localLightPrefix[0] = 0;
     if (localIsHeavy[0]) {
         localHeavyPrefix[0] = localWeights[0];
-    }else {
-        // localLightPrefix[0] = localWeights[0];
     }
     for (uint i = 1; i < ROWS; ++i) {
-        monoid h = localHeavyPrefix[i - 1];
-        // monoid l = localLightPrefix[i - 1];
+        monoid v = localHeavyPrefix[i - 1];
         if (localIsHeavy[i]) {
-            h += localWeights[i];
-        }else {
-            // l += localWeights[i];
+            v += localWeights[i];
         }
-        localHeavyPrefix[i] = h;
+        localHeavyPrefix[i] = v;
     }
     const monoid localHeavySum = localHeavyPrefix[ROWS - 1];
 

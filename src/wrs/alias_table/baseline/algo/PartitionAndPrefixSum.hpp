@@ -105,7 +105,7 @@ class PartitionAndPrefixSum {
 
         constexpr std::array<PartitionAndPrefixSumConfig, 1> testConfigurations = {
             /* PartitionAndPrefixSumConfig{512, 1}, PartitionAndPrefixSumConfig{512, 2}, */
-            PartitionAndPrefixSumConfig{32, 1}, 
+            PartitionAndPrefixSumConfig{512, 5}, 
             /* PartitionAndPrefixSumConfig{512, 5}, */
             /* PartitionAndPrefixSumConfig{512, 8}, PartitionAndPrefixSumConfig{512, 16}, */
             /* PartitionAndPrefixSumConfig{512, 32}, */
@@ -113,7 +113,7 @@ class PartitionAndPrefixSum {
             /* PartitionAndPrefixSumConfig{512, 128}, */
             /* PartitionAndPrefixSumConfig{512, 256}, */
         };
-        constexpr std::array<WeightGenInfo, 14> weightGens = {
+        constexpr std::array<WeightGenInfo, 15> weightGens = {
             WeightGenInfo{RANDOM_UNIFORM, 8},
             WeightGenInfo{RANDOM_UNIFORM, 12},
             WeightGenInfo{RANDOM_UNIFORM, 16},
@@ -128,7 +128,7 @@ class PartitionAndPrefixSum {
             WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 2},
             WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 8},
             WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 64},
-            /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2048 * 1024}, */
+            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2048 * 1024},
             /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 1000000}, */
             /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2000000}, */
             /* WeightGenInfo{SEEDED_RANDOM_UNIFORM, 3000000}, */
@@ -668,7 +668,7 @@ class PartitionAndPrefixSum {
                         weight_t worstGot;
                         bool anyError = false;
                         for (size_t i = 0; i < lightCount; ++i) {
-                            double cpu = lightPartitionPrefix[i];
+                            double cpu = d_lightPartitionPrefix[i];
                             weight_t gpu = resultPartitionPrefixLight[i];
                             double error = std::abs(cpu - static_cast<double>(gpu));
                             if (error > worstError) {
@@ -681,7 +681,7 @@ class PartitionAndPrefixSum {
                         if (worstError > 0.001) {
                             SPDLOG_WARN(
                                 fmt::format("Light partition prefix sum is "
-                                            "numerically unstable."
+                                            "numerically unstable. "
                                             "Worst error = {}, with expected {} where value was {}",
                                             worstError, worstExpected, worstGot));
                         } else if (anyError) {
@@ -704,7 +704,7 @@ class PartitionAndPrefixSum {
                         weight_t worstGot = 0;
                         bool anyError = false;
                         for (size_t i = 0; i < heavyCount; ++i) {
-                            double cpu = heavyPartitionPrefix[i];
+                            double cpu = d_heavyPartitionPrefix[i];
                             weight_t gpu = resultPartitionPrefixHeavy[i];
                             double error = std::abs(cpu - static_cast<double>(gpu));
                             if (error > worstError) {
