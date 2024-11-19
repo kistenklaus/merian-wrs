@@ -716,7 +716,7 @@ class PartitionAndPrefixSum {
                         uint32_t failCount = 0;
                         uint32_t maxFailCountLog = 4;
                         for (size_t i = 0; i < lightCount; ++i) {
-                            weight_t cpu = lightPartitionPrefix[i];
+                            double cpu = d_lightPartitionPrefix[i];
                             weight_t gpu = resultPartitionPrefixLight[i];
                             /* fmt::println("x {} <=> {}   - {}", cpu, gpu, std::abs(cpu / gpu)
                              * - 1.0f); */
@@ -744,9 +744,9 @@ class PartitionAndPrefixSum {
                         uint32_t failCount = 0;
                         uint32_t maxFailCountLog = 4;
                         for (size_t i = 0; i < heavyCount; ++i) {
-                            weight_t cpu = heavyPartitionPrefix[i];
+                            double cpu = d_heavyPartitionPrefix[i];
                             weight_t gpu = resultPartitionPrefixHeavy[i];
-                            if (std::abs(std::abs(cpu / gpu) - 1.0f) > 0.001) {
+                            if (std::abs(std::abs(cpu / gpu) - 1.0) > 0.001) {
                                 if (failCount < maxFailCountLog) {
                                     SPDLOG_ERROR(
                                         fmt::format("Heavy partition "
