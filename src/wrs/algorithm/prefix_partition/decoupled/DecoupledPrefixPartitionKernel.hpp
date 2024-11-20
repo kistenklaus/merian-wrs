@@ -49,6 +49,22 @@ struct DecoupledPrefixPartitionKernelBuffers {
     merian::BufferHandle batchDescriptors;
     static constexpr vk::BufferUsageFlagBits BATCH_DESCRIPTOR_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
+    constexpr static vk::DeviceSize minBatchDescriptorSize(uint32_t N,
+                                                    uint32_t partitionSize,
+                                                    size_t sizeof_weight) {
+        uint32_t workgroupCount = (N + partitionSize - 1) / partitionSize;
+        vk::DeviceSize batchDescriptorSize = 4 * sizeof_weight + 2 * sizeof_weight + sizeof_weight;
+        // TODO consider proper padding this is just a upper bound for a guess!
+        batchDescriptorSize += sizeof(uint32_t) * 4;
+        return batchDescriptorSize * workgroupCount;
+    }
+    constexpr static vk::DeviceSize minBatchDescriptorSize(uint32_t N,
+                                                    uint32_t workgroupSize,
+                                                    uint32_t rows,
+                                                    size_t sizeof_weight) {
+        uint32_t partitionSize = workgroupSize * rows;
+        return minBatchDescriptorSize(N, partitionSize, sizeof_weight);
+    }
 
     /**
      * Buffer, which contains the prefix over the partitions.
@@ -63,6 +79,7 @@ struct DecoupledPrefixPartitionKernelBuffers {
      * MinSize: sizeof(T) * (N+1)
      */
     merian::BufferHandle partitionPrefix;
+    static constexpr vk::BufferUsageFlagBits PREFIX_BUFFER_USAGE_FLAGS = vk::BufferUsageFlagBits::eStorageBuffer;
 
     /**
      * Buffer, which contains both partitions.
@@ -74,9 +91,11 @@ struct DecoupledPrefixPartitionKernelBuffers {
      *
      */
     std::optional<merian::BufferHandle> partition;
+    static constexpr vk::BufferUsageFlagBits PARTITION_BUFFER_USAGE_FLAGS = vk::BufferUsageFlagBits::eStorageBuffer;
 };
 
-template <typename T = float> class DecoupledPrefixPartitionKernel {
+template <typename T = float, typename Allocator = std::allocator<vk::WriteDescriptorSet>>
+class DecoupledPrefixPartitionKernel {
     static_assert(std::is_same<T, float>(), "Currently only floats as weights are supported");
 
 #ifdef NDEBUG
@@ -125,16 +144,27 @@ template <typename T = float> class DecoupledPrefixPartitionKernel {
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
+        m_writes.resize(m_writePartition ? 5 : 4);
+        vk::WriteDescriptorSet& elementsDescriptor = m_writes[0];
+        elementsDescriptor.setDstBinding(0);
+        elementsDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+        vk::WriteDescriptorSet& pivotDescriptor = m_writes[1];
+        pivotDescriptor.setDstBinding(1);
+        pivotDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+        vk::WriteDescriptorSet& batchStateDescriptor = m_writes[2];
+        batchStateDescriptor.setDstBinding(2);
+        batchStateDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+        vk::WriteDescriptorSet& prefixPartitionDescriptor = m_writes[3];
+        prefixPartitionDescriptor.setDstBinding(3);
+        prefixPartitionDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
         if (m_writePartition) {
-          m_writes.resize(5);
-          m_writes[0].dstSet = {};
-
-        }else {
-          m_writes.resize(4);
+            vk::WriteDescriptorSet& partitionDescriptor = m_writes[4];
+            partitionDescriptor.setDstBinding(4);
+            partitionDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
         }
-
     }
-    void run(vk::CommandBuffer cmd, DecoupledPrefixPartitionKernelBuffers& buffers, uint32_t N) {
+    void
+    run(vk::CommandBuffer cmd, const DecoupledPrefixPartitionKernelBuffers& buffers, uint32_t N) {
         if constexpr (CHECK_PARAMETERS) {
             // CHECK for VK_NULL_HANDLE
             if (cmd == VK_NULL_HANDLE) {
@@ -185,22 +215,41 @@ template <typename T = float> class DecoupledPrefixPartitionKernel {
             }
         }
         m_pipeline->bind(cmd);
+        vk::DescriptorBufferInfo elementDesc = buffers.elements->get_descriptor_info();
+        m_writes[0].setBufferInfo(elementDesc);
+        vk::DescriptorBufferInfo pivotDesc = buffers.pivot->get_descriptor_info();
+        m_writes[1].setBufferInfo(pivotDesc);
+        vk::DescriptorBufferInfo batchDesc = buffers.batchDescriptors->get_descriptor_info();
+        m_writes[2].setBufferInfo(batchDesc);
+        vk::DescriptorBufferInfo prefixDesc = buffers.partitionPrefix->get_descriptor_info();
+        m_writes[3].setBufferInfo(prefixDesc);
+        vk::DescriptorBufferInfo partitionDesc;
         if (m_writePartition) {
-
-        } else {
-            m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.pivot,
-                                            buffers.batchDescriptors, buffers.partitionPrefix);
+            partitionDesc = buffers.partition.value()->get_descriptor_info();
+            m_writes[4].setBufferInfo(partitionDesc);
         }
+        m_pipeline->push_descriptor_set(cmd, m_writes);
+        m_pipeline->push_constant(cmd, N);
+
+        uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
+        cmd.dispatch(workgroupCount, 1, 1);
     }
 
-    static vk::DeviceSize minBufferDescriptorSize(uint32_t elementCount) {}
+    vk::DeviceSize minBufferDescriptorSize(uint32_t N) {
+        uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
+        vk::DeviceSize batchDescriptorSize =
+            4 * sizeof(weight_t) + 2 * sizeof(uint32_t) + sizeof(uint32_t);
+        // TODO consider proper padding this is just a upper bound for a guess!
+        batchDescriptorSize += sizeof(uint32_t) * 4;
+        return batchDescriptorSize * workgroupCount;
+    }
 
   private:
     const uint32_t m_partitionSize;
     const bool m_writePartition;
     const bool m_stable;
     merian::PipelineHandle m_pipeline;
-    std::vector<vk::WriteDescriptorSet> m_writes;
+    std::vector<vk::WriteDescriptorSet, Allocator> m_writes;
 };
 
 } // namespace wrs

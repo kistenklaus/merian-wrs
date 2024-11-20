@@ -117,26 +117,26 @@ class PartitionAndPrefixSum {
             PartitionAndPrefixSumConfig{32, 4}, // 11
         };
         constexpr std::array<WeightGenInfo, 20> weightGens = {
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 8}, // 1
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 12}, // 2
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 16}, // 3 
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 24}, // 4
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 32}, // 5
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 128}, // 6
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 256}, // 7
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 512}, // 8
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 1024}, // 9
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2048}, // 10
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096}, // 11
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 2}, //12
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 8}, // 13
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4096 * 64}, // 14
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 1024 * 2048}, // 15
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 1000000}, // 16
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 2000000}, // 17
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 3000000}, // 18
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 4000000}, // 19
-            WeightGenInfo{SEEDED_RANDOM_UNIFORM, 5000000}, // 20
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 8}, // 1
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 12}, // 2
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 16}, // 3 
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 24}, // 4
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 32}, // 5
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 128}, // 6
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 256}, // 7
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 512}, // 8
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 1024}, // 9
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 2048}, // 10
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 4096}, // 11
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 4096 * 2}, //12
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 4096 * 8}, // 13
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 4096 * 64}, // 14
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 1024 * 2048}, // 15
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 1000000}, // 16
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 2000000}, // 17
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 3000000}, // 18
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 4000000}, // 19
+            WeightGenInfo{Distribution::SEEDED_RANDOM_UNIFORM, 5000000}, // 20
         };
 
         // Setup queue & command pool
