@@ -7,13 +7,8 @@
 #include <span>
 #include <tuple>
 #include <vector>
-#include <execution>
 
 namespace wrs::reference {
-
-namespace partition {
-using policy = std::execution::par;
-}
 
 template <typename T, typename Allocator>
 std::tuple<std::span<T>, std::span<T>, std::vector<T, Allocator>>
@@ -48,7 +43,7 @@ partition(const std::span<T>& weights, T pivot, const std::pmr::polymorphic_allo
 
 template <typename T>
 std::tuple<std::span<T>, std::span<T>, std::pmr::vector<T>>
-stable_partition(const std::span<T>& elements, T pivot, const std::pmr::polymorphic_allocator<T>& alloc) {
+stable_partition(const std::span<T>& elements, T pivot, const std::pmr::polymorphic_allocator<T>& alloc = {}) {
     return std::move(
         wrs::reference::stable_partition<T, std::pmr::polymorphic_allocator<T>>(elements, pivot, alloc));
 }

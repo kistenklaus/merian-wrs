@@ -1,8 +1,12 @@
 #pragma once
 
 #include <concepts>
+#include <fmt/base.h>
+#include <fmt/format.h>
 #include <memory>
 #include <ranges>
+#include <spdlog/spdlog.h>
+#include <sstream>
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
@@ -26,6 +30,28 @@ template <typename T> struct IsPrefixIndexError {
     T element = {};
     T prefix = {};
     T prevPrefix = {};
+
+    void appendMessageToStringStream(std::stringstream& ss) {
+        ss << "\t\tFailure at index = " << index << ":\n";
+        if (type & IS_PREFIX_ERROR_TYPE_NOT_MONOTONE) {
+            ss << "\t\t\tPrefix is not monotone:\n";
+            ss << "\t\t\t\tprefix[" << index << " - 1] = " << prevPrefix << "\n";
+            ss << "\t\t\t\t    prefix[" << index << "] = " << prefix
+               << "\t\t Diff : " << prefix - prevPrefix << "\n";
+            ss << "\t\t\t\t   element[" << index << "] = " << element << "\n";
+        }
+        if (type & IS_PREFIX_ERROR_TYPE_UNSTABLE) {
+            ss << "\t\t\tPrefix is numerically unstable:\n";
+            ss << "\t\t\t\tExpected: " << prevPrefix << " + " << element << " \u2248 "
+               << prevPrefix + element << "\t\t" << "Diff: |" << std::abs((prevPrefix - prefix) + element) << "|\n";
+            ss << "\t\t\t\t     Got: " << prefix << "\n";
+        }
+        if (type & IS_PREFIX_ERROR_TYPE_NOT_A_PREFIX_SUM) {
+            ss << "\t\t\tPrefix is not really a prefix sum:\n";
+            ss << "\t\t\t\tprefix[" << index << " - 1] != " << prevPrefix << "  "
+               << prefix + element << " = prefix[" << index << "] + element[index]\n";
+        }
+    }
 };
 
 template <typename T, typename Allocator> struct IsPrefixError {
@@ -46,6 +72,26 @@ template <typename T, typename Allocator> struct IsPrefixError {
           errorTypes(errorTypes) {}
     inline operator bool() {
         return !errors.empty() || elementSize != prefixSize;
+    }
+
+    std::string message() {
+        std::stringstream ss;
+        if (errorTypes & IS_PREFIX_ERROR_TYPE_UNEQUAL_SIZE) {
+            ss << "AssertionFailed: The size of the prefix sum is incorrect:\n";
+            ss << "\tExpected: " << elementSize << ", Got: " << prefixSize << "\n";
+            return ss.str();
+        }
+
+        ss << "AssertionFailed: \"prefix\" is not a prefix sum.\n";
+        ss << "\tFailed at " << errors.size() << " out of " << elementSize << " elements\n";
+        constexpr size_t MAX_LOG = 3;
+        for (auto error : errors | std::views::take(MAX_LOG)) {
+            error.appendMessageToStringStream(ss);
+        }
+        if (errors.size() > MAX_LOG) {
+            ss << "\t...\n";
+        }
+        return ss.str();
     }
 };
 
@@ -74,26 +120,33 @@ assert_is_inclusive_prefix(const std::span<T> elements,
 
     T prevPrefix{}; // identity element
     size_t errorCount = 0;
+    bool first = true;
+    const T unstableMargin =
+        0.01 * std::pow(static_cast<T>(elements.size()), static_cast<T>(1.0f / 3.0f));
+    const T bullshitMargin = unstableMargin * 10;
     for (auto it1 = std::ranges::begin(elements), it2 = std::ranges::begin(prefix);
          it1 != eend && it2 != pend; ++it1, ++it2) {
         const T prefix = *it2;
         const T element = *it1;
 
         const auto diff = prevPrefix - prefix;
-        if (element > 0) {
-            if (diff <= 0) {
-                errorCount += 1; // Not monotone!
-                continue;
-            }
-        } else if (element < 0) {
-            if (diff >= 0) {
-                errorCount += 1; // Not monotone!
-                continue;
+        if (!first) {
+            if (element > 0) {
+                if (diff > 0) {
+                    errorCount += 1; // Not monotone!
+                    continue;
+                }
+            } else if (element < 0) {
+                if (diff < 0) {
+                    errorCount += 1; // Not monotone!
+                    continue;
+                }
             }
         }
+        first = false;
 
         const T expectedDiff = std::abs(diff + element);
-        if (expectedDiff > 0.01) {
+        if (expectedDiff > unstableMargin) {
             errorCount += 1;
             continue;
         }
@@ -109,9 +162,12 @@ assert_is_inclusive_prefix(const std::span<T> elements,
 
     size_t i = 0;
     size_t j = 0;
+    prevPrefix = {};
     IErrorType allErrors = IErrorType::IS_PREFIX_ERROR_TYPE_NONE;
+    first = true;
     for (auto it1 = std::ranges::begin(elements), it2 = std::ranges::begin(prefix);
          it1 != eend && it2 != pend; ++it1, ++it2, ++i) {
+
         const T prefix = *it2;
         const T element = *it1;
 
@@ -124,26 +180,29 @@ assert_is_inclusive_prefix(const std::span<T> elements,
         };
 
         const auto diff = prevPrefix - prefix;
-        if (element > 0) {
-            if (diff <= 0) {
-                error.type = static_cast<IErrorType>(
-                    static_cast<unsigned int>(IErrorType::IS_PREFIX_ERROR_TYPE_NOT_MONOTONE) |
-                    static_cast<unsigned int>(error.type));
-            }
-        } else if (element < 0) {
-            if (diff >= 0) {
-                error.type = static_cast<IErrorType>(
-                    static_cast<unsigned int>(IErrorType::IS_PREFIX_ERROR_TYPE_NOT_MONOTONE) |
-                    static_cast<unsigned int>(error.type));
+        if (!first) {
+            if (element > 0) {
+                if (diff > 0) {
+                    error.type = static_cast<IErrorType>(
+                        static_cast<unsigned int>(IErrorType::IS_PREFIX_ERROR_TYPE_NOT_MONOTONE) |
+                        static_cast<unsigned int>(error.type));
+                }
+            } else if (element < 0) {
+                if (diff < 0) {
+                    error.type = static_cast<IErrorType>(
+                        static_cast<unsigned int>(IErrorType::IS_PREFIX_ERROR_TYPE_NOT_MONOTONE) |
+                        static_cast<unsigned int>(error.type));
+                }
             }
         }
+        first = false;
 
         const T expectedDiff = std::abs(diff + element);
-        if (expectedDiff > 1) {
+        if (expectedDiff > bullshitMargin) {
             error.type = static_cast<IErrorType>(
                 static_cast<unsigned int>(IErrorType::IS_PREFIX_ERROR_TYPE_NOT_A_PREFIX_SUM) |
                 static_cast<unsigned int>(error.type));
-        } else if (expectedDiff > 0.01) {
+        } else if (expectedDiff > unstableMargin) {
             error.type = static_cast<IErrorType>(
                 static_cast<unsigned int>(IErrorType::IS_PREFIX_ERROR_TYPE_UNSTABLE) |
                 static_cast<unsigned int>(error.type));
@@ -156,7 +215,21 @@ assert_is_inclusive_prefix(const std::span<T> elements,
             errors[j++] = error;
         }
     }
-    return Error(errors, esize, psize, allErrors);
+    return Error(std::move(errors), esize, psize, allErrors);
 }
+
+namespace pmr {
+
+template <typename T>
+IsPrefixError<T, std::pmr::polymorphic_allocator<IsPrefixIndexError<T>>>
+assert_is_inclusive_prefix(const std::span<T> elements,
+                           const std::span<T> prefix,
+                           const std::pmr::polymorphic_allocator<void>& alloc = {}) {
+    return wrs::test::assert_is_inclusive_prefix<T, std::pmr::polymorphic_allocator<void>>(
+        elements, prefix, alloc);
+}
+} // namespace pmr
+
+// LOGGING
 
 } // namespace wrs::test

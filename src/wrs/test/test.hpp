@@ -16,4 +16,6 @@ struct TestContext {
 
 TestContext setupTestContext(const merian::ContextHandle& context);
 
+void testTests();
+
 }; // namespace wrs::test

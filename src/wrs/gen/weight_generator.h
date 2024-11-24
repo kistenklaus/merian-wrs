@@ -37,8 +37,8 @@ static std::string distribution_to_pretty_string(Distribution dist) {
 }
 
 template <typename T = float, typename Allocator = std::allocator<T>>
-static std::vector<T, Allocator> generate_weights(const Distribution distribution, uint32_t count,
-    const Allocator alloc = {}) {
+static std::vector<T, Allocator>
+generate_weights(const Distribution distribution, uint32_t count, const Allocator alloc = {}) {
     std::vector<T, Allocator> weights(count, alloc);
     bool enableLogging = count > 1000000;
     constexpr size_t logCount = 10;
@@ -83,7 +83,7 @@ static std::vector<T, Allocator> generate_weights(const Distribution distributio
         }
         break;
     }
-    case Distribution::SEEDED_RANDOM_UNIFORM:
+    case Distribution::SEEDED_RANDOM_UNIFORM: {
         std::random_device seedRng{};
         std::uniform_int_distribution<uint64_t> seedDist{1, std::numeric_limits<uint64_t>::max()};
         std::mt19937 rng{seedDist(seedRng)};
@@ -98,11 +98,24 @@ static std::vector<T, Allocator> generate_weights(const Distribution distributio
         }
         break;
     }
+    }
+
     return weights;
 }
 
 static std::vector<float> generate_weights(const WeightGenInfo& genInfo) {
     return generate_weights(genInfo.distribution, genInfo.count);
 }
+
+namespace pmr {
+
+template <typename T = float>
+static std::pmr::vector<T> generate_weights(const Distribution distribution,
+                                            uint32_t count,
+                                            const std::pmr::polymorphic_allocator<T>& alloc) {
+    return wrs::generate_weights<T, std::pmr::polymorphic_allocator<T>>(distribution, count, alloc);
+}
+
+}; // namespace pmr
 
 } // namespace wrs

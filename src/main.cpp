@@ -5,6 +5,7 @@
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/alias_table/baseline/algo/PartitionAndPrefixSum.hpp"
 #include "src/wrs/alias_table/baseline/algo/PrefixSumAvg.hpp"
+#include "src/wrs/test/test.hpp"
 #include "wrs/alias_table/baseline/BaselineAliasTable.hpp"
 #include <algorithm>
 #include <iostream>
@@ -73,7 +74,8 @@ int main() {
     /*   std::cout << "result[" << i << "] = " << prefix[i] << std::endl; */
     /* } */
 
-    wrs::baseline::PartitionAndPrefixSum::testAndBench(context);
+    wrs::test::testTests();
+    /* wrs::baseline::PartitionAndPrefixSum::testAndBench(context); */
     return 0;
 
     wrs::baseline::BaselineAliasTable aliasTable(context, weights.size());

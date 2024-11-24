@@ -24,10 +24,10 @@ concept partially_ordered = requires(T a, T b) {
 
 } // namespace concepts
 
-enum IsPartitionErrorType {
+enum IsPartitionErrorType : unsigned int{
     IS_PARTITION_ERROR_TYPE_NONE = 0,
     IS_PARTITION_ERROR_TYPE_INVALID_PARTITION_SIZES = 1,
-    IS_PARTITION_ERROR_TYPE_INVALID_PARTITION = 2,
+    IS_PARTITION_ERROR_TYPE_INVALID_PARTITION = 2, // element assigned to the wrong partition
     IS_PARTITION_ERROR_TYPE_INVALID_ELEMENT = 4,
 };
 
@@ -93,39 +93,94 @@ assert_is_partition(const std::span<T> heavy,
                      lightCount, elementCount, pivot, std::vector<IError, ErrorAllocator>{alloc});
     }
 
-    size_t heavyErrors = 0;
-    size_t lightErrors = 0;
     std::vector<bool, BAllocator> elementUsed(elementCount, BAllocator(alloc));
     std::vector<IError, ErrorAllocator> errors{ErrorAllocator(alloc)};
-    errors.reserve(elements.size());
+    errors.reserve(elementCount);
+    ErrorType aggErr = IS_PARTITION_ERROR_TYPE_NONE;
     for (size_t i = 0; i < heavyCount; ++i) {
-        const auto& h = heavy.at(i);
+        const auto& h = heavy[i];
         IError err;
         err.index = i;
-        if (h <= pivot) {
-
-            /* IsPartitionErrorType type; */
-            /* size_t index; */
-            /* bool shouldBeHeavy; */
-            /* bool isHeavy; */
-            /* T value; */
+        err.shouldBeHeavy = h > pivot;
+        err.type = IS_PARTITION_ERROR_TYPE_NONE;
+        err.value = h;
+        if (!err.shouldBeHeavy) {
+            err.type = static_cast<ErrorType>(
+                static_cast<unsigned int>(err.type) |
+                static_cast<unsigned int>(IS_PARTITION_ERROR_TYPE_INVALID_PARTITION));
         }
         bool found = false;
-        for (size_t j = 0; j < elementCount; ++j) {
+        size_t j = 0;
+        for (; j < elementCount; ++j) {
             if (elementUsed[j] == false && elements[j] == h) {
                 elementUsed[j] = true;
                 found = true;
                 break;
             }
         }
+        err.elementIndex = j;
         if (!found) {
+            err.type = static_cast<ErrorType>(
+                static_cast<unsigned int>(err.type) |
+                static_cast<unsigned int>(IS_PARTITION_ERROR_TYPE_INVALID_ELEMENT));
+        }
+        if (err.type != IS_PARTITION_ERROR_TYPE_NONE) {
+            errors.push_back(err);
+            aggErr = static_cast<ErrorType>(
+                static_cast<unsigned int>(aggErr) |
+                static_cast<unsigned int>(err.type));
         }
     }
-    for (const auto& l : light) {
-        if (l > pivot) {
-            lightErrors += 1;
+    for (size_t i = 0; i < lightCount; ++i) {
+        const auto& l = light[i];
+        IError err;
+        err.index = i;
+        err.shouldBeHeavy = l > pivot;
+        err.type = IS_PARTITION_ERROR_TYPE_NONE;
+        err.value = l;
+        if (err.shouldBeHeavy) {
+            err.type = static_cast<ErrorType>(
+                static_cast<unsigned int>(err.type) |
+                static_cast<unsigned int>(IS_PARTITION_ERROR_TYPE_INVALID_PARTITION));
+        }
+        bool found = false;
+        size_t j = 0;
+        for (; j < elementCount; ++j) {
+            if (elementUsed[j] == false && elements[j] == l) {
+                elementUsed[j] = true;
+                found = true;
+                break;
+            }
+        }
+        err.elementIndex = j;
+        if (!found) {
+            err.type = static_cast<ErrorType>(
+                static_cast<unsigned int>(err.type) |
+                static_cast<unsigned int>(IS_PARTITION_ERROR_TYPE_INVALID_ELEMENT));
+        }
+        if (err.type != IS_PARTITION_ERROR_TYPE_NONE) {
+            errors.push_back(err);
+            aggErr = static_cast<ErrorType>(
+                static_cast<unsigned int>(aggErr) |
+                static_cast<unsigned int>(err.type));
         }
     }
+    return Error(aggErr, heavyCount, lightCount, elementCount, pivot, std::move(errors));
 }
+
+namespace pmr {
+
+template <concepts::partially_ordered T>
+IsPartitionError<T, std::pmr::polymorphic_allocator<IsPartitionIndexError<T>>>
+assert_is_partition(const std::span<T> heavy,
+                    const std::span<T> light,
+                    const std::span<T> elements,
+                    T pivot,
+                    const std::pmr::polymorphic_allocator<void>& alloc = {}) {
+    return wrs::test::assert_is_partition<T, std::pmr::polymorphic_allocator<void>>(heavy, light, elements,
+                                                                             pivot, alloc);
+}
+
+} // namespace pmr
 
 } // namespace wrs::test
