@@ -306,6 +306,7 @@ bool runTestCase(const wrs::test::TestContext& context,
                 failed = true;
             }
         }
+        context.profiler->collect(true, true);
     }
     return failed;
 }
