@@ -45,8 +45,8 @@ class BaselineAliasTable {
     download_result(vk::CommandBuffer cmd,
                     std::optional<merian::ProfilerHandle> profiler = std::nullopt);
 
-    void
-    cpuValidation(merian::QueueHandle& queue, merian::CommandPool& cmdPool, uint32_t weightCount);
+    /* void */
+    /* cpuValidation(merian::QueueHandle& queue, merian::CommandPool& cmdPool, uint32_t weightCount); */
 
   private:
     const merian::ContextHandle m_context;

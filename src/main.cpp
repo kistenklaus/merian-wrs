@@ -3,6 +3,7 @@
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
 #include "merian/vk/utils/profiler.hpp"
+#include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
 #include "src/wrs/alias_table/baseline/algo/PartitionAndPrefixSum.hpp"
 #include "src/wrs/alias_table/baseline/algo/PrefixSumAvg.hpp"
 #include "src/wrs/test/test.hpp"
@@ -39,6 +40,8 @@ int main() {
         std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context);
     query_pool->reset();
     profiler->set_query_pool(query_pool);
+    assert(query_pool);
+
 
     /* constexpr size_t WEIGHT_COUNT = 1024 * 2048; */
     constexpr size_t WEIGHT_COUNT = 2048;
@@ -75,6 +78,7 @@ int main() {
     /* } */
 
     wrs::test::testTests();
+    wrs::test::decoupled_prefix_partition::test(context);
     /* wrs::baseline::PartitionAndPrefixSum::testAndBench(context); */
     return 0;
 
@@ -108,5 +112,5 @@ int main() {
     profiler->collect(true);
     std::cout << merian::Profiler::get_report_str(profiler->get_report()) << std::endl;
 
-    aliasTable.cpuValidation(queue, cmd_pool, weights.size());
+    /* aliasTable.cpuValidation(queue, cmd_pool, weights.size()); */
 }

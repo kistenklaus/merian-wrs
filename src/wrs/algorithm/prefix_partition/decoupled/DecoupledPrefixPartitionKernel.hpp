@@ -49,9 +49,8 @@ struct DecoupledPrefixPartitionKernelBuffers {
     merian::BufferHandle batchDescriptors;
     static constexpr vk::BufferUsageFlagBits BATCH_DESCRIPTOR_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
-    constexpr static vk::DeviceSize minBatchDescriptorSize(uint32_t N,
-                                                    uint32_t partitionSize,
-                                                    size_t sizeof_weight) {
+    constexpr static vk::DeviceSize
+    minBatchDescriptorSize(uint32_t N, uint32_t partitionSize, size_t sizeof_weight) {
         uint32_t workgroupCount = (N + partitionSize - 1) / partitionSize;
         vk::DeviceSize batchDescriptorSize = 4 * sizeof_weight + 2 * sizeof_weight + sizeof_weight;
         // TODO consider proper padding this is just a upper bound for a guess!
@@ -59,9 +58,9 @@ struct DecoupledPrefixPartitionKernelBuffers {
         return batchDescriptorSize * workgroupCount;
     }
     constexpr static vk::DeviceSize minBatchDescriptorSize(uint32_t N,
-                                                    uint32_t workgroupSize,
-                                                    uint32_t rows,
-                                                    size_t sizeof_weight) {
+                                                           uint32_t workgroupSize,
+                                                           uint32_t rows,
+                                                           size_t sizeof_weight) {
         uint32_t partitionSize = workgroupSize * rows;
         return minBatchDescriptorSize(N, partitionSize, sizeof_weight);
     }
@@ -79,7 +78,8 @@ struct DecoupledPrefixPartitionKernelBuffers {
      * MinSize: sizeof(T) * (N+1)
      */
     merian::BufferHandle partitionPrefix;
-    static constexpr vk::BufferUsageFlagBits PREFIX_BUFFER_USAGE_FLAGS = vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr vk::BufferUsageFlagBits PREFIX_BUFFER_USAGE_FLAGS =
+        vk::BufferUsageFlagBits::eStorageBuffer;
 
     /**
      * Buffer, which contains both partitions.
@@ -91,12 +91,13 @@ struct DecoupledPrefixPartitionKernelBuffers {
      *
      */
     std::optional<merian::BufferHandle> partition;
-    static constexpr vk::BufferUsageFlagBits PARTITION_BUFFER_USAGE_FLAGS = vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr vk::BufferUsageFlagBits PARTITION_BUFFER_USAGE_FLAGS =
+        vk::BufferUsageFlagBits::eStorageBuffer;
 };
 
-template <typename T = float, typename Allocator = std::allocator<vk::WriteDescriptorSet>>
+template <typename T = float>
 class DecoupledPrefixPartitionKernel {
-    static_assert(std::is_same<T, float>(), "Currently only floats as weights are supported");
+    /* static_assert(std::is_same<T, float>(), "Currently only floats as weights are supported"); */
 
 #ifdef NDEBUG
     static constexpr bool CHECK_PARAMETERS = true;
@@ -114,8 +115,8 @@ class DecoupledPrefixPartitionKernel {
                                    uint32_t rows = DEFAULT_ROWS,
                                    bool writePartition = false,
                                    bool stable = false)
-        : m_partitionSize(workgroupSize * rows), m_writePartition(writePartition),
-          m_stable(stable) {
+        : m_partitionSize(workgroupSize * rows), m_writePartition(writePartition), m_stable(stable),
+          m_writes() {
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
                 .add_binding_storage_buffer()
@@ -128,7 +129,7 @@ class DecoupledPrefixPartitionKernel {
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
                 context,
-                "src/wrs/alias_table/baseline/kernels/decoupled_partition_and_prefix_sum.comp",
+                "src/wrs/algorithm/prefix_partition/decoupled/shader.comp",
                 vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
@@ -249,7 +250,14 @@ class DecoupledPrefixPartitionKernel {
     const bool m_writePartition;
     const bool m_stable;
     merian::PipelineHandle m_pipeline;
-    std::vector<vk::WriteDescriptorSet, Allocator> m_writes;
+    std::vector<vk::WriteDescriptorSet> m_writes;
 };
+
+/* namespace pmr { */
+
+/* template <typename T> */
+/* using DecoupledPrefixPartitionKernel = */
+/*     wrs::DecoupledPrefixPartitionKernel<T, std::pmr::polymorphic_allocator<vk::WriteDescriptorSet>>; */
+/* } */
 
 } // namespace wrs

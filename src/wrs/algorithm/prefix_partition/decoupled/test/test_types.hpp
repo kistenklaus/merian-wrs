@@ -35,6 +35,8 @@ struct TestCase {
         float fpivot;
     };
 
+    uint32_t iterations;
+
     template<typename weight_t> 
     weight_t getPivot() const {
       if constexpr (std::is_same_v<weight_t, float>) {

@@ -37,10 +37,24 @@ static std::string distribution_to_pretty_string(Distribution dist) {
 }
 
 template <typename T = float, typename Allocator = std::allocator<T>>
-static std::vector<T, Allocator>
+std::vector<T, Allocator>
 generate_weights(const Distribution distribution, uint32_t count, const Allocator alloc = {}) {
-    std::vector<T, Allocator> weights(count, alloc);
-    bool enableLogging = count > 1000000;
+    std::vector<T, Allocator> weights{count, alloc};
+
+    size_t loggingThreshold = 1e10;
+    switch (distribution) {
+    case Distribution::UNIFORM:
+        loggingThreshold = 1e7;
+    case Distribution::PSEUDO_RANDOM_UNIFORM:
+        loggingThreshold = 1e7;
+    case Distribution::RANDOM_UNIFORM:
+        loggingThreshold = 1e5;
+    case Distribution::SEEDED_RANDOM_UNIFORM:
+        loggingThreshold = 1e7;
+        break;
+    }
+
+    bool enableLogging = count > loggingThreshold;
     constexpr size_t logCount = 10;
     size_t logChunkSize = count / logCount;
     size_t nextChunk = logChunkSize;
@@ -51,7 +65,7 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
             if (enableLogging && nextChunk == i) {
                 nextChunk += logChunkSize;
                 SPDLOG_DEBUG(fmt::format("Generating numbers : {}% done",
-                                         i / static_cast<float>(genInfo.count) * 100));
+                                         i / static_cast<float>(count) * 100));
             }
             weights[i] = 1.0f;
         }
@@ -64,7 +78,7 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
             if (enableLogging && nextChunk == i) {
                 nextChunk += logChunkSize;
                 SPDLOG_DEBUG(fmt::format("Generating numbers : {}% done",
-                                         i / static_cast<float>(genInfo.count) * 100));
+                                         i / static_cast<float>(count) * 100));
             }
             weights[i] = dist(rng);
         }
@@ -77,7 +91,7 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
             if (enableLogging && nextChunk == i) {
                 nextChunk += logChunkSize;
                 SPDLOG_DEBUG(fmt::format("Generating numbers : {}% done",
-                                         i / static_cast<float>(genInfo.count) * 100));
+                                         i / static_cast<float>(count) * 100));
             }
             weights[i] = dist(rng);
         }
@@ -92,7 +106,7 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
             if (enableLogging && nextChunk == i) {
                 nextChunk += logChunkSize;
                 SPDLOG_DEBUG(fmt::format("Generating numbers : {}% done",
-                                         i / static_cast<float>(genInfo.count) * 100));
+                                         i / static_cast<float>(count) * 100));
             }
             weights[i] = dist(rng);
         }
@@ -103,16 +117,12 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
     return weights;
 }
 
-static std::vector<float> generate_weights(const WeightGenInfo& genInfo) {
-    return generate_weights(genInfo.distribution, genInfo.count);
-}
-
 namespace pmr {
 
 template <typename T = float>
-static std::pmr::vector<T> generate_weights(const Distribution distribution,
-                                            uint32_t count,
-                                            const std::pmr::polymorphic_allocator<T>& alloc) {
+std::pmr::vector<T> generate_weights(const Distribution distribution,
+                                     uint32_t count,
+                                     const std::pmr::polymorphic_allocator<T>& alloc) {
     return wrs::generate_weights<T, std::pmr::polymorphic_allocator<T>>(distribution, count, alloc);
 }
 

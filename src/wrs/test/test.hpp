@@ -7,11 +7,12 @@
 namespace wrs::test {
 
 struct TestContext {
+    merian::ContextHandle context;
     merian::ResourceAllocatorHandle alloc;
     merian::QueueHandle queue;
     merian::CommandPoolHandle cmdPool;
     merian::ProfilerHandle profiler;
-    merian::QueryPoolHandle<vk::QueryType::eTimestamp> __profilerQueryPool;
+    /* merian::QueryPoolHandle<vk::QueryType::eTimestamp> __profilerQueryPool; */
 };
 
 TestContext setupTestContext(const merian::ContextHandle& context);

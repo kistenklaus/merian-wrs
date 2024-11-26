@@ -40,9 +40,8 @@ layout(set = 0, binding = 0) readonly buffer in_values {
     monoid weights[];
 };
 
-layout(set = 0, binding = 1) readonly buffer avg_prefix_sum {
-    monoid average;
-    monoid weightPrefix[];
+layout(set = 0, binding = 1) readonly buffer in_pivot {
+    monoid pivot;
 };
 
 layout(set = 0, binding = 2) volatile buffer batch_descriptors {
@@ -51,11 +50,11 @@ layout(set = 0, binding = 2) volatile buffer batch_descriptors {
 };
 
 layout(set = 0, binding = 3) writeonly buffer out_prefix {
+    uint heavyCount;
     monoid heavyLightPrefix[];
 };
 
 layout(set = 0, binding = 4) writeonly buffer out_partition {
-    uint heavyCount;
     monoid heavyLightPartition[];
 };
 
@@ -96,7 +95,7 @@ void main(void) {
     bool localIsHeavy[ROWS];
     uint localHeavyCountExclusivePrefix[ROWS];
 
-    const monoid pivot = average;
+    const monoid pivot = pivot;
     const uint size = pc.size;
 
     const uint invocID = gl_LocalInvocationID.x;
@@ -298,9 +297,8 @@ void main(void) {
                 uint l = (ix + i) - h; // unflagged element prefix
                 index = (size - 1) - l;
             }
-            // heavyLightPartition[index] = localWeights[i];
+            heavyLightPartition[index] = localWeights[i];
 
-            // heavyLightPrefix[ix + i] = heavyPrefix;
             if (localIsHeavy[i]) {
                 monoid heavyPrefix = rowHeavyExclusivePrefixSum + localHeavyPrefix[i];
 #ifdef STABLE

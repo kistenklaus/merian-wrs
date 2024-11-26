@@ -35,15 +35,16 @@ template <typename T> struct IsPrefixIndexError {
         ss << "\t\tFailure at index = " << index << ":\n";
         if (type & IS_PREFIX_ERROR_TYPE_NOT_MONOTONE) {
             ss << "\t\t\tPrefix is not monotone:\n";
-            ss << "\t\t\t\tprefix[" << index << " - 1] = " << prevPrefix << "\n";
-            ss << "\t\t\t\t    prefix[" << index << "] = " << prefix
+            ss << "\t\t\t\tprefix[" << index << " - 1] = " << fmt::format("{:.10}", prevPrefix) << "\n";
+            ss << "\t\t\t\t    prefix[" << index << "] = " << fmt::format("{:.10}", prefix)
                << "\t\t Diff : " << prefix - prevPrefix << "\n";
             ss << "\t\t\t\t   element[" << index << "] = " << element << "\n";
         }
         if (type & IS_PREFIX_ERROR_TYPE_UNSTABLE) {
             ss << "\t\t\tPrefix is numerically unstable:\n";
             ss << "\t\t\t\tExpected: " << prevPrefix << " + " << element << " \u2248 "
-               << prevPrefix + element << "\t\t" << "Diff: |" << std::abs((prevPrefix - prefix) + element) << "|\n";
+               << prevPrefix + element << "\t\t" << "Diff: |"
+               << std::abs((prevPrefix - prefix) + element) << "|\n";
             ss << "\t\t\t\t     Got: " << prefix << "\n";
         }
         if (type & IS_PREFIX_ERROR_TYPE_NOT_A_PREFIX_SUM) {
@@ -70,11 +71,11 @@ template <typename T, typename Allocator> struct IsPrefixError {
                   IErrorType errorTypes)
         : errors(std::move(errors)), elementSize(elementSize), prefixSize(prefixSize),
           errorTypes(errorTypes) {}
-    inline operator bool() {
+    operator bool() const {
         return !errors.empty() || elementSize != prefixSize;
     }
 
-    std::string message() {
+    std::string message() const {
         std::stringstream ss;
         if (errorTypes & IS_PREFIX_ERROR_TYPE_UNEQUAL_SIZE) {
             ss << "AssertionFailed: The size of the prefix sum is incorrect:\n";
@@ -108,8 +109,8 @@ assert_is_inclusive_prefix(const std::span<T> elements,
     using IError = Error::IError;
     using IErrorType = Error::IErrorType;
 
-    size_t esize = static_cast<size_t>(std::ranges::size(elements));
-    size_t psize = static_cast<size_t>(std::ranges::size(prefix));
+    size_t esize = elements.size();
+    size_t psize = prefix.size();
     if (esize != psize) {
         return Error(std::vector<IError, allocator>{alloc}, esize, psize,
                      IErrorType::IS_PREFIX_ERROR_TYPE_UNEQUAL_SIZE);
@@ -132,22 +133,24 @@ assert_is_inclusive_prefix(const std::span<T> elements,
         const auto diff = prevPrefix - prefix;
         if (!first) {
             if (element > 0) {
-                if (diff > 0) {
+                if (diff > 0 && prevPrefix > prefix) {
                     errorCount += 1; // Not monotone!
+                    prevPrefix = prefix;
                     continue;
                 }
             } else if (element < 0) {
-                if (diff < 0) {
+                if (diff < 0 && prevPrefix < prefix) {
                     errorCount += 1; // Not monotone!
+                    prevPrefix = prefix;
                     continue;
                 }
             }
         }
         first = false;
-
         const T expectedDiff = std::abs(diff + element);
         if (expectedDiff > unstableMargin) {
             errorCount += 1;
+            prevPrefix = prefix;
             continue;
         }
         prevPrefix = prefix;
@@ -178,23 +181,25 @@ assert_is_inclusive_prefix(const std::span<T> elements,
             .prefix = prefix,
             .prevPrefix = prevPrefix,
         };
+        error.type = IErrorType::IS_PREFIX_ERROR_TYPE_NONE;
 
         const auto diff = prevPrefix - prefix;
         if (!first) {
             if (element > 0) {
-                if (diff > 0) {
+                if (diff > 0 && prevPrefix > prefix) {
                     error.type = static_cast<IErrorType>(
                         static_cast<unsigned int>(IErrorType::IS_PREFIX_ERROR_TYPE_NOT_MONOTONE) |
                         static_cast<unsigned int>(error.type));
                 }
             } else if (element < 0) {
-                if (diff < 0) {
+                if (diff < 0 && prevPrefix < prefix) {
                     error.type = static_cast<IErrorType>(
                         static_cast<unsigned int>(IErrorType::IS_PREFIX_ERROR_TYPE_NOT_MONOTONE) |
                         static_cast<unsigned int>(error.type));
                 }
             }
         }
+
         first = false;
 
         const T expectedDiff = std::abs(diff + element);

@@ -11,7 +11,7 @@
 
 namespace wrs::test::decoupled_prefix_partition {
 
-static std::tuple<Buffers, Buffers, std::unique_ptr<std::pmr::memory_resource>>
+static std::tuple<Buffers, Buffers>
 allocateBuffers(const wrs::test::TestContext& context) {
     vk::DeviceSize maxElementBufferSize = 0;
     vk::DeviceSize maxPivotBufferSize = 0;
@@ -49,7 +49,7 @@ allocateBuffers(const wrs::test::TestContext& context) {
                                                    merian::MemoryMappingType::NONE);
     stage.elements =
         context.alloc->createBuffer(maxElementBufferSize, vk::BufferUsageFlagBits::eTransferSrc,
-                                    merian::MemoryMappingType::HOST_ACCESS_SEQUENTIAL_WRITE);
+                                    merian::MemoryMappingType::HOST_ACCESS_RANDOM);
 
     buffers.pivot = context.alloc->createBuffer(maxPivotBufferSize,
                                                 Buffers::PIVOT_BUFFER_USAGE_FLAGS |
@@ -57,7 +57,7 @@ allocateBuffers(const wrs::test::TestContext& context) {
                                                 merian::MemoryMappingType::NONE);
     stage.pivot =
         context.alloc->createBuffer(maxPivotBufferSize, vk::BufferUsageFlagBits::eTransferSrc,
-                                    merian::MemoryMappingType::HOST_ACCESS_SEQUENTIAL_WRITE);
+                                    merian::MemoryMappingType::HOST_ACCESS_RANDOM);
 
     buffers.batchDescriptors = context.alloc->createBuffer(
         maxBatchBufferSize,
@@ -85,10 +85,7 @@ allocateBuffers(const wrs::test::TestContext& context) {
         context.alloc->createBuffer(maxPartitionBufferSize, vk::BufferUsageFlagBits::eTransferDst,
                                     merian::MemoryMappingType::HOST_ACCESS_RANDOM);
 
-    std::unique_ptr<std::pmr::memory_resource> resource =
-        std::make_unique<std::pmr::monotonic_buffer_resource>(maxElementBufferSize * 10);
-
-    return std::make_tuple(buffers, stage, std::move(resource));
+    return std::make_tuple(buffers, stage);
 }
 
 } // namespace wrs::test::decoupled_prefix_partition

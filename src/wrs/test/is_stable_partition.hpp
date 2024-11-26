@@ -1,69 +1,24 @@
 #pragma once
 
+#include "src/wrs/test/is_partition.hpp"
 #include "src/wrs/test/partially_ordered.hpp"
-#include <algorithm>
 #include <memory>
 #include <span>
-#include <spdlog/spdlog.h>
-#include <utility>
-#include <vector>
 namespace wrs::test {
 
-enum IsPartitionErrorType : unsigned int {
-    IS_PARTITION_ERROR_TYPE_NONE = 0,
-    IS_PARTITION_ERROR_TYPE_INVALID_PARTITION_SIZES = 1,
-    IS_PARTITION_ERROR_TYPE_INVALID_PARTITION = 2, // element assigned to the wrong partition
-    IS_PARTITION_ERROR_TYPE_INVALID_ELEMENT = 4,
-};
-
-template <typename T> struct IsPartitionIndexError {
-    IsPartitionErrorType type;
-    size_t index;
-    size_t elementIndex;
-    bool shouldBeHeavy;
-    bool isHeavy;
-    T value;
-};
-
-template <typename T, typename Allocator> struct IsPartitionError {
-    using Type = IsPartitionErrorType;
-    using IError = IsPartitionIndexError<T>;
-    using allocator = std::allocator_traits<Allocator>::template rebind_alloc<IError>;
-
-    IsPartitionError() : errorTypes(IS_PARTITION_ERROR_TYPE_NONE) {}
-    IsPartitionError(Type type,
-                     size_t heavyCount,
-                     size_t lightCount,
-                     size_t elementCount,
-                     T pivot,
-                     std::vector<IError, allocator> errors)
-        : errorTypes(type), heavyCount(heavyCount), lightCount(lightCount),
-          elementCount(elementCount), pivot(pivot), errors(std::move(errors)) {}
-
-    IsPartitionErrorType errorTypes;
-    size_t heavyCount;
-    size_t lightCount;
-    size_t elementCount;
-    T pivot;
-    std::vector<IError, allocator> errors;
-
-    operator bool() const {
-        return errorTypes != IS_PARTITION_ERROR_TYPE_NONE;
-    }
-    std::string message() const {
-        return "TODO: proper error message";
-    }
-};
+// TODO test stable partition!
+// With stable partitions we should be able to verify the result a lot faster, because we
+// don't need a unordered_multimap or a full scan to detect item dupplicates.
 
 template <wrs::concepts::partially_ordered T, typename Allocator = std::allocator<void>>
 IsPartitionError<
     T,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsPartitionIndexError<T>>>
-assert_is_partition(const std::span<T> heavy,
-                    const std::span<T> light,
-                    const std::span<T> elements,
-                    T pivot,
-                    const Allocator& alloc = {}) {
+assert_is_stable_partition(const std::span<T> heavy,
+                           const std::span<T> light,
+                           const std::span<T> elements,
+                           T pivot,
+                           const Allocator& alloc = {}) {
     using Error = IsPartitionError<
         T,
         typename std::allocator_traits<Allocator>::template rebind_alloc<IsPartitionIndexError<T>>>;
@@ -164,11 +119,11 @@ namespace pmr {
 
 template <concepts::partially_ordered T>
 IsPartitionError<T, std::pmr::polymorphic_allocator<IsPartitionIndexError<T>>>
-assert_is_partition(const std::span<T> heavy,
-                    const std::span<T> light,
-                    const std::span<T> elements,
-                    T pivot,
-                    const std::pmr::polymorphic_allocator<void>& alloc = {}) {
+assert_is_stable_partition(const std::span<T> heavy,
+                           const std::span<T> light,
+                           const std::span<T> elements,
+                           T pivot,
+                           const std::pmr::polymorphic_allocator<void>& alloc = {}) {
     return wrs::test::assert_is_partition<T, std::pmr::polymorphic_allocator<void>>(
         heavy, light, elements, pivot, alloc);
 }
