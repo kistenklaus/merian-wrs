@@ -11,9 +11,9 @@ project(
 )
 
 # Debug configuration
-if get_option('buildtype').startswith('debug')
+# if get_option('buildtype').startswith('debug')
   add_project_arguments('-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG', language : 'cpp')
-endif
+# endif
 
 # Dependencies
 merian_subp = subproject('merian')

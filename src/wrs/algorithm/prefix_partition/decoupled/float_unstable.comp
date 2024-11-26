@@ -8,7 +8,8 @@
 #pragma use_vulkan_memory_model
 
 
-#define STABLE
+// #define STABLE
+// #define WRITE_PARTITION
 
 #define monoid float
 #define state_t uint
@@ -297,7 +298,9 @@ void main(void) {
                 uint l = (ix + i) - h; // unflagged element prefix
                 index = (size - 1) - l;
             }
+#ifdef WRITE_PARTITION
             heavyLightPartition[index] = localWeights[i];
+#endif
 
             if (localIsHeavy[i]) {
                 monoid heavyPrefix = rowHeavyExclusivePrefixSum + localHeavyPrefix[i];

@@ -95,8 +95,7 @@ struct DecoupledPrefixPartitionKernelBuffers {
         vk::BufferUsageFlagBits::eStorageBuffer;
 };
 
-template <typename T = float>
-class DecoupledPrefixPartitionKernel {
+template <typename T = float> class DecoupledPrefixPartitionKernel {
     /* static_assert(std::is_same<T, float>(), "Currently only floats as weights are supported"); */
 
 #ifdef NDEBUG
@@ -126,11 +125,26 @@ class DecoupledPrefixPartitionKernel {
                 .add_binding_storage_buffer()
                 .build_push_descriptor_layout(context);
 
+        std::string shaderPath;
+        if (writePartition) {
+            if (stable) {
+                shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/"
+                             "float_stable_write_partition.comp";
+            } else {
+                shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/"
+                             "float_unstable_write_partition.comp";
+            }
+        } else {
+            if (stable) {
+                shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/float_stable.comp";
+            } else {
+                shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/float_unstable.comp";
+            }
+        }
+
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context,
-                "src/wrs/algorithm/prefix_partition/decoupled/shader.comp",
-                vk::ShaderStageFlagBits::eCompute);
+                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -190,12 +204,7 @@ class DecoupledPrefixPartitionKernel {
                 if (buffers.partition.value()->get_buffer() == VK_NULL_HANDLE) {
                     throw std::runtime_error("buffers.partition is VK_NULL_HANDLE");
                 }
-            } else {
-                if (buffers.partition.has_value()) {
-                    throw std::runtime_error(
-                        "buffers.partition is not std::nullopt, but WRITE_PARTITION is set");
-                }
-            }
+            } 
             // CHECK buffer sizes
             if (buffers.elements->get_size() < sizeof(weight_t) * N) {
                 throw std::runtime_error("buffers.elements is to small!");
@@ -257,7 +266,8 @@ class DecoupledPrefixPartitionKernel {
 
 /* template <typename T> */
 /* using DecoupledPrefixPartitionKernel = */
-/*     wrs::DecoupledPrefixPartitionKernel<T, std::pmr::polymorphic_allocator<vk::WriteDescriptorSet>>; */
+/*     wrs::DecoupledPrefixPartitionKernel<T,
+ * std::pmr::polymorphic_allocator<vk::WriteDescriptorSet>>; */
 /* } */
 
 } // namespace wrs

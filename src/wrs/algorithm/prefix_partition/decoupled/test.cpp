@@ -16,6 +16,7 @@
 #include <cstring>
 #include <memory_resource>
 #include <spdlog/spdlog.h>
+#include <stdexcept>
 #include <tuple>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
@@ -313,6 +314,10 @@ void wrs::test::decoupled_prefix_partition::test(const merian::ContextHandle& co
     TestContext c = wrs::test::setupTestContext(context);
 
     auto [buffers, stage] = allocateBuffers(c);
+
+    if (!buffers.partition.has_value()) {
+      throw std::runtime_error("F");
+    }
 
     wrs::memory::StackResource stackResource{buffers.elements->get_size() * 1000};
     wrs::memory::FallbackResource fallbackResource{&stackResource};
