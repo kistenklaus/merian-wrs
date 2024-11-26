@@ -151,8 +151,6 @@ bool runTestCase(const wrs::test::TestContext& context,
                  Buffers& stage,
                  std::pmr::memory_resource* resource,
                  const TestCase& testCase) {
-    // Avoid side effects.
-    context.queue->wait_idle();
     SPDLOG_INFO(fmt::format("Running test case:\n\t-workgroupSize = "
                             "{}\n\t-rows={}\n\t-elementCount={}\n\t-distribution={}\n\t-stable={}"
                             "\n\t-writePartition={}\n\t-iterations={}",
@@ -167,6 +165,9 @@ bool runTestCase(const wrs::test::TestContext& context,
                                                          testCase.stable);
     bool failed = false;
     for (size_t i = 0; i < testCase.iterations; ++i) {
+        // Avoid side effects.
+        context.queue->wait_idle();
+
         if (testCase.iterations > 1) {
             if (testCase.elementCount > 1e6) {
                 SPDLOG_INFO(
@@ -187,9 +188,9 @@ bool runTestCase(const wrs::test::TestContext& context,
         // 1. Generate weights
         std::pmr::vector<weight_t> elements{resource};
         {
-            MERIAN_PROFILE_SCOPE(context.profiler, "Generate weights");
             SPDLOG_DEBUG(fmt::format("Generating {} weights with {}", testCase.elementCount,
                                      wrs::distribution_to_pretty_string(testCase.distribution)));
+            MERIAN_PROFILE_SCOPE(context.profiler, "Generate weights");
             elements = std::move(wrs::pmr::generate_weights<weight_t>(
                 testCase.distribution, testCase.elementCount, resource));
         }
@@ -199,31 +200,31 @@ bool runTestCase(const wrs::test::TestContext& context,
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
         std::string recordingLabel =
             fmt::format("Recoding: [workgroupSize={},rows={},elementCount={},"
-                        "distribution={},stable={},writePartition={}]",
+                        "distribution={},stable={},writePartition={},it={}]",
                         testCase.workgroupSize, testCase.rows, testCase.elementCount,
                         wrs::distribution_to_pretty_string(testCase.distribution), testCase.stable,
-                        testCase.writePartition);
+                        testCase.writePartition, i + 1);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
 
         // 3. Upload weights & pivot & reset descriptor states
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Uploading weights");
             SPDLOG_DEBUG("Uploading weights & pivot");
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Uploading weights");
             uploadTestCase<weight_t>(cmd, elements, pivot, buffers, stage);
         }
 
         // 4. Run test case
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute kernel");
             SPDLOG_DEBUG("Executing kernel");
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute kernel");
             kernel.run(cmd, buffers, testCase.elementCount);
         }
 
         // 5. Download results to stage
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download result to stage");
             SPDLOG_DEBUG("Downloading results to staging buffers");
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download result to stage");
             downloadResultsToStage<weight_t>(cmd, buffers, stage, testCase.writePartition,
                                              testCase.elementCount);
         }
@@ -236,6 +237,7 @@ bool runTestCase(const wrs::test::TestContext& context,
             MERIAN_PROFILE_SCOPE(context.profiler, "Wait for device idle");
             cmd.end();
             context.queue->submit_wait(cmd);
+            context.queue->wait_idle();
         }
 
         // 7. Download from stage
@@ -316,10 +318,10 @@ void wrs::test::decoupled_prefix_partition::test(const merian::ContextHandle& co
     auto [buffers, stage] = allocateBuffers(c);
 
     if (!buffers.partition.has_value()) {
-      throw std::runtime_error("F");
+        throw std::runtime_error("F");
     }
 
-    wrs::memory::StackResource stackResource{buffers.elements->get_size() * 1000};
+    wrs::memory::StackResource stackResource{buffers.elements->get_size() * 10};
     wrs::memory::FallbackResource fallbackResource{&stackResource};
     wrs::memory::SafeResource safeResource{&fallbackResource};
 
@@ -337,8 +339,8 @@ void wrs::test::decoupled_prefix_partition::test(const merian::ContextHandle& co
         stackResource.reset();
     }
     c.profiler->collect();
-    SPDLOG_DEBUG(fmt::format("Profiler results: \n{}",
-                             merian::Profiler::get_report_str(c.profiler->get_report())));
+    SPDLOG_INFO(fmt::format("Profiler results: \n{}",
+                            merian::Profiler::get_report_str(c.profiler->get_report())));
 
     if (failCount == 0) {
         SPDLOG_INFO("decoupled prefix partition algorithm passed all tests");

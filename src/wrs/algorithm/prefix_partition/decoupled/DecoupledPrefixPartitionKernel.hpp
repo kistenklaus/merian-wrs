@@ -204,7 +204,7 @@ template <typename T = float> class DecoupledPrefixPartitionKernel {
                 if (buffers.partition.value()->get_buffer() == VK_NULL_HANDLE) {
                     throw std::runtime_error("buffers.partition is VK_NULL_HANDLE");
                 }
-            } 
+            }
             // CHECK buffer sizes
             if (buffers.elements->get_size() < sizeof(weight_t) * N) {
                 throw std::runtime_error("buffers.elements is to small!");
