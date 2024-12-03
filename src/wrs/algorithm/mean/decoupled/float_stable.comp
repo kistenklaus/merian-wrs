@@ -1,0 +1,291 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_EXT_scalar_block_layout    : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#pragma use_vulkan_memory_model
+
+#define STABLE
+
+#define monoid float
+#define state_t uint
+#define lbstate_t uint
+
+layout(constant_id = 0) const uint GROUP_SIZE = 512;
+layout(constant_id = 1) const uint SUBGROUP_SIZE = 32;
+layout(constant_id = 2) const uint ROWS = 4;
+const uint PARTITION_SIZE = GROUP_SIZE * ROWS;
+const uint SUBGROUP_COUNT = (GROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+const uint DECOUPLED_STATE_NO_AGGREGATE = 0u;
+const uint DECOUPLED_STATE_AGGREGATE = 1u;
+const uint DECOUPLED_STATE_PREFIX = 2u;
+const uint DECOUPLED_STATE_DONT_CARE = 3u;
+
+const uint LOOKBACK_STATE_SPIN = 1u;
+const uint LOOKBACK_STATE_DONE = 0u;
+
+struct DecoupledAgg {
+    monoid aggregate;
+    monoid prefix;
+};
+
+struct DecoupledPartition {
+    monoid aggregate;
+    monoid prefix;
+    state_t state;
+};
+
+layout(set = 0, binding = 0) readonly buffer in_values {
+    monoid elements[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer out_partition {
+    monoid mean;
+};
+
+layout(set = 0, binding = 2) volatile buffer decoupled_states {
+    DecoupledPartition partitions[];
+};
+layout(set = 0, binding = 3) volatile buffer decoupled_aggregates {
+    uint decoupledPartitionCounter;
+    DecoupledAgg decoupled_x[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint size;
+} pc;
+
+// Atomic counter to guarantee forward progess
+shared uint sh_partID;
+
+shared monoid sh_subgroupAggregates[SUBGROUP_COUNT];
+
+shared monoid sh_partitionAggregate;
+
+shared lbstate_t sh_lookBackState;
+
+monoid combineMonoid(monoid a, monoid b) {
+    return a + b;
+}
+
+// see https://research.nvihttps://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-backdia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back for the
+// original paper by NVIDIA.
+monoid decoupledLookback(uint partID, monoid aggregate) {
+    // ================ Publish aggregate & state =====================
+    if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+        // Non atomic write to coherent values.
+        partitions[partID].aggregate = aggregate;
+        if (partID == 0) {
+            partitions[partID].prefix = aggregate;
+        }
+        state_t state = partID == 0 ? DECOUPLED_STATE_PREFIX : DECOUPLED_STATE_AGGREGATE;
+        // This atomicStore creates a *happens-before* relationship
+        // with following atomicLoads, further the atomic release semantics
+        // ensures that all coherent writes before the release operation are visible
+        // after a atomic acquire operation of that value.
+        // NOTE: gl_SemanticsMakeAvailable is only required if aggregate and prefix
+        // are stored in a seperate storage buffer.
+        atomicStore(partitions[partID].state, state, gl_ScopeQueueFamily,
+            gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+    }
+    // ================ Decoupled lookback ==================
+    monoid exclusive = 0;
+    if (partID != 0) {
+        uint lookBackIndex = partID - 1;
+        sh_lookBackState = LOOKBACK_STATE_SPIN;
+        while (true) {
+            state_t predecessorState;
+            if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+                // Performs a atomic acquire this creates a *happens-before* relationship
+                // with the inital atomic acquire above of the acquire below the while loop.
+                // Further the atomic acquire ensures that all following coherent reads,
+                // are guaranteed to read values written before the corresponding release operation.
+                // NOTE: gl_SemanticsMakeVisible is only required if aggregate and prefix
+                // are stored in a seperate storage buffer.
+                predecessorState = atomicLoad(partitions[lookBackIndex].state,
+                        gl_ScopeQueueFamily,
+                        gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+                if (predecessorState == DECOUPLED_STATE_AGGREGATE) {
+                    // "A -- The predecessor’s aggregate field is added to
+                    // exclusive_prefix and the processor continues on to
+                    // inspect the preceding tile" - NVIDIA paper.
+                    exclusive += partitions[lookBackIndex].aggregate;
+                    lookBackIndex -= 1;
+                    sh_lookBackState = LOOKBACK_STATE_SPIN;
+                } else if (predecessorState == DECOUPLED_STATE_PREFIX) {
+                    // "P -- The predecessor’s inclusive_prefix field is added to
+                    // exclusive_prefix and the look-back phase is terminated." - NVIDIA paper.
+                    exclusive += partitions[lookBackIndex].prefix;
+                    sh_lookBackState = LOOKBACK_STATE_DONE;
+                } else if (predecessorState == DECOUPLED_STATE_NO_AGGREGATE) {
+                    // "X -- Block (or continue polling) until the status_flag is
+                    // not X." - NVIDIA paper.
+                    sh_lookBackState = LOOKBACK_STATE_SPIN;
+                }
+            }
+            barrier();
+            lbstate_t lbstate = sh_lookBackState;
+            if (lbstate == LOOKBACK_STATE_DONE) {
+                break;
+            }
+        }
+        if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+            // Non atomic write to coherent memory.
+            partitions[partID].prefix = exclusive + aggregate;
+            // Atomic release operations, which creates a *happens-before* relationship
+            // with acquire operations of the same value.
+            // Gurantees that the coherent write to prefix is visible after
+            // following acquire operations.
+            // NOTE: gl_SemanticsMakeAvailable is only required if aggregate and prefix
+            // are stored in a seperate storage buffer.
+            atomicStore(partitions[partID].state, DECOUPLED_STATE_PREFIX,
+                gl_ScopeQueueFamily, gl_StorageSemanticsBuffer,
+                gl_SemanticsRelease | gl_SemanticsMakeAvailable);
+        }
+    }
+    return exclusive;
+}
+
+void main(void) {
+    // ================== Setting up some constants ==============
+    const uint subgroupID = gl_SubgroupID.x;
+    const uint subInvocID = gl_SubgroupInvocationID.x;
+    const uint invocID = gl_LocalInvocationID.x;
+    const uint N = pc.size;
+
+    // ================== Select partition id! ===================
+    // partition ids are similar to workgroup ids, but
+    // under the forward progess model occupancy bound execution
+    // it is guaranted that if a workgroup selects a partition id X
+    // all workgroups with partition ids less than X are scheduled weakly fair.
+    if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+        sh_partID = atomicAdd(decoupledPartitionCounter, 1);
+    }
+    controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquire);
+    const uint partID = sh_partID;
+
+    // =============== Compute partition aggregate ====================
+    // Compute local aggregate.
+    // "local" here refers to a thread invocation
+    const uint ix = partID * PARTITION_SIZE + invocID * ROWS;
+    monoid localAggregate = 0;
+    uint end = min(ix + ROWS, N);
+    for (uint i = ix; i < end; ++i) {
+        localAggregate += elements[i];
+    }
+    // Compute subgroup aggregate
+    const monoid subgroupAggregate = subgroupAdd(localAggregate);
+    if (subgroupElect()) {
+        sh_subgroupAggregates[subgroupID] = subgroupAggregate;
+    }
+    barrier();
+    // Compute partition (workgroup) aggregate
+    if (subgroupID == 0) {
+        // NOTE: On NVIDIA this will never be more than one iteration
+        // Because max workgroup size is 512 and subgroup size is 32;
+        // therefor the max amount of subgroups per workgroup is 16,
+        // because here we process subgroup size elements per iteration
+        // on NVIDIA we are guaranteed to finish in one iteration.
+        // No idea about AMD thou..
+
+        // It's guaranteed that:
+        // invocID == gl_LocalInvocationID.x == gl_SubgroupInvocationID.x
+        // because subgroupID == 0, we prefer
+        // gl_LocalInvocationID.x because it's already
+        // in registers. Could also be that those constants
+        // have reserved registers.
+        monoid partitionAggregate = 0;
+        for (uint sid = invocID; sid < SUBGROUP_COUNT; sid += SUBGROUP_SIZE) {
+            partitionAggregate += subgroupAdd(sh_subgroupAggregates[sid]);
+        }
+        // invocID == 0 is guaranteed to exit the loop last.
+        if (invocID == 0) {
+            sh_partitionAggregate = partitionAggregate;
+        }
+    }
+    barrier();
+    const monoid partitionAggregate = sh_partitionAggregate;
+
+    // ================ Publish aggregate & state =====================
+    if (invocID == gl_WorkGroupSize.x - 1) {
+        // Non atomic write to coherent values.
+        partitions[partID].aggregate = partitionAggregate;
+        if (partID == 0) {
+            partitions[partID].prefix = partitionAggregate;
+        }
+        state_t state = partID == 0 ? DECOUPLED_STATE_PREFIX : DECOUPLED_STATE_AGGREGATE;
+        // This atomicStore creates a *happens-before* relationship
+        // with following atomicLoads, further the atomic release semantics
+        // ensures that all coherent writes before the release operation are visible
+        // after a atomic acquire operation of that value.
+        // NOTE: gl_SemanticsMakeAvailable is only required if aggregate and prefix
+        // are stored in a seperate storage buffer.
+        atomicStore(partitions[partID].state, state, gl_ScopeQueueFamily,
+            gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+    }
+
+    // ================ Decoupled look back ===============
+    // Performs a decoupled lookback, which essentially computes the
+    // see https://research.nvihttps://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-backdia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back for the
+    // original paper by NVIDIA.
+    uint i = 0;
+    monoid exclusive = 0;
+    if (partID != 0) {
+        uint lookBackIndex = partID - 1;
+        sh_lookBackState = LOOKBACK_STATE_SPIN;
+        while (true) {
+            state_t predecessorState;
+            if (invocID == gl_WorkGroupSize.x - 1) {
+                predecessorState = atomicLoad(partitions[lookBackIndex].state,
+                        gl_ScopeQueueFamily,
+                        gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+                if (predecessorState == DECOUPLED_STATE_AGGREGATE) {
+                    // This should be visible because all
+                    // memory operations that happend before the
+                    // atomic release are visible after the acquire.
+                    exclusive += partitions[lookBackIndex].aggregate;
+
+                    // continue on the previous element
+                    lookBackIndex -= 1;
+                    sh_lookBackState = LOOKBACK_STATE_SPIN;
+                } else if (predecessorState == DECOUPLED_STATE_PREFIX) {
+                    exclusive += partitions[lookBackIndex].prefix;
+                    sh_lookBackState = LOOKBACK_STATE_DONE;
+                } else if (predecessorState == DECOUPLED_STATE_NO_AGGREGATE) {
+                    // continue spining
+                    sh_lookBackState = LOOKBACK_STATE_SPIN;
+                }
+            }
+            barrier();
+            lbstate_t lbstate = sh_lookBackState;
+            if (lbstate == LOOKBACK_STATE_DONE) {
+                break;
+            }
+        }
+        // assuming that this is equivalent to
+        // subgroupID == 0 && subgroupElect(), which should
+        // hopefully be the case!
+        if (invocID == gl_WorkGroupSize.x - 1) {
+            partitions[partID].prefix = exclusive + partitionAggregate;
+        }
+
+        controlBarrier(gl_ScopeWorkgroup, gl_ScopeQueueFamily, gl_StorageSemanticsBuffer | gl_StorageSemanticsShared,
+            gl_SemanticsAcquireRelease);
+
+        if (invocID == gl_WorkGroupSize.x - 1) {
+            atomicStore(partitions[partID].state, DECOUPLED_STATE_PREFIX,
+                gl_ScopeQueueFamily, gl_StorageSemanticsBuffer,
+                gl_SemanticsRelease | gl_SemanticsMakeAvailable);
+        }
+    }
+    barrier();
+    if (partID == gl_NumWorkGroups.x - 1 && invocID == gl_WorkGroupSize.x - 1) {
+        monoid inclusive = exclusive + partitionAggregate;
+        mean = inclusive;
+    }
+}

@@ -160,7 +160,7 @@ bool runTestCase(const wrs::test::TestContext& context,
     // 0. Create algorithm instance
     // NOTE: Allocators are not supported currently.
     SPDLOG_DEBUG("Creating DecoupledPrefixPartitionKernel");
-    wrs::DecoupledPrefixPartitionKernel<weight_t> kernel(context.context, testCase.workgroupSize,
+    wrs::DecoupledPrefixPartition<weight_t> kernel(context.context, testCase.workgroupSize,
                                                          testCase.rows, testCase.writePartition,
                                                          testCase.stable);
     bool failed = false;

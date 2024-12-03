@@ -13,7 +13,7 @@
 
 namespace wrs {
 
-struct DecoupledPrefixPartitionKernelBuffers {
+struct DecoupledPrefixPartitionBuffers {
     /**
      * Buffer, which contains all elements
      * over which the partition and the
@@ -61,7 +61,7 @@ struct DecoupledPrefixPartitionKernelBuffers {
                                                            uint32_t workgroupSize,
                                                            uint32_t rows,
                                                            size_t sizeof_weight) {
-        uint32_t partitionSize = workgroupSize * rows;
+        const uint32_t partitionSize = workgroupSize * rows;
         return minBatchDescriptorSize(N, partitionSize, sizeof_weight);
     }
 
@@ -95,11 +95,11 @@ struct DecoupledPrefixPartitionKernelBuffers {
         vk::BufferUsageFlagBits::eStorageBuffer;
 };
 
-template <typename T = float> class DecoupledPrefixPartitionKernel {
+template <typename T = float> class DecoupledPrefixPartition {
     /* static_assert(std::is_same<T, float>(), "Currently only floats as weights are supported"); */
 
 #ifdef NDEBUG
-    static constexpr bool CHECK_PARAMETERS = true;
+    static constexpr bool CHECK_PARAMETERS = false;
 #else
     static constexpr bool CHECK_PARAMETERS = true;
 #endif
@@ -109,7 +109,7 @@ template <typename T = float> class DecoupledPrefixPartitionKernel {
     static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 512;
     static constexpr uint32_t DEFAULT_ROWS = 4;
 
-    DecoupledPrefixPartitionKernel(const merian::ContextHandle& context,
+    DecoupledPrefixPartition(const merian::ContextHandle& context,
                                    uint32_t workgroupSize = DEFAULT_WORKGROUP_SIZE,
                                    uint32_t rows = DEFAULT_ROWS,
                                    bool writePartition = false,
@@ -127,7 +127,7 @@ template <typename T = float> class DecoupledPrefixPartitionKernel {
 
         std::string shaderPath;
         if (writePartition) {
-            if (stable) {
+            if (m_stable) {
                 shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/"
                              "float_stable_write_partition.comp";
             } else {
@@ -135,7 +135,7 @@ template <typename T = float> class DecoupledPrefixPartitionKernel {
                              "float_unstable_write_partition.comp";
             }
         } else {
-            if (stable) {
+            if (m_stable) {
                 shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/float_stable.comp";
             } else {
                 shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/float_unstable.comp";
@@ -179,7 +179,7 @@ template <typename T = float> class DecoupledPrefixPartitionKernel {
         }
     }
     void
-    run(vk::CommandBuffer cmd, const DecoupledPrefixPartitionKernelBuffers& buffers, uint32_t N) {
+    run(vk::CommandBuffer cmd, const DecoupledPrefixPartitionBuffers& buffers, uint32_t N) {
         if constexpr (CHECK_PARAMETERS) {
             // CHECK for VK_NULL_HANDLE
             if (cmd == VK_NULL_HANDLE) {
@@ -246,18 +246,14 @@ template <typename T = float> class DecoupledPrefixPartitionKernel {
     }
 
     vk::DeviceSize minBufferDescriptorSize(uint32_t N) {
-        uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
-        vk::DeviceSize batchDescriptorSize =
-            4 * sizeof(weight_t) + 2 * sizeof(uint32_t) + sizeof(uint32_t);
-        // TODO consider proper padding this is just a upper bound for a guess!
-        batchDescriptorSize += sizeof(uint32_t) * 4;
-        return batchDescriptorSize * workgroupCount;
+      return DecoupledPrefixPartitionBuffers::minBatchDescriptorSize(N, m_partitionSize,
+          sizeof(weight_t));
     }
 
   private:
     const uint32_t m_partitionSize;
     const bool m_writePartition;
-    const bool m_stable;
+    const bool m_stable; // TODO does not need to be stored!! only required during construction
     merian::PipelineHandle m_pipeline;
     std::vector<vk::WriteDescriptorSet> m_writes;
 };

@@ -23,7 +23,7 @@ allocateBuffers(const wrs::test::TestContext& context) {
             sizeof_weight(testCase.weight_type) * testCase.elementCount;
         vk::DeviceSize pivotBufferSize = sizeof_weight(testCase.weight_type);
         vk::DeviceSize batchBufferSize =
-            wrs::DecoupledPrefixPartitionKernelBuffers::minBatchDescriptorSize(
+            wrs::DecoupledPrefixPartitionBuffers::minBatchDescriptorSize(
                 testCase.elementCount, testCase.workgroupSize * testCase.rows,
                 sizeof_weight(testCase.weight_type));
         vk::DeviceSize prefixBufferSize =

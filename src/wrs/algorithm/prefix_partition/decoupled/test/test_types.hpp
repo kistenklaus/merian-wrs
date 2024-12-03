@@ -2,9 +2,10 @@
 
 #include "src/wrs/algorithm/prefix_partition/decoupled/DecoupledPrefixPartitionKernel.hpp"
 #include "src/wrs/gen/weight_generator.h"
+#include <stdexcept>
 namespace wrs::test::decoupled_prefix_partition {
 
-using Buffers = wrs::DecoupledPrefixPartitionKernelBuffers;
+using Buffers = wrs::DecoupledPrefixPartitionBuffers;
 
 enum WeightT {
     WEIGHT_T_FLOAT,
@@ -21,6 +22,7 @@ static vk::DeviceSize sizeof_weight(WeightT ty) {
         /*case WEIGHT_T_UINT:*/
         /*    return sizeof(uint32_t);*/
     }
+    throw std::runtime_error("OH NO");
 }
 
 struct TestCase {
