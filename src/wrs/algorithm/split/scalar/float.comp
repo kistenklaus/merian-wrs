@@ -1,0 +1,130 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_EXT_scalar_block_layout    : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+#pragma use_vulkan_memory_model
+
+// For some reason precise is required to avoid numerical instabilities 
+// against the reference for testing.
+#define monoid precise float
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct Split {
+    uint i;
+    uint j;
+    monoid spill;
+};
+
+layout(set = 0, binding = 0) readonly buffer in_partitionPrefixSums {
+    uint heavyCount;
+    monoid heavyLight[];
+} partitionPrefix;
+
+layout(set = 0, binding = 1) readonly buffer in_weightAverage {
+    monoid mean;
+} meta;
+
+layout(set = 0, binding = 2) writeonly buffer out_splits {
+    Split splits[];
+};
+
+layout(push_constant) uniform push_constants {
+    uint K;
+    uint N;
+} pc;
+
+uint heavyCount;
+uint lightCount;
+uint lightPrefixFirst;
+
+bool heavyPrefixAt(uint i, out monoid heavyPrefix) {
+    if (i < heavyCount) {
+        heavyPrefix = partitionPrefix.heavyLight[i];
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool lightPrefixAt(uint i, out monoid lightPrefix) {
+    if (i < lightCount) {
+        lightPrefix = partitionPrefix.heavyLight[lightPrefixFirst - i];
+        return true;
+    } else {
+        return false;
+    }
+}
+
+uint ceilDiv(uint a, uint b) {
+    if (a == 0) {
+        return 0;
+    }
+    return 1 + ((a - 1) / b); // avoids overflows
+}
+
+void main(void) {
+    const uint N = pc.N;
+    const uint K = pc.K;
+    const monoid mean = meta.mean;
+    heavyCount = partitionPrefix.heavyCount;
+    lightCount = N - heavyCount;
+    lightPrefixFirst = N - 1;
+
+    const uint k = gl_WorkGroupID.x + 1;
+    const uint n = ceilDiv(N * k, K);
+
+    const monoid target = mean * n;
+
+    if (gl_WorkGroupID.x == 0)  {
+      splits[K - 1].i = N;
+      splits[K - 1].j = N;
+      splits[K - 1].spill = 0;
+    }
+
+    uint a = 0;
+    uint b = min(n, heavyCount) - 1;
+
+    while (true) {
+        const uint j = (a + b) / 2;
+        const uint i = min(n - j, lightCount - 1);
+
+        monoid heavy = partitionPrefix.heavyLight[j];
+        // if (!heavyPrefixAt(j, heavy)) {
+        //   splits[gl_WorkGroupID.x].i = 42;
+        //   splits[gl_WorkGroupID.x].j = 49;
+        //   splits[gl_WorkGroupID.x].spill = 420;
+        //   return;
+        // }
+        monoid heavy2 = partitionPrefix.heavyLight[j + 1];
+        // if (!heavyPrefixAt(j + 1, heavy2)) {
+        //   splits[gl_WorkGroupID.x].i = 42;
+        //   splits[gl_WorkGroupID.x].j = 49;
+        //   splits[gl_WorkGroupID.x].spill = 420;
+        //   return;
+        // }
+
+        monoid light = partitionPrefix.heavyLight[lightPrefixFirst - i];
+        if (!lightPrefixAt(i, light)) {
+          splits[gl_WorkGroupID.x].i = 42;
+          splits[gl_WorkGroupID.x].j = 49;
+          splits[gl_WorkGroupID.x].spill = 420;
+          return;
+        }
+
+        const monoid sigma = light + heavy;
+        const monoid sigma2 = light + heavy2;
+        if (sigma <= target && sigma2 > target) {
+            splits[gl_WorkGroupID.x].i = i;
+            splits[gl_WorkGroupID.x].j = j;
+            splits[gl_WorkGroupID.x].spill = sigma2 - target;
+            return;
+        } else if (sigma <= target) {
+            a = j + 1;
+        } else {
+            b = j - 1;
+        }
+    }
+}

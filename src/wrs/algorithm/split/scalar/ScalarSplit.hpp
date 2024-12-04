@@ -1,0 +1,168 @@
+#pragma once
+
+#include "merian/vk/context.hpp"
+#include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
+#include "merian/vk/pipeline/pipeline.hpp"
+#include "merian/vk/pipeline/pipeline_compute.hpp"
+#include "merian/vk/pipeline/pipeline_layout_builder.hpp"
+#include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include <concepts>
+#include <memory>
+#include <stdexcept>
+#include <tuple>
+#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan_handles.hpp>
+
+namespace wrs {
+
+struct ScalarSplitBuffers {
+
+    /**
+     * Buffer which contains the prefix sums over both the heavy and light
+     * partitions.
+     *
+     * Layout:
+     * First 4byte word contains the amount of heavy items
+     * The following heavyCount 4byte words contain the prefix sum over
+     * heavy items in accending order.
+     * After the prefix sum over the heavy items
+     * the prefix sum of the light elements in decending order.
+     *
+     */
+    merian::BufferHandle partitionPrefix;
+    static constexpr vk::BufferUsageFlags PARTITION_PREFIX_BUFFER_USAGE_FLAGS =
+        vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr vk::DeviceSize minPartitionPrefixBufferSize(uint32_t N, size_t sizeOfWeight) {
+        return sizeof(uint32_t) + sizeOfWeight * N;
+    }
+
+    /**
+     * Buffer which simply contains the average weight.
+     */
+    merian::BufferHandle mean;
+    static constexpr vk::BufferUsageFlags MEAN_BUFFER_USAGE_FLAGS = 
+      vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr vk::DeviceSize minMeanBufferSize(size_t sizeOfWeight) {
+      return sizeOfWeight;
+    }
+
+
+    /**
+     * Buffer which contains the resulting splits!
+     */
+    merian::BufferHandle splits;
+    static constexpr vk::BufferUsageFlags SPLITS_BUFFER_USAGE_FLAGS =
+        vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr vk::DeviceSize minSplitBufferSize(uint32_t K, size_t sizeOfWeight) {
+        vk::DeviceSize sizeOfSplitDescriptor = sizeof(uint32_t) + sizeof(uint32_t) + sizeOfWeight;
+        return sizeOfSplitDescriptor * K;
+    }
+
+    template <typename weight_t> struct Split {
+        uint32_t i;
+        uint32_t j;
+        weight_t spill;
+    };
+};
+
+template <typename T = float> class ScalarSplit {
+    static_assert(std::same_as<T, float>, "Other weights are currently not supported");
+
+  private:
+#ifdef NDEBUG
+    static constexpr bool CHECK_PARAMETERS = false;
+#else
+    static constexpr bool CHECK_PARAMETERS = true;
+#endif
+  public:
+    using weight_t = T;
+
+    ScalarSplit(const merian::ContextHandle& context) {
+        const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
+            merian::DescriptorSetLayoutBuilder()
+                .add_binding_storage_buffer() // partition prefix sums
+                .add_binding_storage_buffer() // mean
+                .add_binding_storage_buffer() // splits
+                .build_push_descriptor_layout(context);
+        std::string shaderPath = "src/wrs/algorithm/split/scalar/float.comp";
+        const merian::ShaderModuleHandle shader =
+            context->shader_compiler->find_compile_glsl_to_shadermodule(
+                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+
+        const merian::PipelineLayoutHandle pipelineLayout =
+            merian::PipelineLayoutBuilder(context)
+                .add_descriptor_set_layout(descriptorSet0Layout)
+                .add_push_constant<std::tuple<uint32_t, uint32_t>>()
+                .build_pipeline_layout();
+
+        merian::SpecializationInfoBuilder specInfoBuilder;
+        const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
+
+        m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
+
+        m_writes.resize(3);
+        vk::WriteDescriptorSet& partitionPrefix = m_writes[0];
+        partitionPrefix.setDstBinding(0);
+        partitionPrefix.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+        vk::WriteDescriptorSet& mean = m_writes[1];
+        mean.setDstBinding(1);
+        mean.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+        vk::WriteDescriptorSet& splits = m_writes[2];
+        splits.setDstBinding(2);
+        splits.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+    }
+
+    void run(vk::CommandBuffer cmd, const ScalarSplitBuffers& buffers, uint32_t N, uint32_t K) {
+
+        if constexpr (CHECK_PARAMETERS) {
+          // Null checks
+          if (cmd == VK_NULL_HANDLE) {
+            throw std::runtime_error("cmd (-buffer) is VK_NULL_HANDLE");
+          }
+          if (buffers.partitionPrefix == VK_NULL_HANDLE) {
+            throw std::runtime_error("buffers.partitionPrefix is VK_NULL_HANDLE");
+          }
+          if (buffers.mean == VK_NULL_HANDLE) {
+            throw std::runtime_error("buffers.mean is VK_NULL_HANDLE");
+          }
+          if (buffers.splits == VK_NULL_HANDLE) {
+            throw std::runtime_error("buffers.splits is VK_NULL_HANDLE");
+          }
+          // Size checks
+          if (buffers.partitionPrefix->get_size() < ScalarSplitBuffers::minPartitionPrefixBufferSize(N, sizeof(weight_t))) {
+            throw std::runtime_error(fmt::format("buffers.partitionPrefix is to small!\n"
+                  "Requires : {}, Got {}", ScalarSplitBuffers::minPartitionPrefixBufferSize(N, sizeof(weight_t)),
+                  buffers.partitionPrefix->get_size()));
+          }
+          if (buffers.mean->get_size() < ScalarSplitBuffers::minMeanBufferSize(sizeof(weight_t))) {
+            throw std::runtime_error("buffers.mean is to small!");
+          }
+          if (buffers.splits->get_size() < ScalarSplitBuffers::minSplitBufferSize(K, sizeof(weight_t))) {
+            throw std::runtime_error("buffers.splits is to small!");
+          }
+          if (N < K) {
+            throw std::runtime_error("WTF are you doing");
+          }
+        }
+
+        m_pipeline->bind(cmd);
+
+        vk::DescriptorBufferInfo prefixDesc = buffers.partitionPrefix->get_descriptor_info();
+        m_writes[0].setBufferInfo(prefixDesc);
+        vk::DescriptorBufferInfo meanDesc = buffers.mean->get_descriptor_info();
+        m_writes[1].setBufferInfo(meanDesc);
+        vk::DescriptorBufferInfo splitDesc = buffers.splits->get_descriptor_info();
+        m_writes[2].setBufferInfo(splitDesc);
+        m_pipeline->push_descriptor_set(cmd, m_writes);
+
+        // NOTE: tuples are stored in reverse order by entries (makes it a bit weird when mapping)
+        m_pipeline->push_constant<std::tuple<uint32_t, uint32_t>>(cmd, std::make_tuple(N, K));
+        cmd.dispatch(K - 1, 1, 1);
+    }
+
+  private:
+    merian::PipelineHandle m_pipeline;
+    std::vector<vk::WriteDescriptorSet> m_writes;
+};
+
+} // namespace wrs

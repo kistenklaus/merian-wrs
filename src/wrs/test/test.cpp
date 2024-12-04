@@ -12,7 +12,9 @@
 #include "src/wrs/reference/partition.hpp"
 #include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/reduce.hpp"
+#include "src/wrs/reference/split.hpp"
 #include "src/wrs/test/is_partition.hpp"
+#include "src/wrs/test/is_split.hpp"
 #include <fmt/base.h>
 #include <fmt/format.h>
 #include <functional>
@@ -114,6 +116,31 @@ static void testReduceReference(std::pmr::memory_resource* resource) {
             throw std::runtime_error("Test of test failed: wrs::reference::reduce is wrong!");
         }
     }
+}
+
+static void testSplitTests(std::pmr::memory_resource* resource) {
+  
+  size_t N = 1024 * 2048;
+  size_t K = 1024;
+  std::pmr::vector<float> weights = wrs::pmr::generate_weights<float>(wrs::Distribution::PSEUDO_RANDOM_UNIFORM, N, resource);
+
+  float reduction = wrs::reference::reduce<float>(weights);
+  float average = reduction / static_cast<float>(weights.size());
+
+  auto [heavy, light, storage] = wrs::reference::pmr::stable_partition<float>(weights, average, resource);
+
+  std::pmr::vector<float> heavyPrefix = wrs::reference::pmr::prefix_sum<float>(heavy, false, resource);
+  std::pmr::vector<float> lightPrefix = wrs::reference::pmr::prefix_sum<float>(light, false, resource);
+
+  auto splits = wrs::reference::pmr::splitK<float>(heavyPrefix, lightPrefix, average, N, K, resource);
+
+  wrs::test::pmr::assert_is_split<float>(splits, heavyPrefix, lightPrefix, average, resource);
+
+
+
+
+  /* wrs::reference::splitK(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, size_t N, size_t K) */
+
 }
 
 void wrs::test::testTests() {

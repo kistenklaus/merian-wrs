@@ -72,7 +72,7 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
         break;
     }
     case Distribution::PSEUDO_RANDOM_UNIFORM: {
-        std::mt19937 rng{2};
+        std::mt19937 rng{13500993188786726366ull};
         std::uniform_real_distribution<T> dist{0.0f, 1.0f};
         for (size_t i = 0; i < weights.size(); ++i) {
             if (enableLogging && nextChunk == i) {
@@ -100,7 +100,9 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
     case Distribution::SEEDED_RANDOM_UNIFORM: {
         std::random_device seedRng{};
         std::uniform_int_distribution<uint64_t> seedDist{1, std::numeric_limits<uint64_t>::max()};
-        std::mt19937 rng{seedDist(seedRng)};
+        uint64_t seed = seedDist(seedRng);
+        SPDLOG_DEBUG(fmt::format("Seeding mt19937 with seed = {}", seed));
+        std::mt19937 rng{seed};
         std::uniform_real_distribution<T> dist{0.0f, 1.0f};
         for (size_t i = 0; i < weights.size(); ++i) {
             if (enableLogging && nextChunk == i) {

@@ -318,10 +318,6 @@ void wrs::test::decoupled_prefix_partition::test(const merian::ContextHandle& co
 
     auto [buffers, stage] = allocateBuffers(c);
 
-    if (!buffers.partition.has_value()) {
-        throw std::runtime_error("F");
-    }
-
     wrs::memory::StackResource stackResource{buffers.elements->get_size() * 10};
     wrs::memory::FallbackResource fallbackResource{&stackResource};
     wrs::memory::SafeResource safeResource{&fallbackResource};

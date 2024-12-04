@@ -2,22 +2,14 @@
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
-#include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test.hpp"
 #include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
-#include "src/wrs/alias_table/baseline/algo/PartitionAndPrefixSum.hpp"
-#include "src/wrs/alias_table/baseline/algo/PrefixSumAvg.hpp"
+#include "src/wrs/algorithm/split/scalar/test.hpp"
 #include "src/wrs/test/test.hpp"
-#include "wrs/alias_table/baseline/BaselineAliasTable.hpp"
-#include <algorithm>
-#include <iostream>
 #include <memory>
-#include <random>
 #include <set>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
-
-constexpr bool RANDOM_WEIGHTS = true;
 
 int main() {
 
@@ -39,7 +31,8 @@ int main() {
 
 
     wrs::test::testTests();
-    wrs::test::decoupled_mean::test(context);
-    wrs::test::decoupled_prefix_partition::test(context);
+    /* wrs::test::decoupled_mean::test(context); */
+    /* wrs::test::decoupled_prefix_partition::test(context); */
+    /* wrs::test::scalar_split::test(context); */
     /* wrs::baseline::PartitionAndPrefixSum::testAndBench(context); */
 }
