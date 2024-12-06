@@ -31,8 +31,8 @@ int main() {
 
 
     wrs::test::testTests();
-    /* wrs::test::decoupled_mean::test(context); */
-    /* wrs::test::decoupled_prefix_partition::test(context); */
-    /* wrs::test::scalar_split::test(context); */
+    wrs::test::decoupled_mean::test(context);
+    wrs::test::decoupled_prefix_partition::test(context);
+    wrs::test::scalar_split::test(context);
     /* wrs::baseline::PartitionAndPrefixSum::testAndBench(context); */
 }

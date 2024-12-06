@@ -133,6 +133,7 @@ static void runTestCase(const wrs::test::TestContext& context,
     for (size_t i = 0; i < testCase.iterations; ++i) {
 
         context.queue->wait_idle();
+        context.profiler->collect(true, true);
 
         if (testCase.iterations > 1) {
             if (testCase.weightCount > 5e5) {

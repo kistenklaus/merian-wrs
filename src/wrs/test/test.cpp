@@ -119,28 +119,35 @@ static void testReduceReference(std::pmr::memory_resource* resource) {
 }
 
 static void testSplitTests(std::pmr::memory_resource* resource) {
-  
-  size_t N = 1024 * 2048;
-  size_t K = 1024;
-  std::pmr::vector<float> weights = wrs::pmr::generate_weights<float>(wrs::Distribution::PSEUDO_RANDOM_UNIFORM, N, resource);
 
-  float reduction = wrs::reference::reduce<float>(weights);
-  float average = reduction / static_cast<float>(weights.size());
+    size_t N = 1024 * 2048;
+    size_t K = 2048;
+    std::pmr::vector<float> weights =
+        wrs::pmr::generate_weights<float>(wrs::Distribution::SEEDED_RANDOM_UNIFORM, N, resource);
 
-  auto [heavy, light, storage] = wrs::reference::pmr::stable_partition<float>(weights, average, resource);
+    float reduction = wrs::reference::reduce<float>(weights);
+    float average = reduction / static_cast<float>(weights.size());
 
-  std::pmr::vector<float> heavyPrefix = wrs::reference::pmr::prefix_sum<float>(heavy, false, resource);
-  std::pmr::vector<float> lightPrefix = wrs::reference::pmr::prefix_sum<float>(light, false, resource);
+    auto [heavy, light, storage] =
+        wrs::reference::pmr::stable_partition<float>(weights, average, resource);
 
-  auto splits = wrs::reference::pmr::splitK<float>(heavyPrefix, lightPrefix, average, N, K, resource);
+    std::pmr::vector<float> heavyPrefix =
+        wrs::reference::pmr::prefix_sum<float>(heavy, false, resource);
+    std::pmr::vector<float> lightPrefix =
+        wrs::reference::pmr::prefix_sum<float>(light, false, resource);
 
-  wrs::test::pmr::assert_is_split<float>(splits, heavyPrefix, lightPrefix, average, resource);
+    std::pmr::vector<wrs::test::internal::Split<float>> splits =
+        wrs::reference::pmr::splitK<float>(heavyPrefix, lightPrefix, average, N, K, resource);
 
+    auto err = wrs::test::pmr::assert_is_split<float>(splits, K, heavyPrefix, lightPrefix, average,
+                                                      0.01, resource);
+    if (err) {
+        SPDLOG_ERROR(fmt::format("Test of tests failed: split of it's assertion are invalid\n{}",
+                                 err.message()));
+    }
 
-
-
-  /* wrs::reference::splitK(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, size_t N, size_t K) */
-
+    /* wrs::reference::splitK(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T
+     * mean, size_t N, size_t K) */
 }
 
 void wrs::test::testTests() {
@@ -160,6 +167,10 @@ void wrs::test::testTests() {
     SPDLOG_DEBUG("Testing inclusive prefix assertion tests");
     stackResource.reset();
     testPrefixTests(&resource);
+
+    SPDLOG_DEBUG("Testing split assertion tests");
+    stackResource.reset();
+    testSplitTests(&resource);
 
     SPDLOG_INFO("Tested tests and references successfully!");
 }

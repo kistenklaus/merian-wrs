@@ -28,26 +28,33 @@ split(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, si
     size_t a = 0;
     size_t b = std::min(n, heavyPrefix.size()) - 1;
 
+    constexpr T error_margin = T{} / 100;
+
     T target = mean * n;
 
     while (true) {
         const size_t j = (a + b) / 2;
         const size_t i = std::min(n - j, lightPrefix.size() - 1);
 
+        if (a > b) {
+            const T light = internal::spanAt(lightPrefix, i);
+            const T sigma2 = light + internal::spanAt(heavyPrefix, j + 1);
+            /* fmt::println("YUCK: NOT SURE IF THIS IS CORRECT CHECKME IF THIS WEIRD STUFF HAPPENS " */
+            /*              "DOWN THE LINE"); */
+            return std::make_tuple(i, j, sigma2 - target);
+        }
 
         const T heavy = internal::spanAt(heavyPrefix, j);
         const T light = internal::spanAt(lightPrefix, i);
         const T sigma = light + heavy;
         const T sigma2 = light + internal::spanAt(heavyPrefix, j + 1);
 
-        if (a > b) {
-            return std::make_tuple(i, j, sigma2 - target);
-        }
-
-        if (sigma <= target && sigma2 > target) {
-            return std::make_tuple(i, j, sigma2 - target);
-        } else if (sigma <= target) {
-            a = j + 1;
+        if (sigma <= target) {
+            if (sigma2 > target) {
+                return std::make_tuple(i, j, sigma2 - target);
+            } else {
+                a = j + 1;
+            }
         } else {
             b = j - 1;
         }

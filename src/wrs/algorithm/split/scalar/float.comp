@@ -6,7 +6,7 @@
 #extension GL_KHR_shader_subgroup_vote : enable
 #pragma use_vulkan_memory_model
 
-// For some reason precise is required to avoid numerical instabilities 
+// For some reason precise is required to avoid numerical instabilities
 // against the reference for testing.
 #define monoid precise float
 
@@ -78,53 +78,44 @@ void main(void) {
 
     const monoid target = mean * n;
 
-    if (gl_WorkGroupID.x == 0)  {
-      splits[K - 1].i = N;
-      splits[K - 1].j = N;
-      splits[K - 1].spill = 0;
+    if (gl_WorkGroupID.x == 0) {
+        splits[K - 1].i = N;
+        splits[K - 1].j = N;
+        splits[K - 1].spill = 0;
     }
 
     uint a = 0;
     uint b = min(n, heavyCount) - 1;
 
+    uint j, i;
+    monoid sigma2;
     while (true) {
-        const uint j = (a + b) / 2;
-        const uint i = min(n - j, lightCount - 1);
+        j = (a + b) / 2;
+        i = min(n - j, lightCount - 1);
 
-        monoid heavy = partitionPrefix.heavyLight[j];
-        // if (!heavyPrefixAt(j, heavy)) {
-        //   splits[gl_WorkGroupID.x].i = 42;
-        //   splits[gl_WorkGroupID.x].j = 49;
-        //   splits[gl_WorkGroupID.x].spill = 420;
-        //   return;
-        // }
-        monoid heavy2 = partitionPrefix.heavyLight[j + 1];
-        // if (!heavyPrefixAt(j + 1, heavy2)) {
-        //   splits[gl_WorkGroupID.x].i = 42;
-        //   splits[gl_WorkGroupID.x].j = 49;
-        //   splits[gl_WorkGroupID.x].spill = 420;
-        //   return;
-        // }
-
-        monoid light = partitionPrefix.heavyLight[lightPrefixFirst - i];
-        if (!lightPrefixAt(i, light)) {
-          splits[gl_WorkGroupID.x].i = 42;
-          splits[gl_WorkGroupID.x].j = 49;
-          splits[gl_WorkGroupID.x].spill = 420;
-          return;
+        if (a > b) {
+            sigma2 = partitionPrefix.heavyLight[lightPrefixFirst - i]
+                    + partitionPrefix.heavyLight[j + 1];
+            break;
         }
 
+        monoid heavy = partitionPrefix.heavyLight[j];
+        monoid heavy2 = partitionPrefix.heavyLight[j + 1];
+        monoid light = partitionPrefix.heavyLight[lightPrefixFirst - i];
+
         const monoid sigma = light + heavy;
-        const monoid sigma2 = light + heavy2;
-        if (sigma <= target && sigma2 > target) {
-            splits[gl_WorkGroupID.x].i = i;
-            splits[gl_WorkGroupID.x].j = j;
-            splits[gl_WorkGroupID.x].spill = sigma2 - target;
-            return;
-        } else if (sigma <= target) {
-            a = j + 1;
+        if (sigma <= target) {
+            sigma2 = light + heavy2;
+            if (sigma2 > target) {
+                break;
+            } else {
+                a = j + 1;
+            }
         } else {
             b = j - 1;
         }
     }
+    splits[gl_WorkGroupID.x].i = i;
+    splits[gl_WorkGroupID.x].j = j;
+    splits[gl_WorkGroupID.x].spill = sigma2 - target;
 }
