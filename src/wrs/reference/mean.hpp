@@ -7,7 +7,7 @@ namespace wrs::reference {
 template <typename T, typename Allocator = std::allocator<T>>
 T mean(const std::span<T> elements, const Allocator& alloc = {}) {
     // NOTE: probably not the most numerically stable solution. 
-    T reduction = wrs::reference::reduce(elements, alloc);
+    T reduction = wrs::reference::tree_reduction(elements, alloc);
     return reduction / static_cast<T>(elements.size());
 }
 

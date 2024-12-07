@@ -185,7 +185,7 @@ void runTestCase(const TestContext& context,
         }
 
         // Compute reference
-        elem_t referenceReduction = wrs::reference::reduce<elem_t>(elements);
+        elem_t referenceReduction = wrs::reference::tree_reduction<elem_t>(elements);
         elem_t referenceMean = referenceReduction / testCase.elementCount;
 
         if (std::abs(referenceMean - mean) > 0.01) {

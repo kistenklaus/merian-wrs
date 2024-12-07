@@ -13,6 +13,8 @@
 #include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/reduce.hpp"
 #include "src/wrs/reference/split.hpp"
+#include "src/wrs/reference/sweeping_alias_table.hpp"
+#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/is_partition.hpp"
 #include "src/wrs/test/is_split.hpp"
 #include <fmt/base.h>
@@ -93,12 +95,13 @@ static void testPrefixTests(std::pmr::memory_resource* resource) {
 }
 
 static void testReduceReference(std::pmr::memory_resource* resource) {
+    // ======== Tree reductions ============
     {
         constexpr size_t ELEM_COUNT = 1e4;
         auto elements =
             wrs::pmr::generate_weights<float>(wrs::Distribution::UNIFORM, ELEM_COUNT, resource);
 
-        auto reduction = wrs::reference::pmr::reduce<float>(elements, resource);
+        auto reduction = wrs::reference::pmr::tree_reduction<float>(elements, resource);
         if (std::abs(reduction - static_cast<float>(ELEM_COUNT)) > 0.01) {
             throw std::runtime_error("Test of test failed: wrs::reference::reduce is wrong!");
         }
@@ -109,13 +112,68 @@ static void testReduceReference(std::pmr::memory_resource* resource) {
         auto elements = wrs::pmr::generate_weights<float>(wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
                                                           ELEM_COUNT, resource);
 
-        auto reduction = wrs::reference::pmr::reduce<float>(elements, resource);
+        auto reduction = wrs::reference::pmr::tree_reduction<float>(elements, resource);
         auto stdReduction =
             std::accumulate(elements.begin(), elements.end(), 0.0f, std::plus<float>());
         if (std::abs(reduction - stdReduction) > 0.01) {
             throw std::runtime_error("Test of test failed: wrs::reference::reduce is wrong!");
         }
     }
+    // ======== Block reductions ============
+    {
+        constexpr size_t ELEM_COUNT = 1e4;
+        auto elements =
+            wrs::pmr::generate_weights<float>(wrs::Distribution::UNIFORM, ELEM_COUNT, resource);
+
+        auto reduction = wrs::reference::pmr::block_reduction<float>(elements, 128, resource);
+        if (std::abs(reduction - static_cast<float>(ELEM_COUNT)) > 0.01) {
+            throw std::runtime_error(fmt::format(
+                "Test of test failed: wrs::reference::reduce is wrong!\nExpected = {}, Got = {}",
+                ELEM_COUNT, reduction));
+        }
+    }
+    {
+        constexpr size_t ELEM_COUNT = 1e4;
+        auto elements = wrs::pmr::generate_weights<float>(wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
+                                                          ELEM_COUNT, resource);
+
+        auto reduction = wrs::reference::pmr::block_reduction<float>(elements, 128, resource);
+        auto stdReduction =
+            std::accumulate(elements.begin(), elements.end(), 0.0f, std::plus<float>());
+        if (std::abs(reduction - stdReduction) > 0.01) {
+            throw std::runtime_error("Test of test failed: wrs::reference::reduce is wrong!");
+        }
+    }
+
+    // ========== Comparing numerical stability ==========
+    {
+        constexpr size_t ELEM_COUNT = 1e7;
+        auto elements =
+            wrs::pmr::generate_weights<float>(wrs::Distribution::UNIFORM, ELEM_COUNT, resource);
+
+        auto reduction = wrs::reference::pmr::tree_reduction<float>(elements, resource);
+        if (std::abs(reduction - static_cast<float>(ELEM_COUNT)) > 0.01) {
+            SPDLOG_WARN(
+                fmt::format("Numerical instability of tree reduction over {} uniform values: {}",
+                            static_cast<float>(ELEM_COUNT),
+                            std::abs(reduction - static_cast<float>(ELEM_COUNT))));
+        }
+    }
+    /* for (size_t blockSize = 2; blockSize < 512; blockSize++) { */
+    /* SPDLOG_DEBUG(fmt::format("blockSize = {}", blockSize)); */
+    constexpr std::size_t blockSize = 128;
+    constexpr size_t ELEM_COUNT = 1e7;
+    auto elements =
+        wrs::pmr::generate_weights<float>(wrs::Distribution::UNIFORM, ELEM_COUNT, resource);
+
+    auto reduction = wrs::reference::pmr::block_reduction<float>(elements, blockSize, resource);
+    if (std::abs(reduction - static_cast<float>(ELEM_COUNT)) > 0.01) {
+        SPDLOG_WARN(fmt::format("Numerical instability of block reduction over {} uniform "
+                                "values with blockSize = {} is {}",
+                                static_cast<float>(ELEM_COUNT), blockSize,
+                                std::abs(reduction - static_cast<float>(ELEM_COUNT))));
+    }
+    /* } */
 }
 
 static void testSplitTests(std::pmr::memory_resource* resource) {
@@ -125,7 +183,7 @@ static void testSplitTests(std::pmr::memory_resource* resource) {
     std::pmr::vector<float> weights =
         wrs::pmr::generate_weights<float>(wrs::Distribution::SEEDED_RANDOM_UNIFORM, N, resource);
 
-    float reduction = wrs::reference::reduce<float>(weights);
+    float reduction = wrs::reference::tree_reduction<float>(weights);
     float average = reduction / static_cast<float>(weights.size());
 
     auto [heavy, light, storage] =
@@ -150,6 +208,43 @@ static void testSplitTests(std::pmr::memory_resource* resource) {
      * mean, size_t N, size_t K) */
 }
 
+static void testAliasTableTest(std::pmr::memory_resource* resource) {
+
+    // ============= SWEEPING-ALIAS-TABLE-CONSTRUCTION ===========
+    {
+        // NOTE: Sweeping alias table construction is not very stable =^( 
+        // It continously accumulates and error which we then find in the last element.
+        // TODO: There are probably a bunch of ways how this can be improved one change 
+        // that is not in the original implementation that we did here is 
+        // that we normalize the alias table meaning that the redirection probablities 
+        // are not dependent on the original weights, this however might be one 
+        // point why we accumulate the error, because we work with pretty small numbers.
+        // The original paper stores probablities relative to the average weight
+        // and then removes the bias during sampling. For better abstraction we 
+        // have to reduce all alias table constructions into a normalized form,
+        // which may be one point where we introduce the instability, because the original
+        // paper does not show any instabilities that these ranges. They might however also be 
+        // using doubles instead of floats (Not sure about that)
+        size_t N = 1e4;
+        std::pmr::vector<float> weights = wrs::pmr::generate_weights<float>(
+            wrs::Distribution::SEEDED_RANDOM_UNIFORM, N, resource);
+        float totalWeight = wrs::reference::pmr::tree_reduction<float>(weights, resource);
+
+        SPDLOG_DEBUG("Compute reference");
+        std::pmr::vector<std::tuple<float, std::size_t>> aliasTable =
+            wrs::reference::pmr::sweeping_alias_table<float, float>(weights, totalWeight, resource);
+
+        SPDLOG_DEBUG("Test assertion");
+        const auto err = wrs::test::pmr::assert_is_alias_table<float, float>(
+            weights, aliasTable, totalWeight, 1e-4, resource);
+        if (err) {
+            SPDLOG_ERROR(fmt::format(
+                "Test of tests failed: alias table references or assertions are invalid.\n{}",
+                err.message()));
+        }
+    }
+}
+
 void wrs::test::testTests() {
     SPDLOG_DEBUG("Testing tests...");
     wrs::memory::StackResource stackResource{10000 * sizeof(float)};
@@ -171,6 +266,10 @@ void wrs::test::testTests() {
     SPDLOG_DEBUG("Testing split assertion tests");
     stackResource.reset();
     testSplitTests(&resource);
+
+    SPDLOG_DEBUG("Testing alias table assertion tests");
+    stackResource.reset();
+    testAliasTableTest(&resource);
 
     SPDLOG_INFO("Tested tests and references successfully!");
 }
