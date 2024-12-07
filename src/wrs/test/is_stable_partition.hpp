@@ -1,12 +1,11 @@
 #pragma once
 
 #include "src/wrs/test/is_partition.hpp"
-#include "src/wrs/test/partially_ordered.hpp"
 #include <memory>
 #include <span>
 namespace wrs::test {
 
-template <wrs::concepts::partially_ordered T, typename Allocator = std::allocator<void>>
+template <std::totally_ordered T, wrs::generic_allocator Allocator = std::allocator<void>>
 IsPartitionError<
     T,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsPartitionIndexError<T>>>
@@ -113,7 +112,7 @@ assert_is_stable_partition(const std::span<T> heavy,
 
 namespace pmr {
 
-template <concepts::partially_ordered T>
+template <std::totally_ordered T>
 IsPartitionError<T, std::pmr::polymorphic_allocator<IsPartitionIndexError<T>>>
 assert_is_stable_partition(const std::span<T> heavy,
                            const std::span<T> light,

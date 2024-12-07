@@ -1,7 +1,8 @@
 #pragma once
 
-#include "src/wrs/test/partially_ordered.hpp"
+#include "src/wrs/why.hpp"
 #include <algorithm>
+#include <concepts>
 #include <memory>
 #include <span>
 #include <spdlog/spdlog.h>
@@ -16,7 +17,7 @@ enum IsPartitionErrorType : unsigned int {
     IS_PARTITION_ERROR_TYPE_INVALID_ELEMENT = 4,
 };
 
-template <typename T> struct IsPartitionIndexError {
+template <std::totally_ordered T> struct IsPartitionIndexError {
     IsPartitionErrorType type;
     size_t index;
     size_t elementIndex;
@@ -25,7 +26,7 @@ template <typename T> struct IsPartitionIndexError {
     T value;
 };
 
-template <typename T, typename Allocator> struct IsPartitionError {
+template <std::totally_ordered T, wrs::generic_allocator Allocator> struct IsPartitionError {
     using Type = IsPartitionErrorType;
     using IError = IsPartitionIndexError<T>;
     using allocator = std::allocator_traits<Allocator>::template rebind_alloc<IError>;
@@ -55,7 +56,7 @@ template <typename T, typename Allocator> struct IsPartitionError {
     }
 };
 
-template <wrs::concepts::partially_ordered T, typename Allocator = std::allocator<void>>
+template <std::totally_ordered T, wrs::generic_allocator Allocator = std::allocator<void>>
 IsPartitionError<
     T,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsPartitionIndexError<T>>>
@@ -162,7 +163,7 @@ assert_is_partition(const std::span<T> heavy,
 
 namespace pmr {
 
-template <concepts::partially_ordered T>
+template <std::totally_ordered T>
 IsPartitionError<T, std::pmr::polymorphic_allocator<IsPartitionIndexError<T>>>
 assert_is_partition(const std::span<T> heavy,
                     const std::span<T> light,

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "src/wrs/why.hpp"
 #include <cstdint>
 #include <fmt/base.h>
 #include <fmt/format.h>
@@ -23,7 +24,8 @@ struct WeightGenInfo {
 
 std::string distribution_to_pretty_string(Distribution dist);
 
-template <typename T = float, typename Allocator = std::allocator<T>>
+// The current implementation only works for floating point numbers
+template <std::floating_point T = float, wrs::typed_allocator<T> Allocator = std::allocator<T>>
 std::vector<T, Allocator>
 generate_weights(const Distribution distribution, uint32_t count, const Allocator alloc = {}) {
     std::vector<T, Allocator> weights{count, alloc};
@@ -111,7 +113,7 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
 
 namespace pmr {
 
-template <typename T = float>
+template <std::floating_point T = float>
 std::pmr::vector<T> generate_weights(const Distribution distribution,
                                      uint32_t count,
                                      const std::pmr::polymorphic_allocator<T>& alloc) {

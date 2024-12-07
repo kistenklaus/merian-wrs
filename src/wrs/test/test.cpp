@@ -193,7 +193,7 @@ static void testSplitTests(std::pmr::memory_resource* resource) {
     std::pmr::vector<float> lightPrefix =
         wrs::reference::pmr::prefix_sum<float>(light, false, resource);
 
-    std::pmr::vector<wrs::test::internal::Split<float>> splits =
+    std::pmr::vector<wrs::split_t<float>> splits =
         wrs::reference::pmr::splitK<float>(heavyPrefix, lightPrefix, average, N, K, resource);
 
     auto err = wrs::test::pmr::assert_is_split<float>(splits, K, heavyPrefix, lightPrefix, average,

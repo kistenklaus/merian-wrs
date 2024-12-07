@@ -1,5 +1,6 @@
 #pragma once
 
+#include "src/wrs/generic_types.hpp"
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -7,17 +8,10 @@
 #include <fmt/base.h>
 #include <memory>
 #include <ranges>
-#include <span>
 #include <sstream>
-#include <tuple>
 #include <utility>
 #include <vector>
 namespace wrs::test {
-
-namespace internal {
-template <typename T> using Split = std::tuple<std::size_t, std::size_t, T>;
-
-}
 
 enum IsSplitErrorType : std::uint8_t {
     IS_SPLIT_ERROR_TYPE_NONE = 0x0,
@@ -28,11 +22,11 @@ enum IsSplitErrorType : std::uint8_t {
     IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT = 0x10,
 };
 
-template <typename T> struct IsSplitIndexError {
+template <wrs::arithmetic T> struct IsSplitIndexError {
     using Type = IsSplitErrorType;
     Type type;
     std::size_t index;
-    internal::Split<T> split;
+    wrs::split_t<T> split;
     size_t n;
     T target;
     T sigma;
@@ -70,8 +64,7 @@ template <typename T> struct IsSplitIndexError {
     }
 };
 
-template <typename T, typename Allocator = std::allocator<IsSplitIndexError<T>>>
-struct IsSplitError {
+template <wrs::arithmetic T, wrs::generic_allocator Allocator> struct IsSplitError {
     using Type = IsSplitErrorType;
     using IndexError = IsSplitIndexError<T>;
     using allocator = std::allocator_traits<Allocator>::template rebind_alloc<IndexError>;
@@ -113,10 +106,10 @@ struct IsSplitError {
     }
 };
 
-template <typename T, typename Allocator = std::allocator<void>>
+template <wrs::arithmetic T, wrs::generic_allocator Allocator = std::allocator<void>>
 IsSplitError<T,
              typename std::allocator_traits<Allocator>::template rebind_alloc<IsSplitIndexError<T>>>
-assert_is_split(std::span<internal::Split<T>> splits,
+assert_is_split(std::span<wrs::split_t<T>> splits,
                 std::size_t K,
                 std::span<T> heavyPrefix,
                 std::span<T> lightPrefix,
@@ -244,9 +237,9 @@ assert_is_split(std::span<internal::Split<T>> splits,
 }
 
 namespace pmr {
-template <typename T>
+template <wrs::arithmetic T>
 IsSplitError<T, std::pmr::polymorphic_allocator<IsSplitIndexError<T>>>
-assert_is_split(std::span<internal::Split<T>> splits,
+assert_is_split(std::span<wrs::split_t<T>> splits,
                 std::size_t K,
                 std::span<T> heavyPrefix,
                 std::span<T> lightPrefix,

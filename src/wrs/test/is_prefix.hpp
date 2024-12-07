@@ -1,5 +1,6 @@
 #pragma once
 
+#include "src/wrs/why.hpp"
 #include <fmt/base.h>
 #include <fmt/format.h>
 #include <memory>
@@ -18,7 +19,7 @@ enum IsPrefixErrorType : unsigned int {
     IS_PREFIX_ERROR_TYPE_NOT_A_PREFIX_SUM = 8,
 };
 
-template <typename T> struct IsPrefixIndexError {
+template <wrs::arithmetic T> struct IsPrefixIndexError {
     using Type = IsPrefixErrorType;
 
     Type type = IS_PREFIX_ERROR_TYPE_NONE;
@@ -51,7 +52,7 @@ template <typename T> struct IsPrefixIndexError {
     }
 };
 
-template <typename T, typename Allocator> struct IsPrefixError {
+template <wrs::arithmetic T, wrs::generic_allocator Allocator> struct IsPrefixError {
     using allocator =
         std::allocator_traits<Allocator>::template rebind_alloc<IsPrefixIndexError<T>>;
     using IError = IsPrefixIndexError<T>;
@@ -92,7 +93,7 @@ template <typename T, typename Allocator> struct IsPrefixError {
     }
 };
 
-template <typename T, typename Allocator = std::allocator<void>>
+template <wrs::arithmetic T, wrs::generic_allocator Allocator = std::allocator<void>>
 IsPrefixError<
     T,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsPrefixIndexError<T>>>
@@ -221,7 +222,7 @@ assert_is_inclusive_prefix(const std::span<T> elements,
 
 namespace pmr {
 
-template <typename T>
+template <wrs::arithmetic T>
 IsPrefixError<T, std::pmr::polymorphic_allocator<IsPrefixIndexError<T>>>
 assert_is_inclusive_prefix(const std::span<T> elements,
                            const std::span<T> prefix,

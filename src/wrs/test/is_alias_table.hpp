@@ -1,5 +1,6 @@
 #pragma once
 
+#include "src/wrs/why.hpp"
 #include <concepts>
 #include <memory>
 #include <ranges>
@@ -16,7 +17,7 @@ enum IsAliasTableErrorType : std::uint8_t {
     IS_ALIAS_TABLE_ERROR_TYPE_UNDERSAMPLED_WEIGHT = 0x8,
 };
 
-template <typename T, std::floating_point P> struct IsAliasTableIndexError {
+template <wrs::arithmetic T, std::floating_point P> struct IsAliasTableIndexError {
     using ErrorType = IsAliasTableErrorType;
 
     ErrorType type;
@@ -43,7 +44,7 @@ template <typename T, std::floating_point P> struct IsAliasTableIndexError {
     }
 };
 
-template <typename T, std::floating_point P, typename Allocator> struct IsAliasTableError {
+template <wrs::arithmetic T, std::floating_point P, wrs::generic_allocator Allocator> struct IsAliasTableError {
     using IndexError = IsAliasTableIndexError<T, P>;
     using ErrorType = IsAliasTableErrorType;
 
@@ -94,7 +95,7 @@ template <typename T, std::floating_point P, typename Allocator> struct IsAliasT
     };
 };
 
-template <typename T, std::floating_point P, typename Allocator>
+template <wrs::arithmetic T, std::floating_point P, wrs::generic_allocator Allocator>
 IsAliasTableError<
     T,
     P,
@@ -184,7 +185,7 @@ assert_is_alias_table(std::span<T> weights,
 }
 
 namespace pmr {
-template <typename T, std::floating_point P>
+template <wrs::arithmetic T, std::floating_point P>
 IsAliasTableError<T, P, std::pmr::polymorphic_allocator<IsAliasTableIndexError<T, P>>>
 assert_is_alias_table(std::span<T> weights,
                       std::span<std::tuple<P, std::size_t>> aliasTable,
