@@ -1,5 +1,6 @@
 #pragma once
 
+#include "src/wrs/why.hpp"
 #include <cassert>
 #include <concepts>
 #include <fmt/base.h>
@@ -7,7 +8,6 @@
 #include <memory>
 #include <numeric>
 #include <span>
-#include <stdexcept>
 #include <vector>
 namespace wrs::reference {
 
@@ -26,7 +26,7 @@ namespace wrs::reference {
  * future implementation could utilize this to improve stability.
  * (e.g inital sorting).
  */
-template <typename T, typename Allocator = std::allocator<T>>
+template <wrs::arithmetic T, wrs::typed_allocator<T> Allocator = std::allocator<T>>
     requires(std::same_as<typename Allocator::value_type, T>)
 T tree_reduction(const std::span<T> elements, const Allocator& alloc = {}) {
     std::vector<T, Allocator> scratch(elements.begin(), elements.end(), alloc);
@@ -40,10 +40,10 @@ T tree_reduction(const std::span<T> elements, const Allocator& alloc = {}) {
     return scratch.front();
 }
 
-template <typename T, typename Allocator = std::allocator<T>>
+template <wrs::arithmetic T, wrs::typed_allocator<T> Allocator = std::allocator<T>>
     requires(std::same_as<typename Allocator::value_type, T>)
 T block_reduction(const std::span<T> elements, std::size_t blockSize, const Allocator& alloc = {}) {
-  assert(blockSize > 1);
+    assert(blockSize > 1);
     std::span<T> elements2 = elements;
     std::size_t N = elements.size();
     std::size_t numBlocks = (N + blockSize - 1) / blockSize;
@@ -54,9 +54,9 @@ T block_reduction(const std::span<T> elements, std::size_t blockSize, const Allo
             /* fmt::println("block {}", block); */
             std::size_t blockOffset = block * blockSize;
             /* fmt::println("Acc"); */
-            blockSums[block] = std::accumulate(
-                elements2.begin() + blockOffset,
-                elements2.begin() + std::min(blockOffset + blockSize, N), T{});
+            blockSums[block] =
+                std::accumulate(elements2.begin() + blockOffset,
+                                elements2.begin() + std::min(blockOffset + blockSize, N), T{});
             /* fmt::println("Acc Done"); */
         }
         /* fmt::println("OUT OF LOOP = {:?}", blockSums); */
@@ -85,16 +85,16 @@ namespace pmr {
  * future implementation could utilize this to improve stability.
  * (e.g inital sorting).
  */
-template <typename T>
+template <wrs::arithmetic T>
 inline T tree_reduction(const std::span<T> elements,
-                 const std::pmr::polymorphic_allocator<T>& alloc = {}) {
+                        const std::pmr::polymorphic_allocator<T>& alloc = {}) {
     return wrs::reference::tree_reduction(elements, alloc);
 }
 
-template <typename T>
+template <wrs::arithmetic T>
 inline T block_reduction(const std::span<T> elements,
-                  std::size_t blockSize,
-                  const std::pmr::polymorphic_allocator<T>& alloc = {}) {
+                         std::size_t blockSize,
+                         const std::pmr::polymorphic_allocator<T>& alloc = {}) {
     return wrs::reference::block_reduction<T>(elements, blockSize, alloc);
 }
 

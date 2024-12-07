@@ -7,7 +7,6 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include <stdexcept>
-#include <type_traits>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_enums.hpp>
 
@@ -110,10 +109,10 @@ template <typename T = float> class DecoupledPrefixPartition {
     static constexpr uint32_t DEFAULT_ROWS = 4;
 
     DecoupledPrefixPartition(const merian::ContextHandle& context,
-                                   uint32_t workgroupSize = DEFAULT_WORKGROUP_SIZE,
-                                   uint32_t rows = DEFAULT_ROWS,
-                                   bool writePartition = false,
-                                   bool stable = false)
+                             uint32_t workgroupSize = DEFAULT_WORKGROUP_SIZE,
+                             uint32_t rows = DEFAULT_ROWS,
+                             bool writePartition = false,
+                             bool stable = false)
         : m_partitionSize(workgroupSize * rows), m_writePartition(writePartition), m_stable(stable),
           m_writes() {
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
@@ -178,8 +177,7 @@ template <typename T = float> class DecoupledPrefixPartition {
             partitionDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
         }
     }
-    void
-    run(vk::CommandBuffer cmd, const DecoupledPrefixPartitionBuffers& buffers, uint32_t N) {
+    void run(vk::CommandBuffer cmd, const DecoupledPrefixPartitionBuffers& buffers, uint32_t N) {
         if constexpr (CHECK_PARAMETERS) {
             // CHECK for VK_NULL_HANDLE
             if (cmd == VK_NULL_HANDLE) {
@@ -246,8 +244,8 @@ template <typename T = float> class DecoupledPrefixPartition {
     }
 
     vk::DeviceSize minBufferDescriptorSize(uint32_t N) {
-      return DecoupledPrefixPartitionBuffers::minBatchDescriptorSize(N, m_partitionSize,
-          sizeof(weight_t));
+        return DecoupledPrefixPartitionBuffers::minBatchDescriptorSize(N, m_partitionSize,
+                                                                       sizeof(weight_t));
     }
 
   private:

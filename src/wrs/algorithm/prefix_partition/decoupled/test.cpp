@@ -1,4 +1,5 @@
 #include "./test.hpp"
+
 #include "./test/test_setup.h"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/prefix_partition/decoupled/DecoupledPrefixPartitionKernel.hpp"
@@ -22,6 +23,18 @@
 #include <vulkan/vulkan_handles.hpp>
 
 using namespace wrs::test::decoupled_prefix_partition;
+
+vk::DeviceSize wrs::test::decoupled_prefix_partition::sizeOfWeight(WeightT ty) {
+    switch (ty) {
+    case WEIGHT_T_FLOAT:
+        return sizeof(float);
+        /*case WEIGHT_T_DOUBLE:*/
+        /*    return sizeof(double);*/
+        /*case WEIGHT_T_UINT:*/
+        /*    return sizeof(uint32_t);*/
+    }
+    throw std::runtime_error("OH NO");
+}
 
 template <typename weight_t>
 static void uploadTestCase(vk::CommandBuffer cmd,
@@ -161,8 +174,8 @@ bool runTestCase(const wrs::test::TestContext& context,
     // NOTE: Allocators are not supported currently.
     SPDLOG_DEBUG("Creating DecoupledPrefixPartitionKernel");
     wrs::DecoupledPrefixPartition<weight_t> kernel(context.context, testCase.workgroupSize,
-                                                         testCase.rows, testCase.writePartition,
-                                                         testCase.stable);
+                                                   testCase.rows, testCase.writePartition,
+                                                   testCase.stable);
     bool failed = false;
     for (size_t i = 0; i < testCase.iterations; ++i) {
         // Avoid side effects.

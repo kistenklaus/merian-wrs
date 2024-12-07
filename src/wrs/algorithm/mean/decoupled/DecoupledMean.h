@@ -99,7 +99,9 @@ template <typename T = float> class DecoupledMean {
                 .add_push_constant<uint32_t>() // size
                 .build_pipeline_layout();
         merian::SpecializationInfoBuilder specInfoBuilder;
-        specInfoBuilder.add_entry(workgroupSize, context->physical_device.physical_device_subgroup_properties.subgroupSize, rows);
+        specInfoBuilder.add_entry(
+            workgroupSize,
+            context->physical_device.physical_device_subgroup_properties.subgroupSize, rows);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
@@ -148,7 +150,8 @@ template <typename T = float> class DecoupledMean {
                 throw std::runtime_error("buffers.decoupledStates is to small!");
             }
             if (buffers.decoupledAggregates->get_size() <
-                DecoupledMeanBuffers::minDecoupledAggregatesSize(N, m_partitionSize, sizeof(elem_t))) {
+                DecoupledMeanBuffers::minDecoupledAggregatesSize(N, m_partitionSize,
+                                                                 sizeof(elem_t))) {
                 throw std::runtime_error("buffers.decoupledAggregates is to small!");
             }
         }

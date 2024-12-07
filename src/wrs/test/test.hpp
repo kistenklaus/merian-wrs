@@ -2,8 +2,7 @@
 
 #include "merian/vk/memory/resource_allocator.hpp"
 #include "merian/vk/utils/profiler.hpp"
-#include <memory>
-#include <tuple>
+
 namespace wrs::test {
 
 struct TestContext {

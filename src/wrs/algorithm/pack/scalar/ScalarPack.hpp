@@ -12,13 +12,13 @@
 namespace wrs {
 
 struct ScalarPackBuffers {
-  merian::BufferHandle splits;
+    merian::BufferHandle splits;
 
-  merian::BufferHandle mean;
+    merian::BufferHandle mean;
 
-  merian::BufferHandle heavyLightPartition;
+    merian::BufferHandle heavyLightPartition;
 
-  merian::BufferHandle aliasTable;
+    merian::BufferHandle aliasTable;
 };
 
 template <typename T> class ScalarPack {

@@ -40,12 +40,11 @@ struct ScalarSplitBuffers {
      * Buffer which simply contains the average weight.
      */
     merian::BufferHandle mean;
-    static constexpr vk::BufferUsageFlags MEAN_BUFFER_USAGE_FLAGS = 
-      vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr vk::BufferUsageFlags MEAN_BUFFER_USAGE_FLAGS =
+        vk::BufferUsageFlagBits::eStorageBuffer;
     static constexpr vk::DeviceSize minMeanBufferSize(size_t sizeOfWeight) {
-      return sizeOfWeight;
+        return sizeOfWeight;
     }
-
 
     /**
      * Buffer which contains the resulting splits!
@@ -115,34 +114,39 @@ template <typename T = float> class ScalarSplit {
     void run(vk::CommandBuffer cmd, const ScalarSplitBuffers& buffers, uint32_t N, uint32_t K) {
 
         if constexpr (CHECK_PARAMETERS) {
-          // Null checks
-          if (cmd == VK_NULL_HANDLE) {
-            throw std::runtime_error("cmd (-buffer) is VK_NULL_HANDLE");
-          }
-          if (buffers.partitionPrefix == VK_NULL_HANDLE) {
-            throw std::runtime_error("buffers.partitionPrefix is VK_NULL_HANDLE");
-          }
-          if (buffers.mean == VK_NULL_HANDLE) {
-            throw std::runtime_error("buffers.mean is VK_NULL_HANDLE");
-          }
-          if (buffers.splits == VK_NULL_HANDLE) {
-            throw std::runtime_error("buffers.splits is VK_NULL_HANDLE");
-          }
-          // Size checks
-          if (buffers.partitionPrefix->get_size() < ScalarSplitBuffers::minPartitionPrefixBufferSize(N, sizeof(weight_t))) {
-            throw std::runtime_error(fmt::format("buffers.partitionPrefix is to small!\n"
-                  "Requires : {}, Got {}", ScalarSplitBuffers::minPartitionPrefixBufferSize(N, sizeof(weight_t)),
-                  buffers.partitionPrefix->get_size()));
-          }
-          if (buffers.mean->get_size() < ScalarSplitBuffers::minMeanBufferSize(sizeof(weight_t))) {
-            throw std::runtime_error("buffers.mean is to small!");
-          }
-          if (buffers.splits->get_size() < ScalarSplitBuffers::minSplitBufferSize(K, sizeof(weight_t))) {
-            throw std::runtime_error("buffers.splits is to small!");
-          }
-          if (N < K) {
-            throw std::runtime_error("WTF are you doing");
-          }
+            // Null checks
+            if (cmd == VK_NULL_HANDLE) {
+                throw std::runtime_error("cmd (-buffer) is VK_NULL_HANDLE");
+            }
+            if (buffers.partitionPrefix == VK_NULL_HANDLE) {
+                throw std::runtime_error("buffers.partitionPrefix is VK_NULL_HANDLE");
+            }
+            if (buffers.mean == VK_NULL_HANDLE) {
+                throw std::runtime_error("buffers.mean is VK_NULL_HANDLE");
+            }
+            if (buffers.splits == VK_NULL_HANDLE) {
+                throw std::runtime_error("buffers.splits is VK_NULL_HANDLE");
+            }
+            // Size checks
+            if (buffers.partitionPrefix->get_size() <
+                ScalarSplitBuffers::minPartitionPrefixBufferSize(N, sizeof(weight_t))) {
+                throw std::runtime_error(fmt::format(
+                    "buffers.partitionPrefix is to small!\n"
+                    "Requires : {}, Got {}",
+                    ScalarSplitBuffers::minPartitionPrefixBufferSize(N, sizeof(weight_t)),
+                    buffers.partitionPrefix->get_size()));
+            }
+            if (buffers.mean->get_size() <
+                ScalarSplitBuffers::minMeanBufferSize(sizeof(weight_t))) {
+                throw std::runtime_error("buffers.mean is to small!");
+            }
+            if (buffers.splits->get_size() <
+                ScalarSplitBuffers::minSplitBufferSize(K, sizeof(weight_t))) {
+                throw std::runtime_error("buffers.splits is to small!");
+            }
+            if (N < K) {
+                throw std::runtime_error("WTF are you doing");
+            }
         }
 
         m_pipeline->bind(cmd);

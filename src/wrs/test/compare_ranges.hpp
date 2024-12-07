@@ -1,8 +1,7 @@
 #pragma once
 
-#include <concepts>
+#include "src/wrs/why.hpp"
 #include <memory>
-#include <memory_resource>
 #include <ranges>
 #include <type_traits>
 #include <vector>
@@ -43,7 +42,7 @@ struct CompareResults {
 
 template <std::ranges::sized_range R1,
           std::ranges::sized_range R2,
-          typename ErrorAllocator = std::allocator<void>>
+          wrs::generic_allocator ErrorAllocator = std::allocator<void>>
 std::unique_ptr<CompareResults<std::ranges::range_value_t<R1>,
                                std::ranges::range_value_t<R2>,
                                std::ranges::range_size_t<R1>,

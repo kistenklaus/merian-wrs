@@ -10,7 +10,7 @@
 
 namespace wrs::test::decoupled_mean {
 
-static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
+inline std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
     Buffers buffers;
     Buffers stage;
 
@@ -69,8 +69,8 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
         merian::MemoryMappingType::HOST_ACCESS_RANDOM);
 
     buffers.decoupledAggregates = context.alloc->createBuffer(
-        maxDecoupledAggBufferSize, Buffers::DECOUPLED_AGGREGATES_BUFFER_USAGE_FLAGS 
-        | vk::BufferUsageFlagBits::eTransferSrc,
+        maxDecoupledAggBufferSize,
+        Buffers::DECOUPLED_AGGREGATES_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferSrc,
         merian::MemoryMappingType::NONE);
     stage.decoupledAggregates = context.alloc->createBuffer(
         maxDecoupledAggBufferSize,

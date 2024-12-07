@@ -59,8 +59,9 @@ template <typename T> struct IsSplitIndexError {
             }
         }
         if (type & IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT) {
-          ss << "\t\t\tBroken Invariant: i + j = n\n";
-          ss << "\t\t\t\ti = " << std::get<0>(split) << ", j = " << std::get<1>(split) << ", n = " << n << "\n";
+            ss << "\t\t\tBroken Invariant: i + j = n\n";
+            ss << "\t\t\t\ti = " << std::get<0>(split) << ", j = " << std::get<1>(split)
+               << ", n = " << n << "\n";
         }
         if (type & IS_SPLIT_ERROR_TYPE_BROKEN_SIGMA_INVARIANT) {
             ss << "\t\t\tBroken Invariant: " << sigma << " <= " << target << " && " << sigma2
@@ -191,7 +192,7 @@ assert_is_split(std::span<internal::Split<T>> splits,
         const size_t temp = N * k;
         const size_t n = 1 + ((temp - 1) / K);
         if (i + j != n) {
-          type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT;
+            type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT;
         }
 
         // Invariant:

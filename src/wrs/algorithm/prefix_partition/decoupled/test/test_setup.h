@@ -3,16 +3,11 @@
 #include "src/wrs/algorithm/prefix_partition/decoupled/DecoupledPrefixPartitionKernel.hpp"
 #include "src/wrs/algorithm/prefix_partition/decoupled/test/test_cases.hpp"
 #include "src/wrs/algorithm/prefix_partition/decoupled/test/test_types.hpp"
-#include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/test/test.hpp"
-#include <memory>
-#include <memory_resource>
-#include <type_traits>
 
 namespace wrs::test::decoupled_prefix_partition {
 
-static std::tuple<Buffers, Buffers>
-allocateBuffers(const wrs::test::TestContext& context) {
+inline std::tuple<Buffers, Buffers> allocateBuffers(const wrs::test::TestContext& context) {
     vk::DeviceSize maxElementBufferSize = 0;
     vk::DeviceSize maxPivotBufferSize = 0;
     vk::DeviceSize maxBatchBufferSize = 0;
@@ -20,17 +15,17 @@ allocateBuffers(const wrs::test::TestContext& context) {
     vk::DeviceSize maxPartitionBufferSize = 0;
     for (const auto& testCase : TEST_CASES) {
         vk::DeviceSize elementBufferSize =
-            sizeof_weight(testCase.weight_type) * testCase.elementCount;
-        vk::DeviceSize pivotBufferSize = sizeof_weight(testCase.weight_type);
+            sizeOfWeight(testCase.weight_type) * testCase.elementCount;
+        vk::DeviceSize pivotBufferSize = sizeOfWeight(testCase.weight_type);
         vk::DeviceSize batchBufferSize =
             wrs::DecoupledPrefixPartitionBuffers::minBatchDescriptorSize(
                 testCase.elementCount, testCase.workgroupSize * testCase.rows,
-                sizeof_weight(testCase.weight_type));
+                sizeOfWeight(testCase.weight_type));
         vk::DeviceSize prefixBufferSize =
-            sizeof(uint32_t) + sizeof_weight(testCase.weight_type) * testCase.elementCount;
+            sizeof(uint32_t) + sizeOfWeight(testCase.weight_type) * testCase.elementCount;
 
         vk::DeviceSize partitionBufferSize =
-            testCase.writePartition ? sizeof_weight(testCase.weight_type) * testCase.elementCount
+            testCase.writePartition ? sizeOfWeight(testCase.weight_type) * testCase.elementCount
                                     : 0;
 
         maxElementBufferSize = std::max(elementBufferSize, maxElementBufferSize);

@@ -28,18 +28,18 @@ template <typename T, std::floating_point P> struct IsAliasTableIndexError {
     IsAliasTableIndexError() = default;
 
     void appendMessageToStringStream(std::stringstream& ss, size_t N) const {
-      ss << "\tFailure at index: " << index <<  "\n";
-      if (type & IS_ALIAS_TABLE_ERROR_TYPE_INVALID_ALIAS) {
-        ss << "\t\tAlias (" << alias << ") out of bound. (Bound = " << N << ")\n";
-      }
-      if (type & IS_ALIAS_TABLE_ERROR_TYPE_OVERSAMPLED_WEIGHT) {
-        ss << "\t\tWeight oversampled!\n";
-        ss << "\t\t\tExpected: " << weight << ", Got: " << sampledWeight << "\n";
-      }
-      if (type & IS_ALIAS_TABLE_ERROR_TYPE_UNDERSAMPLED_WEIGHT) {
-        ss << "\t\tWeight undersampled!\n";
-        ss << "\t\t\tExpected: " << weight << ", Got: " << sampledWeight << "\n";
-      }
+        ss << "\tFailure at index: " << index << "\n";
+        if (type & IS_ALIAS_TABLE_ERROR_TYPE_INVALID_ALIAS) {
+            ss << "\t\tAlias (" << alias << ") out of bound. (Bound = " << N << ")\n";
+        }
+        if (type & IS_ALIAS_TABLE_ERROR_TYPE_OVERSAMPLED_WEIGHT) {
+            ss << "\t\tWeight oversampled!\n";
+            ss << "\t\t\tExpected: " << weight << ", Got: " << sampledWeight << "\n";
+        }
+        if (type & IS_ALIAS_TABLE_ERROR_TYPE_UNDERSAMPLED_WEIGHT) {
+            ss << "\t\tWeight undersampled!\n";
+            ss << "\t\t\tExpected: " << weight << ", Got: " << sampledWeight << "\n";
+        }
     }
 };
 
@@ -67,20 +67,20 @@ template <typename T, std::floating_point P, typename Allocator> struct IsAliasT
     std::string message() const {
         std::stringstream ss;
         if (type & IS_ALIAS_TABLE_ERROR_TYPE_INVALID_SIZE) {
-          ss << "AssertionFailed: The size of the alias table is incorrect:\n";
-          ss << "\tExpected: " << N << ", Got: " << N_got << "\n";
-          return ss.str();
+            ss << "AssertionFailed: The size of the alias table is incorrect:\n";
+            ss << "\tExpected: " << N << ", Got: " << N_got << "\n";
+            return ss.str();
         }
         ss << "AssertionFailed: At " << errors.size() << " out of " << N << " indicies\n";
         ss << "\tWith failures:\n";
         if (type & IS_ALIAS_TABLE_ERROR_TYPE_INVALID_ALIAS) {
-          ss << "\t\t-INVALID_ALIAS\n";
+            ss << "\t\t-INVALID_ALIAS\n";
         }
         if (type & IS_ALIAS_TABLE_ERROR_TYPE_UNDERSAMPLED_WEIGHT) {
-          ss << "\t\t-UNDERSAMPLED_WEIGHT\n";
+            ss << "\t\t-UNDERSAMPLED_WEIGHT\n";
         }
         if (type & IS_ALIAS_TABLE_ERROR_TYPE_OVERSAMPLED_WEIGHT) {
-          ss << "\t\t-OVERSAMPLED_WEIGHT\n";
+            ss << "\t\t-OVERSAMPLED_WEIGHT\n";
         }
 
         constexpr std::size_t MAX_LOG = 3;

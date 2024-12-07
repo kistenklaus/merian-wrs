@@ -1,14 +1,13 @@
 
-#include <concepts>
+#include "src/wrs/why.hpp"
 #include <cstdint>
 #include <memory_resource>
-#include <numeric>
 #include <ranges>
 #include <type_traits>
 #include <vector>
 namespace wrs::reference {
 
-template <typename T, typename Allocator = std::allocator<T>>
+template <wrs::arithmetic T, wrs::typed_allocator<T> Allocator = std::allocator<T>>
 std::vector<T, Allocator>
 prefix_sum(const std::span<T> elements, bool ensureMonotone = true, const Allocator& alloc = {}) {
     std::vector<T, Allocator> prefix(elements.begin(), elements.end(), alloc);
@@ -48,10 +47,11 @@ prefix_sum(const std::span<T> elements, bool ensureMonotone = true, const Alloca
 
 namespace pmr {
 
-template <typename T>
+template <wrs::arithmetic T>
 std::pmr::vector<T> prefix_sum(const std::span<T> weights,
                                bool ensureMonotone = true,
                                const std::pmr::polymorphic_allocator<T>& alloc = {}) {
+    // Hope for RTO
     return wrs::reference::prefix_sum<T, std::pmr::polymorphic_allocator<T>>(weights,
                                                                              ensureMonotone, alloc);
 }

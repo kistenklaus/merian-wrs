@@ -6,10 +6,6 @@
 #include <span>
 namespace wrs::test {
 
-// TODO test stable partition!
-// With stable partitions we should be able to verify the result a lot faster, because we
-// don't need a unordered_multimap or a full scan to detect item dupplicates.
-
 template <wrs::concepts::partially_ordered T, typename Allocator = std::allocator<void>>
 IsPartitionError<
     T,

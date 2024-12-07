@@ -21,20 +21,7 @@ struct WeightGenInfo {
     uint32_t count;
 };
 
-static std::string distribution_to_pretty_string(Distribution dist) {
-    switch (dist) {
-    case Distribution::UNIFORM:
-        return "uniform";
-    case Distribution::PSEUDO_RANDOM_UNIFORM:
-        return "pseudo_random_uniform";
-    case Distribution::RANDOM_UNIFORM:
-        return "random_uniform";
-    case Distribution::SEEDED_RANDOM_UNIFORM:
-        return "seeded_random_uniform";
-    default:
-        return "NO-PRETTY-STRING-AVAIL";
-    }
-}
+std::string distribution_to_pretty_string(Distribution dist);
 
 template <typename T = float, typename Allocator = std::allocator<T>>
 std::vector<T, Allocator>
@@ -45,10 +32,13 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
     switch (distribution) {
     case Distribution::UNIFORM:
         loggingThreshold = 1e7;
+        break;
     case Distribution::PSEUDO_RANDOM_UNIFORM:
         loggingThreshold = 1e7;
+        break;
     case Distribution::RANDOM_UNIFORM:
         loggingThreshold = 1e5;
+        break;
     case Distribution::SEEDED_RANDOM_UNIFORM:
         loggingThreshold = 1e7;
         break;

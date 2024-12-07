@@ -26,13 +26,11 @@ int main() {
     const merian::ContextHandle context = merian::Context::create(extensions, "merian-example");
 
     if (!context) {
-      throw std::runtime_error("Failed to create context!!!");
+        throw std::runtime_error("Failed to create context!!!");
     }
 
-
     wrs::test::testTests();
-    /* wrs::test::decoupled_mean::test(context); */
-    /* wrs::test::decoupled_prefix_partition::test(context); */
-    /* wrs::test::scalar_split::test(context); */
-    /* wrs::baseline::PartitionAndPrefixSum::testAndBench(context); */
+    wrs::test::decoupled_mean::test(context);
+    wrs::test::decoupled_prefix_partition::test(context);
+    wrs::test::scalar_split::test(context);
 }

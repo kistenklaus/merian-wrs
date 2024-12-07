@@ -2,7 +2,6 @@
 
 #include "src/wrs/algorithm/split/scalar/ScalarSplit.hpp"
 #include "src/wrs/gen/weight_generator.h"
-#include <stdexcept>
 namespace wrs::test::scalar_split {
 
 using Buffers = ScalarSplitBuffers;
@@ -11,13 +10,7 @@ enum WeightType {
     WEIGHT_TYPE_FLOAT,
 };
 
-static constexpr vk::DeviceSize sizeOfWeightType(WeightType type) {
-    switch (type) {
-    case WEIGHT_TYPE_FLOAT:
-        return sizeof(float);
-    }
-    throw std::runtime_error("sizeOfWeightType is not implemented properly");
-}
+vk::DeviceSize sizeOfWeightType(WeightType type);
 
 struct TestCase {
     WeightType weightType;

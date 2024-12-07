@@ -18,6 +18,14 @@
 using namespace wrs::test;
 using namespace wrs::test::decoupled_mean;
 
+vk::DeviceSize wrs::test::decoupled_mean::sizeOfElement(const ElementType wt) {
+    switch (wt) {
+    case WEIGHT_TYPE_FLOAT:
+        return sizeof(float);
+    }
+    throw std::runtime_error("NOT IMPLEMENTED");
+}
+
 template <typename elem_t>
 void uploadTestCase(vk::CommandBuffer cmd,
                     std::pmr::vector<elem_t> elements,
@@ -91,7 +99,7 @@ template <typename elem_t> elem_t downloadFromStage(Buffers& stage) {
 }
 
 template <typename elem_t>
-void runTestCase(const TestContext& context,
+bool runTestCase(const TestContext& context,
                  const TestCase& testCase,
                  Buffers& buffers,
                  Buffers& stage,
@@ -192,8 +200,10 @@ void runTestCase(const TestContext& context,
             SPDLOG_ERROR(fmt::format("DecoupledMean is numerically unstable\n"
                                      "Expected {}, Got{}",
                                      referenceMean, mean));
+            failed = true;
         }
     }
+    return failed;
 }
 
 void wrs::test::decoupled_mean::test(const merian::ContextHandle& context) {

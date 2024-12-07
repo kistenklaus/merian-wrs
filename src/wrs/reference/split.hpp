@@ -1,5 +1,7 @@
 #pragma once
 
+#include "src/wrs/generic_types.hpp"
+#include "src/wrs/why.hpp"
 #include <fmt/base.h>
 #include <memory>
 #include <span>
@@ -8,27 +10,11 @@
 #include <vector>
 namespace wrs::reference {
 
-namespace internal {
-template <typename T> using Split = std::tuple<std::size_t, std::size_t, T>;
-
-// Save index operator for spans. Only available stl in C++26 (for some reason??).
-template <typename T> T& spanAt(std::span<T> span, size_t i) {
-    if (i < span.size()) {
-        return span[i];
-    } else {
-        throw std::out_of_range("Accesing span out of range");
-    }
-}
-
-} // namespace internal
-
-template <typename T>
-internal::Split<T>
+template <wrs::arithmetic T>
+wrs::split_t<T>
 split(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, size_t n) {
     size_t a = 0;
     size_t b = std::min(n, heavyPrefix.size()) - 1;
-
-    constexpr T error_margin = T{} / 100;
 
     T target = mean * n;
 
@@ -37,17 +23,15 @@ split(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, si
         const size_t i = std::min(n - j, lightPrefix.size() - 1);
 
         if (a > b) {
-            const T light = internal::spanAt(lightPrefix, i);
-            const T sigma2 = light + internal::spanAt(heavyPrefix, j + 1);
-            /* fmt::println("YUCK: NOT SURE IF THIS IS CORRECT CHECKME IF THIS WEIRD STUFF HAPPENS " */
-            /*              "DOWN THE LINE"); */
+            const T light = lightPrefix[i];
+            const T sigma2 = light + heavyPrefix[j + 1];
             return std::make_tuple(i, j, sigma2 - target);
         }
 
-        const T heavy = internal::spanAt(heavyPrefix, j);
-        const T light = internal::spanAt(lightPrefix, i);
+        const T heavy = heavyPrefix[j];
+        const T light = lightPrefix[i];
         const T sigma = light + heavy;
-        const T sigma2 = light + internal::spanAt(heavyPrefix, j + 1);
+        const T sigma2 = light + heavyPrefix[j + 1];
 
         if (sigma <= target) {
             if (sigma2 > target) {
@@ -62,14 +46,15 @@ split(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, si
     throw std::runtime_error("F");
 }
 
-template <typename T, typename Allocator = std::allocator<internal::Split<T>>>
-std::vector<internal::Split<T>, Allocator> splitK(const std::span<T> heavyPrefix,
-                                                  const std::span<T> lightPrefix,
-                                                  T mean,
-                                                  size_t N,
-                                                  size_t K,
-                                                  const Allocator& alloc = {}) {
-    std::vector<internal::Split<T>, Allocator> splits(K, alloc);
+template <wrs::arithmetic T,
+          wrs::typed_allocator<wrs::split_t<T>> Allocator = std::allocator<wrs::split_t<T>>>
+std::vector<wrs::split_t<T>, Allocator> splitK(const std::span<T> heavyPrefix,
+                                               const std::span<T> lightPrefix,
+                                               T mean,
+                                               size_t N,
+                                               size_t K,
+                                               const Allocator& alloc = {}) {
+    std::vector<wrs::split_t<T>, Allocator> splits(K, alloc);
     for (size_t k = 1; k <= K - 1; ++k) {
         const size_t temp = N * k;
         const size_t n = 1 + ((temp - 1) / K);
@@ -81,17 +66,17 @@ std::vector<internal::Split<T>, Allocator> splitK(const std::span<T> heavyPrefix
 
 namespace pmr {
 
-template <typename T>
-std::pmr::vector<internal::Split<T>>
-splitK(const std::span<T> heavyPrefix,
-       const std::span<T> lightPrefix,
-       T mean,
-       size_t N,
-       size_t K,
-       const std::pmr::polymorphic_allocator<internal::Split<T>>& alloc = {}) {
-    // Now that is a signiture =^).
-    return std::move(wrs::reference::splitK<T, std::pmr::polymorphic_allocator<internal::Split<T>>>(
-        heavyPrefix, lightPrefix, mean, N, K, alloc));
+template <wrs::arithmetic T>
+std::pmr::vector<wrs::split_t<T>> inline splitK(
+    const std::span<T> heavyPrefix,
+    const std::span<T> lightPrefix,
+    T mean,
+    size_t N,
+    size_t K,
+    const std::pmr::polymorphic_allocator<wrs::split_t<T>>& alloc = {}) {
+    // Hope for RTO
+    return wrs::reference::splitK<T, std::pmr::polymorphic_allocator<wrs::split_t<T>>>(
+        heavyPrefix, lightPrefix, mean, N, K, alloc);
 }
 
 } // namespace pmr

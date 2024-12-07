@@ -1,4 +1,5 @@
 #include "./test.hpp"
+
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/split/scalar/ScalarSplit.hpp"
 #include "src/wrs/algorithm/split/scalar/test/test_cases.hpp"
@@ -15,12 +16,19 @@
 #include <cstdlib>
 #include <cstring>
 #include <fmt/base.h>
-#include <memory>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <vulkan/vulkan_enums.hpp>
 
 using namespace wrs::test::scalar_split;
+
+vk::DeviceSize wrs::test::scalar_split::sizeOfWeightType(WeightType type) {
+    switch (type) {
+    case WEIGHT_TYPE_FLOAT:
+        return sizeof(float);
+    }
+    throw std::runtime_error("sizeOfWeightType is not implemented properly");
+}
 
 template <typename weight_t>
 static void uploadTestCase(vk::CommandBuffer cmd,
@@ -195,7 +203,8 @@ static void runTestCase(const wrs::test::TestContext& context,
         {
             SPDLOG_DEBUG("Compute partition prefix sums");
             MERIAN_PROFILE_SCOPE(context.profiler, "Compute partition prefix sums");
-            heavyPrefixSum = wrs::reference::pmr::prefix_sum<weight_t>(heavyPartition, false, resource);
+            heavyPrefixSum =
+                wrs::reference::pmr::prefix_sum<weight_t>(heavyPartition, false, resource);
             reverseLightPrefixSum =
                 wrs::reference::pmr::prefix_sum<weight_t>(lightPartition, false, resource);
             std::reverse(reverseLightPrefixSum.begin(),

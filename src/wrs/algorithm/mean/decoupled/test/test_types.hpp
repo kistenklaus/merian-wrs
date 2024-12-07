@@ -10,21 +10,16 @@ enum ElementType {
     WEIGHT_TYPE_FLOAT,
 };
 
-static vk::DeviceSize sizeOfElement(const ElementType wt) {
-    switch (wt) {
-    case WEIGHT_TYPE_FLOAT:
-        return sizeof(float);
-    }
-}
+vk::DeviceSize sizeOfElement(const ElementType wt);
 
 struct TestCase {
-  uint32_t workgroupSize;
-  uint32_t rows;
-  ElementType elemType;
-  uint32_t elementCount;
-  Distribution distribution;
-  bool stable;
-  uint32_t iterations;
+    uint32_t workgroupSize;
+    uint32_t rows;
+    ElementType elemType;
+    uint32_t elementCount;
+    Distribution distribution;
+    bool stable;
+    uint32_t iterations;
 };
 
 } // namespace wrs::test::decoupled_mean

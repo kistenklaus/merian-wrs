@@ -3,7 +3,6 @@
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
 #include "merian/vk/utils/profiler.hpp"
-/* #include "./compare_ranges.hpp" */
 #include "./is_prefix.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
@@ -212,18 +211,18 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
 
     // ============= SWEEPING-ALIAS-TABLE-CONSTRUCTION ===========
     {
-        // NOTE: Sweeping alias table construction is not very stable =^( 
+        // NOTE: Sweeping alias table construction is not very stable =^(
         // It continously accumulates and error which we then find in the last element.
-        // TODO: There are probably a bunch of ways how this can be improved one change 
-        // that is not in the original implementation that we did here is 
-        // that we normalize the alias table meaning that the redirection probablities 
-        // are not dependent on the original weights, this however might be one 
+        // TODO: There are probably a bunch of ways how this can be improved one change
+        // that is not in the original implementation that we did here is
+        // that we normalize the alias table meaning that the redirection probablities
+        // are not dependent on the original weights, this however might be one
         // point why we accumulate the error, because we work with pretty small numbers.
         // The original paper stores probablities relative to the average weight
-        // and then removes the bias during sampling. For better abstraction we 
+        // and then removes the bias during sampling. For better abstraction we
         // have to reduce all alias table constructions into a normalized form,
         // which may be one point where we introduce the instability, because the original
-        // paper does not show any instabilities that these ranges. They might however also be 
+        // paper does not show any instabilities that these ranges. They might however also be
         // using doubles instead of floats (Not sure about that)
         size_t N = 1e4;
         std::pmr::vector<float> weights = wrs::pmr::generate_weights<float>(
