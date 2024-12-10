@@ -1,9 +1,9 @@
 #include "./test.hpp"
 
+#include "./is_prefix.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
 #include "merian/vk/utils/profiler.hpp"
-#include "./is_prefix.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/generic_types.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
@@ -49,7 +49,7 @@ wrs::test::TestContext wrs::test::setupTestContext(const merian::ContextHandle& 
 
 static void testPartitionTests(std::pmr::memory_resource* resource) {
     auto weights =
-        wrs::pmr::generate_weights<float>(wrs::Distribution::PSEUDO_RANDOM_UNIFORM, 1e4, resource);
+        wrs::pmr::generate_weights<float>(wrs::Distribution::SEEDED_RANDOM_UNIFORM, 1e4, resource);
 
     float pivot = weights.back();
 
@@ -77,6 +77,25 @@ static void testPartitionTests(std::pmr::memory_resource* resource) {
     if (!assertError) {
         throw std::runtime_error("Test of test failed: wrs::reference::pmr::partition or "
                                  "wrs::test::pmr::assert_is_partition is wrong");
+    }
+
+    { // Test stable_partition_indices
+        const auto [heavyIndices, lightIndices, _storage] =
+            wrs::reference::pmr::stable_partition_indicies<float, uint32_t>(weights, pivot,
+                                                                            resource);
+        std::pmr::vector<float> heavyPartition{heavyIndices.size(), resource};
+        std::pmr::vector<float> lightPartition{lightIndices.size(), resource};
+        for (size_t i = 0; i < heavyIndices.size(); ++i) {
+            heavyPartition[i] = weights[heavyIndices[i]];
+        }
+        for (size_t i = 0; i < lightIndices.size(); ++i) {
+            lightPartition[i] = weights[lightIndices[i]];
+        }
+        auto err = wrs::test::pmr::assert_is_partition<float>(heavyPartition, lightPartition,
+                                                              weights, pivot);
+        if (err) {
+            throw std::runtime_error("Test of test failed: wrs::reference::pmr::stable_partition_indices is wrong!");
+        }
     }
 }
 
@@ -195,10 +214,11 @@ static void testSplitTests(std::pmr::memory_resource* resource) {
         wrs::reference::pmr::prefix_sum<float>(light, false, resource);
 
     std::pmr::vector<wrs::split_t<float, uint32_t>> splits =
-        wrs::reference::pmr::splitK<float, uint32_t>(heavyPrefix, lightPrefix, average, N, K, resource);
+        wrs::reference::pmr::splitK<float, uint32_t>(heavyPrefix, lightPrefix, average, N, K,
+                                                     resource);
 
-    auto err = wrs::test::pmr::assert_is_split<float, uint32_t>(splits, K, heavyPrefix, lightPrefix, average,
-                                                      0.01, resource);
+    auto err = wrs::test::pmr::assert_is_split<float, uint32_t>(splits, K, heavyPrefix, lightPrefix,
+                                                                average, 0.01, resource);
     if (err) {
         SPDLOG_ERROR(fmt::format("Test of tests failed: split of it's assertion are invalid\n{}",
                                  err.message()));
@@ -232,7 +252,8 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
 
         SPDLOG_DEBUG("Compute reference");
         std::pmr::vector<wrs::alias_table_entry_t<float, uint32_t>> aliasTable =
-            wrs::reference::pmr::sweeping_alias_table<float, float, uint32_t>(weights, totalWeight, resource);
+            wrs::reference::pmr::sweeping_alias_table<float, float, uint32_t>(weights, totalWeight,
+                                                                              resource);
 
         SPDLOG_DEBUG("Test assertion");
         const auto err = wrs::test::pmr::assert_is_alias_table<float, float, uint32_t>(
