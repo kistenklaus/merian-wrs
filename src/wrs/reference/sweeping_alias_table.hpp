@@ -12,54 +12,56 @@ namespace wrs::reference {
 
 namespace sweeping_internal {
 
-template <wrs::arithmetic T, std::floating_point P>
-static std::size_t nextLight(const std::span<T>& weights, std::size_t i, P pivot) {
-    if (i >= weights.size()) {
-        return weights.size();
+template <wrs::arithmetic T, std::floating_point P, std::integral I>
+static I nextLight(const std::span<T>& weights, I i, P pivot) {
+    const I N = static_cast<I>(weights.size());
+    if (i >= N) {
+        return N;
     }
-    assert(i < weights.size());
+    assert(i < N);
     const auto it = std::find_if(weights.begin() + i, weights.end(),
                                  [pivot](const auto& w) { return w <= pivot; });
     if (it == weights.end()) {
-        return weights.size();
+        return N;
     } else {
-        return static_cast<std::size_t>(it - weights.begin());
+        return static_cast<I>(it - weights.begin());
     }
 }
-template <wrs::arithmetic T, std::floating_point P>
-static std::size_t nextHeavy(const std::span<T>& weights, std::size_t i, P pivot) {
-    if (i >= weights.size()) {
-        return weights.size();
+template <wrs::arithmetic T, std::floating_point P, std::integral I>
+static I nextHeavy(const std::span<T>& weights, I i, P pivot) {
+    const I N = static_cast<I>(weights.size());
+    if (i >= N)  {
+        return N;
     }
-    assert(i < weights.size());
+    assert(i < N);
     const auto it = std::find_if(weights.begin() + i, weights.end(),
                                  [pivot](const auto& w) { return w > pivot; });
     if (it == weights.end()) {
-        return weights.size();
+        return N;
     } else {
-        return static_cast<std::size_t>(it - weights.begin());
+        return static_cast<I>(it - weights.begin());
     }
 }
 
 } // namespace sweeping_internal
 
-template <wrs::arithmetic T, std::floating_point P, wrs::generic_allocator Allocator = std::allocator<void>>
-std::vector<wrs::alias_table_entry_t<P>,
+template <wrs::arithmetic T, std::floating_point P, std::integral I,wrs::generic_allocator Allocator = std::allocator<void>>
+std::vector<wrs::alias_table_entry_t<P, I>,
             typename std::allocator_traits<Allocator>::template rebind_alloc<
-                wrs::alias_table_entry_t<P>>>
+                wrs::alias_table_entry_t<P, I>>>
 sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator& alloc = {}) {
     using EntryAllocator = std::allocator_traits<Allocator>::template rebind_alloc<
-        wrs::alias_table_entry_t<P>>;
-    using Entry = wrs::alias_table_entry_t<P>;
+        wrs::alias_table_entry_t<P, I>>;
+    using Entry = wrs::alias_table_entry_t<P, I>;
 
-    const std::size_t N = weights.size();
+    const I N = weights.size();
     const P averageWeight = static_cast<P>(totalWeight) / static_cast<P>(N);
-    std::size_t i = sweeping_internal::nextLight(weights, 0, averageWeight); // first light weight
-    std::size_t j = sweeping_internal::nextHeavy(weights, 0, averageWeight);
+    I i = sweeping_internal::nextLight(weights, 0, averageWeight); // first light weight
+    I j = sweeping_internal::nextHeavy(weights, 0, averageWeight);
 
     std::vector<Entry, EntryAllocator> aliasTable{N, EntryAllocator{alloc}};
     if (j == N) {
-        for (std::size_t k = 0; k < N; ++k) {
+        for (I k = 0; k < N; ++k) {
             /* std::numeric_limits<float>::i */
             aliasTable[k] = std::make_tuple(static_cast<P>(1.0), k);
         }
@@ -92,7 +94,7 @@ sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator&
             i = sweeping_internal::nextLight(weights, i + 1, averageWeight);
         } else {
             // pack a heavy bucket!
-            std::size_t jnext = sweeping_internal::nextHeavy(weights, j + 1, averageWeight);
+            I jnext = sweeping_internal::nextHeavy(weights, j + 1, averageWeight);
             if (jnext == N) {
                 /* fmt::println("Bad exit: Packing remaining light"); */
                 // no more heavy items
@@ -102,7 +104,7 @@ sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator&
                 /* } */
                 /* assert(std::abs(w - averageWeight) < 1e-8); */
                 aliasTable[j] = std::make_tuple(1.0f, j);
-                for (size_t k = i; k < N; ++k) {
+                for (I k = i; k < N; ++k) {
                     /* assert(std::abs(weights[k] - averageWeight) < 1e-3); */
                     assert(k < N);
                     aliasTable[k] = std::make_tuple(1.0f, k);
@@ -121,14 +123,14 @@ sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator&
 
 namespace pmr {
 
-template <wrs::arithmetic T, std::floating_point P>
-std::vector<wrs::alias_table_entry_t<P>,
-            std::pmr::polymorphic_allocator<wrs::alias_table_entry_t<P>>>
+template <wrs::arithmetic T, std::floating_point P, std::integral I>
+std::vector<wrs::alias_table_entry_t<P, I>,
+            std::pmr::polymorphic_allocator<wrs::alias_table_entry_t<P, I>>>
 sweeping_alias_table(std::span<T> weights,
                      const T totalWeight,
                      const std::pmr::polymorphic_allocator<void>& alloc) {
     // Hope for RTO
-    return wrs::reference::sweeping_alias_table<T, P, std::pmr::polymorphic_allocator<void>>(
+    return wrs::reference::sweeping_alias_table<T, P, I, std::pmr::polymorphic_allocator<void>>(
         weights, totalWeight, alloc);
 }
 

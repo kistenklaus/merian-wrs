@@ -7,18 +7,23 @@
 #include <vector>
 namespace wrs {
 
-template <std::floating_point P> using alias_table_entry_t = std::tuple<P, std::size_t>;
+template <std::floating_point P, std::integral I> using alias_table_entry_t = std::tuple<P, I>;
 
-template <wrs::arithmetic T> 
-using split_t = std::tuple<std::size_t, std::size_t, T>;
+template <wrs::arithmetic T, std::integral I> using split_t = std::tuple<I, I, T>;
 
-
-template <wrs::arithmetic T, typename Allocator>
-    requires(std::same_as<typename Allocator::value_type, T>)
+template <wrs::arithmetic T, wrs::typed_allocator<T> Allocator>
 using partition_t = std::tuple<std::span<T>, std::span<T>, std::vector<T, Allocator>>;
-template <typename Allocator>
-  requires (std::same_as<typename Allocator::value_type, std::size_t>)
-using partition_indices_t =
-    std::tuple<std::span<std::size_t>, std::span<std::size_t>, std::vector<std::size_t, Allocator>>;
+template <std::integral I, wrs::typed_allocator<I> Allocator>
+using partition_indices_t = std::tuple<std::span<I>, std::span<I>, std::vector<I, Allocator>>;
+
+namespace pmr {
+
+template<wrs::arithmetic T>
+using partition_t = wrs::partition_t<T, std::pmr::polymorphic_allocator<T>>;;
+
+template<std::integral I>
+using partition_indices_t = wrs::partition_indices_t<I, std::pmr::polymorphic_allocator<I>>;
+
+}
 
 } // namespace wrs

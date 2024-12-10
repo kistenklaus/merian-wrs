@@ -1,5 +1,6 @@
 #pragma once
 
+#include "src/wrs/generic_types.hpp"
 #include "src/wrs/why.hpp"
 #include <concepts>
 #include <memory>
@@ -17,18 +18,18 @@ enum IsAliasTableErrorType : std::uint8_t {
     IS_ALIAS_TABLE_ERROR_TYPE_UNDERSAMPLED_WEIGHT = 0x8,
 };
 
-template <wrs::arithmetic T, std::floating_point P> struct IsAliasTableIndexError {
+template <wrs::arithmetic T, std::floating_point P, std::integral I> struct IsAliasTableIndexError {
     using ErrorType = IsAliasTableErrorType;
 
     ErrorType type;
     T weight;
     P sampledWeight;
-    std::size_t index;
-    std::size_t alias;
+    I index;
+    I alias;
 
     IsAliasTableIndexError() = default;
 
-    void appendMessageToStringStream(std::stringstream& ss, size_t N) const {
+    void appendMessageToStringStream(std::stringstream& ss, I N) const {
         ss << "\tFailure at index: " << index << "\n";
         if (type & IS_ALIAS_TABLE_ERROR_TYPE_INVALID_ALIAS) {
             ss << "\t\tAlias (" << alias << ") out of bound. (Bound = " << N << ")\n";
@@ -44,21 +45,21 @@ template <wrs::arithmetic T, std::floating_point P> struct IsAliasTableIndexErro
     }
 };
 
-template <wrs::arithmetic T, std::floating_point P, wrs::generic_allocator Allocator> struct IsAliasTableError {
-    using IndexError = IsAliasTableIndexError<T, P>;
+template <wrs::arithmetic T, std::floating_point P, std::integral I, wrs::generic_allocator Allocator> struct IsAliasTableError {
+    using IndexError = IsAliasTableIndexError<T, P, I>;
     using ErrorType = IsAliasTableErrorType;
 
     using allocator = std::allocator_traits<Allocator>::template rebind_alloc<IndexError>;
 
     ErrorType type;
     std::vector<IndexError, allocator> errors;
-    std::size_t N;
-    std::size_t N_got;
+    I N;
+    I N_got;
 
     IsAliasTableError(ErrorType type,
                       std::vector<IndexError, allocator>&& errors,
-                      std::size_t N,
-                      std::size_t N_got)
+                      I N,
+                      I N_got)
         : type(type), errors(std::move(errors)), N(N), N_got(N_got) {}
 
     operator bool() const {
@@ -95,20 +96,21 @@ template <wrs::arithmetic T, std::floating_point P, wrs::generic_allocator Alloc
     };
 };
 
-template <wrs::arithmetic T, std::floating_point P, wrs::generic_allocator Allocator>
+template <wrs::arithmetic T, std::floating_point P, std::integral I, wrs::generic_allocator Allocator>
 IsAliasTableError<
     T,
     P,
-    typename std::allocator_traits<Allocator>::template rebind_alloc<IsAliasTableIndexError<T, P>>>
+    I,
+    typename std::allocator_traits<Allocator>::template rebind_alloc<IsAliasTableIndexError<T, P, I>>>
 assert_is_alias_table(std::span<T> weights,
-                      std::span<std::tuple<P, std::size_t>> aliasTable,
+                      std::span<wrs::alias_table_entry_t<P, I>> aliasTable,
                       T totalWeight,
                       P errorMargin = 0.001,
                       const Allocator& alloc = {}) {
-    using IndexError = IsAliasTableIndexError<T, P>;
+    using IndexError = IsAliasTableIndexError<T, P, I>;
     using ErrorType = IsAliasTableErrorType;
     using ErrorAllocator = std::allocator_traits<Allocator>::template rebind_alloc<IndexError>;
-    using Error = IsAliasTableError<T, P, ErrorAllocator>;
+    using Error = IsAliasTableError<T, P, I, ErrorAllocator>;
     using PAllocator = std::allocator_traits<Allocator>::template rebind_alloc<P>;
 
     if (weights.size() != aliasTable.size()) {
@@ -185,14 +187,14 @@ assert_is_alias_table(std::span<T> weights,
 }
 
 namespace pmr {
-template <wrs::arithmetic T, std::floating_point P>
-IsAliasTableError<T, P, std::pmr::polymorphic_allocator<IsAliasTableIndexError<T, P>>>
+template <wrs::arithmetic T, std::floating_point P, std::integral I>
+IsAliasTableError<T, P, I, std::pmr::polymorphic_allocator<IsAliasTableIndexError<T, P, I>>>
 assert_is_alias_table(std::span<T> weights,
-                      std::span<std::tuple<P, std::size_t>> aliasTable,
+                      std::span<wrs::alias_table_entry_t<P, I>> aliasTable,
                       T totalWeight,
                       P errorMargin = 0.001,
                       const std::pmr::polymorphic_allocator<void>& alloc = {}) {
-    return wrs::test::assert_is_alias_table<T, P, std::pmr::polymorphic_allocator<void>>(
+    return wrs::test::assert_is_alias_table<T, P, I, std::pmr::polymorphic_allocator<void>>(
         weights, aliasTable, totalWeight, errorMargin, alloc);
 }
 } // namespace pmr

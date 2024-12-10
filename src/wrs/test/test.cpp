@@ -5,6 +5,7 @@
 #include "merian/vk/utils/profiler.hpp"
 #include "./is_prefix.hpp"
 #include "src/wrs/gen/weight_generator.h"
+#include "src/wrs/generic_types.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
@@ -193,10 +194,10 @@ static void testSplitTests(std::pmr::memory_resource* resource) {
     std::pmr::vector<float> lightPrefix =
         wrs::reference::pmr::prefix_sum<float>(light, false, resource);
 
-    std::pmr::vector<wrs::split_t<float>> splits =
-        wrs::reference::pmr::splitK<float>(heavyPrefix, lightPrefix, average, N, K, resource);
+    std::pmr::vector<wrs::split_t<float, uint32_t>> splits =
+        wrs::reference::pmr::splitK<float, uint32_t>(heavyPrefix, lightPrefix, average, N, K, resource);
 
-    auto err = wrs::test::pmr::assert_is_split<float>(splits, K, heavyPrefix, lightPrefix, average,
+    auto err = wrs::test::pmr::assert_is_split<float, uint32_t>(splits, K, heavyPrefix, lightPrefix, average,
                                                       0.01, resource);
     if (err) {
         SPDLOG_ERROR(fmt::format("Test of tests failed: split of it's assertion are invalid\n{}",
@@ -230,11 +231,11 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
         float totalWeight = wrs::reference::pmr::tree_reduction<float>(weights, resource);
 
         SPDLOG_DEBUG("Compute reference");
-        std::pmr::vector<std::tuple<float, std::size_t>> aliasTable =
-            wrs::reference::pmr::sweeping_alias_table<float, float>(weights, totalWeight, resource);
+        std::pmr::vector<wrs::alias_table_entry_t<float, uint32_t>> aliasTable =
+            wrs::reference::pmr::sweeping_alias_table<float, float, uint32_t>(weights, totalWeight, resource);
 
         SPDLOG_DEBUG("Test assertion");
-        const auto err = wrs::test::pmr::assert_is_alias_table<float, float>(
+        const auto err = wrs::test::pmr::assert_is_alias_table<float, float, uint32_t>(
             weights, aliasTable, totalWeight, 1e-4, resource);
         if (err) {
             SPDLOG_ERROR(fmt::format(

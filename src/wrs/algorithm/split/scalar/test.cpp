@@ -4,6 +4,7 @@
 #include "src/wrs/algorithm/split/scalar/ScalarSplit.hpp"
 #include "src/wrs/algorithm/split/scalar/test/test_cases.hpp"
 #include "src/wrs/algorithm/split/scalar/test/test_setup.hpp"
+#include "src/wrs/generic_types.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
@@ -215,13 +216,13 @@ static void runTestCase(const wrs::test::TestContext& context,
         context.profiler->end();
 
         // ============== Compute reference ===============
-        std::pmr::vector<std::tuple<std::size_t, std::size_t, weight_t>> reference{resource};
+        std::pmr::vector<wrs::split_t<weight_t, uint32_t>> reference{resource};
         {
             SPDLOG_DEBUG("Compute reference split (CPU)");
             MERIAN_PROFILE_SCOPE(context.profiler, "Compute reference split (CPU)");
             std::pmr::vector<weight_t> lightPrefix = reverseLightPrefixSum;
             std::reverse(lightPrefix.begin(), lightPrefix.end());
-            reference = std::move(wrs::reference::pmr::splitK<weight_t>(
+            reference = std::move(wrs::reference::pmr::splitK<weight_t, uint32_t>(
                 heavyPrefixSum, lightPrefix, averageWeight, N, K, resource));
         }
 

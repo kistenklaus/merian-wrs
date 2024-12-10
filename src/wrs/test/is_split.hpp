@@ -22,11 +22,11 @@ enum IsSplitErrorType : std::uint8_t {
     IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT = 0x10,
 };
 
-template <wrs::arithmetic T> struct IsSplitIndexError {
+template <wrs::arithmetic T, std::integral I> struct IsSplitIndexError {
     using Type = IsSplitErrorType;
     Type type;
-    std::size_t index;
-    wrs::split_t<T> split;
+    I index;
+    wrs::split_t<T, I> split;
     size_t n;
     T target;
     T sigma;
@@ -34,7 +34,7 @@ template <wrs::arithmetic T> struct IsSplitIndexError {
 
     IsSplitIndexError() = default;
 
-    void appendMessageToStringStream(std::stringstream& ss, std::size_t N, std::size_t K) const {
+    void appendMessageToStringStream(std::stringstream& ss, I N, I K) const {
         ss << "\t\tFailure at index = " << index << ":\n";
         ss << "\t\t\tGot = (" << std::get<0>(split) << ", " << std::get<1>(split) << ", "
            << std::get<2>(split) << ")\n";
@@ -64,22 +64,22 @@ template <wrs::arithmetic T> struct IsSplitIndexError {
     }
 };
 
-template <wrs::arithmetic T, wrs::generic_allocator Allocator> struct IsSplitError {
+template <wrs::arithmetic T, std::integral I, wrs::generic_allocator Allocator> struct IsSplitError {
     using Type = IsSplitErrorType;
-    using IndexError = IsSplitIndexError<T>;
+    using IndexError = IsSplitIndexError<T, I>;
     using allocator = std::allocator_traits<Allocator>::template rebind_alloc<IndexError>;
     static_assert(std::same_as<typename allocator::value_type, IndexError>);
     Type type;
     std::vector<IndexError, allocator> errors;
-    std::size_t N;
-    std::size_t K;
-    std::size_t K_got;
+    I N;
+    I K;
+    I K_got;
 
     IsSplitError(Type type,
                  std::vector<IndexError, allocator>&& errors,
-                 std::size_t N,
-                 std::size_t K,
-                 std::size_t K_got)
+                 I N,
+                 I K,
+                 I K_got)
         : type(type), errors(std::move(errors)), N(N), K(K), K_got(K_got) {}
 
     operator bool() const {
@@ -106,31 +106,31 @@ template <wrs::arithmetic T, wrs::generic_allocator Allocator> struct IsSplitErr
     }
 };
 
-template <wrs::arithmetic T, wrs::generic_allocator Allocator = std::allocator<void>>
-IsSplitError<T,
-             typename std::allocator_traits<Allocator>::template rebind_alloc<IsSplitIndexError<T>>>
-assert_is_split(std::span<wrs::split_t<T>> splits,
-                std::size_t K,
+template <wrs::arithmetic T, std::integral I,wrs::generic_allocator Allocator = std::allocator<void>>
+IsSplitError<T, I,
+             typename std::allocator_traits<Allocator>::template rebind_alloc<IsSplitIndexError<T, I>>>
+assert_is_split(std::span<wrs::split_t<T, I>> splits,
+                I K,
                 std::span<T> heavyPrefix,
                 std::span<T> lightPrefix,
                 const T mean,
                 const T error_margin = {},
                 const Allocator& alloc = {}) {
     using ErrorAllocator =
-        std::allocator_traits<Allocator>::template rebind_alloc<IsSplitIndexError<T>>;
+        std::allocator_traits<Allocator>::template rebind_alloc<IsSplitIndexError<T, I>>;
     /* static_assert(std::same_as<typename ErrorAllocator::value_type, IsSplitIndexError<T>>); */
-    using Error = IsSplitError<T, ErrorAllocator>;
+    using Error = IsSplitError<T, I, ErrorAllocator>;
     using ErrorType = IsSplitErrorType;
-    using IndexError = IsSplitIndexError<T>;
-    size_t N = heavyPrefix.size() + lightPrefix.size();
-    size_t K_got = splits.size();
+    using IndexError = IsSplitIndexError<T, I>;
+    I N = heavyPrefix.size() + lightPrefix.size();
+    I K_got = splits.size();
     if (K_got != K) {
         std::vector<IndexError, ErrorAllocator> errors{ErrorAllocator(alloc)};
         return Error(IS_SPLIT_ERROR_TYPE_INVALID_NUMBER_OF_SPLITS, std::move(errors), N, K, K_got);
     }
 
     size_t errorCount = 0;
-    for (size_t k = 1; k <= K - 1; ++k) {
+    for (I k = 1; k <= K - 1; ++k) {
 
         const auto& [i, j, spill] = splits[k - 1];
 
@@ -142,8 +142,8 @@ assert_is_split(std::span<wrs::split_t<T>> splits,
         if (j + 1 >= heavyPrefix.size()) {
             type |= IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND;
         }
-        const size_t temp = N * k;
-        const size_t n = 1 + ((temp - 1) / K);
+        const I temp = N * k;
+        const I n = 1 + ((temp - 1) / K);
         if (i + j != n) {
             type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT;
         }
@@ -166,7 +166,7 @@ assert_is_split(std::span<wrs::split_t<T>> splits,
         errorCount += 1;
     }
 
-    std::vector<IsSplitIndexError<T>, ErrorAllocator> errors{errorCount, ErrorAllocator{alloc}};
+    std::vector<IsSplitIndexError<T, I>, ErrorAllocator> errors{errorCount, ErrorAllocator{alloc}};
     std::uint8_t aggType = IS_SPLIT_ERROR_TYPE_NONE;
 
     size_t e = 0;
@@ -182,8 +182,8 @@ assert_is_split(std::span<wrs::split_t<T>> splits,
         if (j + 1 >= heavyPrefix.size()) {
             type |= IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND;
         }
-        const size_t temp = N * k;
-        const size_t n = 1 + ((temp - 1) / K);
+        const I temp = N * k;
+        const I n = 1 + ((temp - 1) / K);
         if (i + j != n) {
             type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT;
         }
@@ -237,16 +237,16 @@ assert_is_split(std::span<wrs::split_t<T>> splits,
 }
 
 namespace pmr {
-template <wrs::arithmetic T>
-IsSplitError<T, std::pmr::polymorphic_allocator<IsSplitIndexError<T>>>
-assert_is_split(std::span<wrs::split_t<T>> splits,
-                std::size_t K,
+template <wrs::arithmetic T, std::integral I>
+IsSplitError<T, I, std::pmr::polymorphic_allocator<IsSplitIndexError<T, I>>>
+assert_is_split(std::span<wrs::split_t<T, I>> splits,
+                I K,
                 std::span<T> heavyPrefix,
                 std::span<T> lightPrefix,
                 T mean,
                 const T error_margin = {},
                 const std::pmr::polymorphic_allocator<void>& alloc = {}) {
-    return wrs::test::assert_is_split<T, std::pmr::polymorphic_allocator<void>>(
+    return wrs::test::assert_is_split<T, I, std::pmr::polymorphic_allocator<void>>(
         splits, K, heavyPrefix, lightPrefix, mean, error_margin, alloc);
 }
 } // namespace pmr
