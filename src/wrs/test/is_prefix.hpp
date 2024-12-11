@@ -119,8 +119,8 @@ assert_is_inclusive_prefix(const std::span<T> elements,
     T prevPrefix{}; // identity element
     size_t errorCount = 0;
     bool first = true;
-    const T unstableMargin =
-        0.01 * std::pow(static_cast<T>(elements.size()), static_cast<T>(1.0f / 3.0f));
+    const T unstableMargin = 0.1;
+
     const T bullshitMargin = unstableMargin * 10;
     for (auto it1 = std::ranges::begin(elements), it2 = std::ranges::begin(prefix);
          it1 != eend && it2 != pend; ++it1, ++it2) {

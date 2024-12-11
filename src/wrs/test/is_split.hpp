@@ -64,7 +64,8 @@ template <wrs::arithmetic T, std::integral I> struct IsSplitIndexError {
     }
 };
 
-template <wrs::arithmetic T, std::integral I, wrs::generic_allocator Allocator> struct IsSplitError {
+template <wrs::arithmetic T, std::integral I, wrs::generic_allocator Allocator>
+struct IsSplitError {
     using Type = IsSplitErrorType;
     using IndexError = IsSplitIndexError<T, I>;
     using allocator = std::allocator_traits<Allocator>::template rebind_alloc<IndexError>;
@@ -75,11 +76,7 @@ template <wrs::arithmetic T, std::integral I, wrs::generic_allocator Allocator> 
     I K;
     I K_got;
 
-    IsSplitError(Type type,
-                 std::vector<IndexError, allocator>&& errors,
-                 I N,
-                 I K,
-                 I K_got)
+    IsSplitError(Type type, std::vector<IndexError, allocator>&& errors, I N, I K, I K_got)
         : type(type), errors(std::move(errors)), N(N), K(K), K_got(K_got) {}
 
     operator bool() const {
@@ -106,9 +103,13 @@ template <wrs::arithmetic T, std::integral I, wrs::generic_allocator Allocator> 
     }
 };
 
-template <wrs::arithmetic T, std::integral I,wrs::generic_allocator Allocator = std::allocator<void>>
-IsSplitError<T, I,
-             typename std::allocator_traits<Allocator>::template rebind_alloc<IsSplitIndexError<T, I>>>
+template <wrs::arithmetic T,
+          std::integral I,
+          wrs::generic_allocator Allocator = std::allocator<void>>
+IsSplitError<
+    T,
+    I,
+    typename std::allocator_traits<Allocator>::template rebind_alloc<IsSplitIndexError<T, I>>>
 assert_is_split(std::span<wrs::split_t<T, I>> splits,
                 I K,
                 std::span<T> heavyPrefix,
@@ -161,7 +162,8 @@ assert_is_split(std::span<wrs::split_t<T, I>> splits,
             errorCount += 1;
         }
     }
-    if (std::get<0>(splits.back()) != N && std::get<1>(splits.back()) != N &&
+    if (std::get<0>(splits.back()) != static_cast<I>(lightPrefix.size()) &&
+        std::get<1>(splits.back()) != static_cast<I>(heavyPrefix.size()) &&
         std::get<2>(splits.back()) > 0.01) {
         errorCount += 1;
     }
@@ -192,8 +194,11 @@ assert_is_split(std::span<wrs::split_t<T, I>> splits,
         // 1. sigma <= target
         // 2. sigma + next_heavy > target
         const T target = mean * n;
-        const T sigma = lightPrefix[i] + heavyPrefix[j];
-        const T sigma2 = lightPrefix[i] + heavyPrefix[j + 1];
+        const T light = i == 0 ? 0 : lightPrefix[i - 1];
+        const T heavy = j == 0 ? 0 : heavyPrefix[j - 1];
+        const T heavy2 = heavyPrefix[j];
+        const T sigma = light + heavy;
+        const T sigma2 = light + heavy2;
 
         if (!(sigma - target <= error_margin && error_margin > target - sigma2)) {
             type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIGMA_INVARIANT;
@@ -212,10 +217,10 @@ assert_is_split(std::span<wrs::split_t<T, I>> splits,
         }
     }
     std::uint8_t type = IS_SPLIT_ERROR_TYPE_NONE;
-    if (std::get<0>(splits.back()) != N) {
+    if (std::get<0>(splits.back()) != static_cast<I>(lightPrefix.size())) {
         type |= IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND;
     }
-    if (std::get<1>(splits.back()) != N) {
+    if (std::get<1>(splits.back()) != static_cast<I>(heavyPrefix.size())) {
         type |= IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND;
     }
     if (std::get<2>(splits.back()) > 0.01) {

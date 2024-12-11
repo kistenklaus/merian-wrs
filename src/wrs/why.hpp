@@ -22,4 +22,11 @@ template <typename Allocator, typename V>
 concept typed_allocator = generic_allocator<Allocator> &&
                           std::same_as<typename std::allocator_traits<Allocator>::value_type, V>;
 
+// Computes ceil(a / b)
+template <std::integral T>
+T ceilDiv(T a, T b) {
+  return (a + b - 1) / b;
+}
+
+
 } // namespace wrs

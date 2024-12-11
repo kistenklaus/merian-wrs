@@ -85,7 +85,7 @@ template <wrs::arithmetic T, std::floating_point P, std::integral I, wrs::generi
             ss << "\t\t-OVERSAMPLED_WEIGHT\n";
         }
 
-        constexpr std::size_t MAX_LOG = 3;
+        constexpr std::size_t MAX_LOG = 32;
         for (const auto& error : errors | std::views::take(MAX_LOG)) {
             error.appendMessageToStringStream(ss, N);
         }
@@ -102,10 +102,10 @@ IsAliasTableError<
     P,
     I,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsAliasTableIndexError<T, P, I>>>
-assert_is_alias_table(std::span<T> weights,
-                      std::span<wrs::alias_table_entry_t<P, I>> aliasTable,
-                      T totalWeight,
-                      P errorMargin = 0.001,
+assert_is_alias_table(const std::span<T> weights,
+                      const std::span<wrs::alias_table_entry_t<P, I>> aliasTable,
+                      const T totalWeight,
+                      const P errorMargin = 0.001,
                       const Allocator& alloc = {}) {
     using IndexError = IsAliasTableIndexError<T, P, I>;
     using ErrorType = IsAliasTableErrorType;
@@ -189,10 +189,10 @@ assert_is_alias_table(std::span<T> weights,
 namespace pmr {
 template <wrs::arithmetic T, std::floating_point P, std::integral I>
 IsAliasTableError<T, P, I, std::pmr::polymorphic_allocator<IsAliasTableIndexError<T, P, I>>>
-assert_is_alias_table(std::span<T> weights,
-                      std::span<wrs::alias_table_entry_t<P, I>> aliasTable,
-                      T totalWeight,
-                      P errorMargin = 0.001,
+assert_is_alias_table(const std::span<T> weights,
+                      const std::span<wrs::alias_table_entry_t<P, I>> aliasTable,
+                      const T totalWeight,
+                      const P errorMargin = 0.001,
                       const std::pmr::polymorphic_allocator<void>& alloc = {}) {
     return wrs::test::assert_is_alias_table<T, P, I, std::pmr::polymorphic_allocator<void>>(
         weights, aliasTable, totalWeight, errorMargin, alloc);

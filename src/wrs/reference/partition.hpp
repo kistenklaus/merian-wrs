@@ -4,6 +4,7 @@
 #include "src/wrs/why.hpp"
 #include <algorithm>
 #include <cassert>
+#include <fmt/base.h>
 #include <limits>
 #include <memory_resource>
 #include <ranges>
@@ -54,6 +55,7 @@ wrs::partition_indices_t<I, Allocator> stable_partition_indicies(const std::span
             indices[l--] = i;
         }
     }
+    std::reverse(indices.begin() + h, indices.end());
     return std::make_tuple(std::span<I>(indices.begin(), indices.begin() + h),
                            std::span(indices.begin() + h, indices.end()), std::move(indices));
 }

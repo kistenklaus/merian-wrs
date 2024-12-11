@@ -1,17 +1,18 @@
-
+#pragma once
 #include "src/wrs/why.hpp"
 #include <cstdint>
 #include <memory_resource>
-#include <ranges>
+#include <span>
 #include <type_traits>
 #include <vector>
+
 namespace wrs::reference {
 
 template <wrs::arithmetic T, wrs::typed_allocator<T> Allocator = std::allocator<T>>
 std::vector<T, Allocator>
 prefix_sum(const std::span<T> elements, bool ensureMonotone = true, const Allocator& alloc = {}) {
     std::vector<T, Allocator> prefix(elements.begin(), elements.end(), alloc);
-    uint64_t N = std::ranges::size(elements);
+    uint64_t N = elements.size();
     // Inital not work efficient algorithm:
     // - Reasonable numerical stability errors should not accumulate that much
     // - Problem: Reuslt is not guaranteed to be monotone when working with floating point numbers

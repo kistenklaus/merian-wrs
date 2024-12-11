@@ -1,12 +1,14 @@
 #pragma once
 
 #include "src/wrs/generic_types.hpp"
+#include "src/wrs/reference/pack.hpp"
 #include "src/wrs/reference/partition.hpp"
 #include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/split.hpp"
+#include <fmt/base.h>
 #include <memory>
 #include <span>
-#include <stdexcept>
+#include <spdlog/spdlog.h>
 #include <vector>
 namespace wrs::reference {
 
@@ -17,30 +19,47 @@ template <wrs::arithmetic T,
 std::vector<wrs::alias_table_entry_t<P, I>,
             typename std::allocator_traits<Allocator>::template rebind_alloc<
                 wrs::alias_table_entry_t<P, I>>>
-psa_alias_table(const std::span<T>& weights, const T totalWeight, const I K, const Allocator& alloc = {}) {
+psa_alias_table(const std::span<T>& weights,
+                const T totalWeight,
+                const I K,
+                const Allocator& alloc = {}) {
 
     using Entry = wrs::alias_table_entry_t<P, I>;
     using EntryAllocator = std::allocator_traits<Allocator>::template rebind_alloc<Entry>;
     using IAllocator = std::allocator_traits<Allocator>::template rebind_alloc<I>;
     using TAllocator = std::allocator_traits<Allocator>::template rebind_alloc<T>;
+    using SplitAllocator =
+        std::allocator_traits<Allocator>::template rebind_alloc<wrs::split_t<T, I>>;
 
-    I N = static_cast<I>(weights.size());
+    const I N = static_cast<I>(weights.size());
     const P averageWeight = static_cast<P>(totalWeight) / static_cast<P>(N);
 
-    const auto [heavyIndices, lightIndices, _indices] = wrs::reference::stable_partition_indicies<T, I, IAllocator>(weights, averageWeight,
-        IAllocator(alloc));
-    const auto [heavy, light, _partition] = wrs::reference::stable_partition<T, TAllocator>(weights, averageWeight,
-        TAllocator(alloc));
+    auto [heavyIndices, lightIndices, _indices] =
+        wrs::reference::stable_partition_indicies<T, I, IAllocator>(weights, averageWeight,
+                                                                    IAllocator(alloc));
+    auto [heavy, light, _partition] =
+        wrs::reference::stable_partition<T, TAllocator>(weights, averageWeight, TAllocator(alloc));
 
-    const auto heavyPrefix = wrs::reference::prefix_sum<T, TAllocator>(heavy, TAllocator(alloc));
-    const auto lightPrefix = wrs::reference::prefix_sum<T, TAllocator>(light, TAllocator(alloc));
+    auto heavyPrefix =
+        wrs::reference::prefix_sum<T, TAllocator>(std::span<T>(heavy), true, TAllocator(alloc));
+    auto lightPrefix =
+        wrs::reference::prefix_sum<T, TAllocator>(std::span<T>(light), true, TAllocator(alloc));
 
-    const auto splits = wrs::reference::splitK<T, P, I>(heavyPrefix, lightPrefix, averageWeight, N, K);
+    /* fmt::println("weights = {}", weights); */
+    auto splits = wrs::reference::splitK<T, I, SplitAllocator>(
+        std::span<T>(heavyPrefix), std::span<T>(lightPrefix), static_cast<T>(averageWeight), N, K,
+        SplitAllocator{alloc});
 
-    std::vector<Entry, EntryAllocator> aliasTable{N, EntryAllocator{alloc}};
+    /* for (size_t k = 0; k < splits.size(); k++) { */
+    /*   fmt::println("split[{}] = {}",k, splits[k]); */
+    /* } */
+    /* assert(false); */
 
+    wrs::alias_table_t<P, I, EntryAllocator> aliasTable =
+        wrs::reference::packSplits<T, P, I, EntryAllocator>(
+            heavyIndices, lightIndices, weights, averageWeight, splits, EntryAllocator{alloc});
 
-    throw std::runtime_error("NOT IMPLEMENTED YET");
+    return aliasTable;
 }
 
 namespace pmr {
@@ -49,9 +68,10 @@ std::vector<wrs::alias_table_entry_t<P, I>,
             std::pmr::polymorphic_allocator<wrs::alias_table_entry_t<P, I>>>
 psa_alias_table(const std::span<T>& weights,
                 const T totalWeight,
+                const I K,
                 const std::pmr::polymorphic_allocator<void>& alloc = {}) {
     return wrs::reference::psa_alias_table<T, P, I, std::pmr::polymorphic_allocator<void>>(
-        weights, totalWeight, alloc);
+        weights, totalWeight, K, alloc);
 }
 
 } // namespace pmr
