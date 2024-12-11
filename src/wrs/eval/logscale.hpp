@@ -8,7 +8,7 @@
 #include <type_traits>
 namespace wrs::eval {
 
-namespace internal {
+namespace log10 {
 
 template <std::floating_point T> class FloatLogScaleIterator {
   public:
@@ -184,9 +184,9 @@ static_assert(std::ranges::sized_range<IntLogScaleRange<int>>);
 
 template <wrs::arithmetic T> auto log10scale(T start, T end, size_t numPoints) {
     if constexpr (std::is_floating_point_v<T>) {
-        return internal::FloatLogScaleRange<T>(start, end, numPoints);
+        return log10::FloatLogScaleRange<T>(start, end, numPoints);
     } else if constexpr (std::is_integral_v<T>) {
-        return internal::IntLogScaleRange<T>(start, end, numPoints);
+        return log10::IntLogScaleRange<T>(start, end, numPoints);
     } else {
         static_assert(std::is_floating_point_v<T> || std::is_integral_v<T>,
                       "Unsupported type for log10scale");

@@ -8,7 +8,7 @@
 #include <vector>
 namespace wrs::eval {
 
-template <std::integral I, wrs::typed_allocator<I> Allocator>
+template <std::integral I, wrs::typed_allocator<I> Allocator = std::allocator<I>>
 std::vector<I, Allocator> histogram(std::span<const I> samples,
                                     std::optional<std::size_t> populationSize = std::nullopt,
                                     const Allocator& alloc = {}) {

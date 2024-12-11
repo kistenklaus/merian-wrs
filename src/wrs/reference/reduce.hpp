@@ -81,7 +81,7 @@ T pairwise_kahan_reduction(const std::span<T> elements) {
 }
 
 template <typename T>
-T kahan_reduction(const std::span<T> elements) {
+T kahan_reduction(std::span<const T> elements) {
     T sum = 0;          // Running total sum
     T c = 0;            // Compensation term
     for (const T& element : elements) {

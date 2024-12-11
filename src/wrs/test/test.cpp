@@ -1,10 +1,12 @@
 #include "./test.hpp"
 
-#include "src/wrs/eval/logscale.hpp"
 #include "./is_prefix.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
 #include "merian/vk/utils/profiler.hpp"
+#include "src/wrs/eval/chi_square.hpp"
+#include "src/wrs/eval/logscale.hpp"
+#include "src/wrs/eval/rms.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/generic_types.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
@@ -25,7 +27,9 @@
 #include <functional>
 #include <memory_resource>
 #include <numeric>
+#include <random>
 #include <spdlog/spdlog.h>
+#include <stack>
 #include <stdexcept>
 
 wrs::test::TestContext wrs::test::setupTestContext(const merian::ContextHandle& context) {
@@ -135,20 +139,25 @@ static void testPrefixTests(std::pmr::memory_resource* resource) {
     }
 
     { // Test floats against doubles
-      auto weights = wrs::pmr::generate_weights<float>(wrs::Distribution::PSEUDO_RANDOM_UNIFORM, N, resource);
+        auto weights = wrs::pmr::generate_weights<float>(wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
+                                                         N, resource);
 
-      std::pmr::vector<long double> doubleWeights{weights.begin(), weights.end(), resource};
+        std::pmr::vector<long double> doubleWeights{weights.begin(), weights.end(), resource};
 
-      auto prefixSumFloat = wrs::reference::pmr::prefix_sum<float>(weights, resource);
-      auto prefixSumDouble = wrs::reference::pmr::prefix_sum<long double>(doubleWeights, resource);
-      assert(prefixSumFloat.size() == prefixSumDouble.size());
-      /* for (std::size_t i = 0; i < prefixSumFloat.size(); ++i) { */
-      /*   double diff = std::abs(static_cast<long double>(prefixSumFloat[i]) - prefixSumDouble[i]); */
-      /*   if (diff > 0.01) { */
-      /*     SPDLOG_WARN(fmt::format("Prefix sum of floats is numerically unstable, when comparing against doubles\n" */
-      /*           "Double result {}, float result {}", prefixSumDouble[i], prefixSumFloat[i])); */
-      /*   } */
-      /* } */
+        auto prefixSumFloat = wrs::reference::pmr::prefix_sum<float>(weights, resource);
+        auto prefixSumDouble =
+            wrs::reference::pmr::prefix_sum<long double>(doubleWeights, resource);
+        assert(prefixSumFloat.size() == prefixSumDouble.size());
+        /* for (std::size_t i = 0; i < prefixSumFloat.size(); ++i) { */
+        /*   double diff = std::abs(static_cast<long double>(prefixSumFloat[i]) -
+         * prefixSumDouble[i]); */
+        /*   if (diff > 0.01) { */
+        /*     SPDLOG_WARN(fmt::format("Prefix sum of floats is numerically unstable, when comparing
+         * against doubles\n" */
+        /*           "Double result {}, float result {}", prefixSumDouble[i], prefixSumFloat[i]));
+         */
+        /*   } */
+        /* } */
     }
     /* assert(false); */
 }
@@ -162,7 +171,8 @@ static void testReduceReference(std::pmr::memory_resource* resource) {
 
         auto reduction = wrs::reference::pmr::tree_reduction<float>(elements, resource);
         if (std::abs(reduction - static_cast<float>(ELEM_COUNT)) > 0.01) {
-            throw std::runtime_error("Test of test failed: wrs::reference::tree_reduce is wrong! Failed against uniform set");
+            throw std::runtime_error("Test of test failed: wrs::reference::tree_reduce is wrong! "
+                                     "Failed against uniform set");
         }
     }
 
@@ -175,8 +185,10 @@ static void testReduceReference(std::pmr::memory_resource* resource) {
         auto stdReduction =
             std::accumulate(elements.begin(), elements.end(), 0.0f, std::plus<float>());
         if (std::abs(reduction - stdReduction) > 0.01) {
-            throw std::runtime_error(fmt::format("Test of test failed: wrs::reference::tree_reduce is wrong!. Failed against std\n"
-                  "std got {}, tree_reduce got {}", stdReduction, reduction));
+            throw std::runtime_error(fmt::format(
+                "Test of test failed: wrs::reference::tree_reduce is wrong!. Failed against std\n"
+                "std got {}, tree_reduce got {}",
+                stdReduction, reduction));
         }
     }
     // ======== Block reductions ============
@@ -187,9 +199,10 @@ static void testReduceReference(std::pmr::memory_resource* resource) {
 
         auto reduction = wrs::reference::pmr::block_reduction<float>(elements, 128, resource);
         if (std::abs(reduction - static_cast<float>(ELEM_COUNT)) > 0.01) {
-            throw std::runtime_error(fmt::format(
-                "Test of test failed: wrs::reference::block_reduce is wrong!\nExpected = {}, Got = {}",
-                ELEM_COUNT, reduction));
+            throw std::runtime_error(
+                fmt::format("Test of test failed: wrs::reference::block_reduce is wrong!\nExpected "
+                            "= {}, Got = {}",
+                            ELEM_COUNT, reduction));
         }
     }
     {
@@ -201,8 +214,10 @@ static void testReduceReference(std::pmr::memory_resource* resource) {
         auto stdReduction =
             std::accumulate(elements.begin(), elements.end(), 0.0f, std::plus<float>());
         if (std::abs(reduction - stdReduction) > 0.01) {
-            throw std::runtime_error(fmt::format("Test of test failed: wrs::block_reduce is wrong! Failed against std\n"
-                "std got {}, block_reduce got {}", stdReduction, reduction));
+            throw std::runtime_error(
+                fmt::format("Test of test failed: wrs::block_reduce is wrong! Failed against std\n"
+                            "std got {}, block_reduce got {}",
+                            stdReduction, reduction));
         }
     }
 
@@ -309,7 +324,8 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
     { // Test psa reference construction
         const uint32_t N = 1024 * 2048;
         const uint32_t K = N / 32;
-        SPDLOG_DEBUG(fmt::format("Testing wrs::reference::psa_alias_table... N = {}, K = {}", N, K));
+        SPDLOG_DEBUG(
+            fmt::format("Testing wrs::reference::psa_alias_table... N = {}, K = {}", N, K));
         using weight_t = float;
         std::pmr::vector<weight_t> weights = wrs::pmr::generate_weights<weight_t>(
             wrs::Distribution::PSEUDO_RANDOM_UNIFORM, N, resource);
@@ -322,7 +338,7 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
         wrs::pmr::alias_table_t<weight_t, uint32_t> aliasTable =
             wrs::reference::pmr::psa_alias_table<weight_t, weight_t, uint32_t>(weights, K,
 
-                                                                         resource);
+                                                                               resource);
 
         /*const auto err = wrs::test::pmr::assert_is_alias_table<float, float, uint32_t>(*/
         /*    weights, aliasTable, totalWeight, 1e-4, resource);*/
@@ -335,6 +351,49 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
                 err.message()));
         }
     }
+}
+
+static void testChiSquared(std::pmr::memory_resource* resource) {
+    using I = std::size_t;
+    using T = double;
+    constexpr size_t N = static_cast<std::size_t>(100);
+    constexpr size_t S = static_cast<std::size_t>(1e6);
+
+    std::mt19937 rng{};
+    std::pmr::vector<I> weights{N, resource};
+    std::uniform_int_distribution<I> weightDist{1, 2};
+    for (size_t i = 0; i < N; ++i) {
+        weights[i] = weightDist(rng);
+    }
+
+    std::discrete_distribution<std::size_t> dist{weights.begin(), weights.end()};
+    std::pmr::vector<I> samples{S, resource};
+    for (size_t i = 0; i < S; ++i) {
+        samples[i] = dist(rng);
+    }
+
+    std::pmr::vector<T> floatWeights{N, resource};
+    ;
+    for (size_t i = 0; i < N; ++i) {
+        floatWeights[i] = std::max(static_cast<T>(weights[i]), T{});
+    }
+
+    T chiSquared = wrs::eval::chi_square<T, I>(samples, floatWeights);
+    T critial = wrs::eval::chi_square_critical_value<T>(N, 0.05);
+    fmt::println("chiSquared = {}, critial = {}", chiSquared, critial);
+    T alpha = wrs::eval::chi_square_alpha<T>(chiSquared, N);
+    fmt::println("alpha = {}", alpha);
+
+    for (auto s : wrs::eval::log10scale<I>(100, 1e6, 10)) {
+        fmt::println("s = {}", s);
+    }
+
+    wrs::eval::log10::IntLogScaleRange<I> x = wrs::eval::log10scale<I>(100, 1e6, 10);
+    auto rmseCurve = wrs::eval::rmse_curve<T, I, wrs::eval::log10::IntLogScaleRange<I>,
+                                           std::pmr::polymorphic_allocator<void>>(
+        floatWeights, samples, x, std::nullopt, resource);
+
+    /* fmt::println("RMSE = {}", rmseCurve); */
 }
 
 void wrs::test::testTests() {
@@ -362,6 +421,10 @@ void wrs::test::testTests() {
     SPDLOG_DEBUG("Testing alias table assertion tests");
     stackResource.reset();
     testAliasTableTest(&resource);
+
+    SPDLOG_DEBUG("Testing chi squared evaluation");
+    stackResource.reset();
+    testChiSquared(&resource);
 
     SPDLOG_INFO("Tested tests and references successfully!");
 }

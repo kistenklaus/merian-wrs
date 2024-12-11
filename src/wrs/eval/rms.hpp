@@ -53,19 +53,19 @@ std::vector<std::tuple<I, E>,
 rmse_curve(std::span<const E> weights,
            std::span<const I> samples,
            const Scale xScale,
-           std::optional<const E> totalWeight = std::nullopt,
+           std::optional<E> totalWeight = std::nullopt,
            const Allocator& alloc = Allocator{}) {
 
     assert(!weights.empty());
     assert(!samples.empty());
-    assert(std::ranges::empty(xScale));
+    assert(!std::ranges::empty(xScale));
 
     using HistogramAllocator = typename std::allocator_traits<Allocator>::template rebind_alloc<I>;
     using ResultAllocator =
         typename std::allocator_traits<Allocator>::template rebind_alloc<std::tuple<I, E>>;
 
     if (!totalWeight.has_value()) {
-        totalWeight = wrs::reference::kahan_reduction(weights);
+        totalWeight = wrs::reference::kahan_reduction<E>(weights);
     }
 
     if (*totalWeight < std::numeric_limits<E>::epsilon()) {
@@ -85,7 +85,8 @@ rmse_curve(std::span<const E> weights,
 
     std::vector<I, HistogramAllocator> histogram(weights.size(), 0, alloc);
 
-    std::vector<std::tuple<I, E>, ResultAllocator> results(scaleSize, alloc);
+    std::vector<std::tuple<I, E>, ResultAllocator> results(alloc);
+    results.reserve(scaleSize);
 
     I lastN = 0;
 
