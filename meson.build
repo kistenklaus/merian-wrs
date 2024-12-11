@@ -10,6 +10,8 @@ project(
     ]
 )
 
+# add_global_arguments('-fconcepts-diagnostics-depth=5', language : 'cpp')
+
 # Debug configuration
 if get_option('buildtype').startswith('debug')
   add_project_arguments('-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG', language : 'cpp')
@@ -24,6 +26,7 @@ src_files = []
 inc_dirs = []
 
 subdir('src')
+
 
 exe = executable(
     'merian-example',

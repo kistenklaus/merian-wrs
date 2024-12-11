@@ -1,5 +1,6 @@
 #include "./test.hpp"
 
+#include "src/wrs/eval/logscale.hpp"
 #include "./is_prefix.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
@@ -141,13 +142,13 @@ static void testPrefixTests(std::pmr::memory_resource* resource) {
       auto prefixSumFloat = wrs::reference::pmr::prefix_sum<float>(weights, resource);
       auto prefixSumDouble = wrs::reference::pmr::prefix_sum<long double>(doubleWeights, resource);
       assert(prefixSumFloat.size() == prefixSumDouble.size());
-      for (std::size_t i = 0; i < prefixSumFloat.size(); ++i) {
-        double diff = std::abs(static_cast<long double>(prefixSumFloat[i]) - prefixSumDouble[i]);
-        /* if (diff > 0.01) { */
-        /*   SPDLOG_WARN(fmt::format("Prefix sum of floats is numerically unstable, when comparing against doubles\n" */
-        /*         "Double result {}, float result {}", prefixSumDouble[i], prefixSumFloat[i])); */
-        /* } */
-      }
+      /* for (std::size_t i = 0; i < prefixSumFloat.size(); ++i) { */
+      /*   double diff = std::abs(static_cast<long double>(prefixSumFloat[i]) - prefixSumDouble[i]); */
+      /*   if (diff > 0.01) { */
+      /*     SPDLOG_WARN(fmt::format("Prefix sum of floats is numerically unstable, when comparing against doubles\n" */
+      /*           "Double result {}, float result {}", prefixSumDouble[i], prefixSumFloat[i])); */
+      /*   } */
+      /* } */
     }
     /* assert(false); */
 }

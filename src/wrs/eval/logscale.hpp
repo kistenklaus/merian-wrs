@@ -4,8 +4,9 @@
 #include <cassert>
 #include <cmath>
 #include <iterator>
+#include <ranges>
 #include <type_traits>
-namespace wrs {
+namespace wrs::eval {
 
 namespace internal {
 
@@ -16,6 +17,10 @@ template <std::floating_point T> class FloatLogScaleIterator {
     using difference_type = std::ptrdiff_t;
     using pointer = const T*;
     using reference = const T&;
+
+    FloatLogScaleIterator() : m_logStart(0), m_step(0), m_index(0) {
+        assert(false && "why did you construct me");
+    }
 
     FloatLogScaleIterator(T logStart, T step, size_t index)
         : m_logStart(logStart), m_step(step), m_index(index) {}
@@ -48,6 +53,8 @@ template <std::floating_point T> class FloatLogScaleIterator {
     T m_step;
     size_t m_index;
 };
+static_assert(std::input_iterator<FloatLogScaleIterator<float>>);
+static_assert(std::sentinel_for<FloatLogScaleIterator<float>, FloatLogScaleIterator<float>>);
 
 template <std::floating_point T> class FloatLogScaleRange {
   public:
@@ -66,11 +73,17 @@ template <std::floating_point T> class FloatLogScaleRange {
         return FloatLogScaleIterator<T>(m_logStart, m_step, m_numPoints);
     }
 
+    std::ptrdiff_t size() const noexcept {
+        return m_numPoints;
+    }
+
   private:
     T m_logStart;
     T m_step;
     size_t m_numPoints;
 };
+static_assert(std::ranges::input_range<FloatLogScaleRange<float>>);
+static_assert(std::ranges::sized_range<FloatLogScaleRange<float>>);
 
 // Integer-based logscale iterator
 template <std::integral T> class IntLogScaleIterator {
@@ -80,6 +93,10 @@ template <std::integral T> class IntLogScaleIterator {
     using difference_type = std::ptrdiff_t;
     using pointer = const T*;
     using reference = const T&;
+
+    IntLogScaleIterator() : m_start(0), m_multiplier(0), m_index(0), m_current(0) {
+        assert(false && "why did you construct me");
+    }
 
     IntLogScaleIterator(T start, double multiplier, size_t index)
         : m_start(start), m_multiplier(multiplier), m_index(index), m_current(start) {
@@ -98,7 +115,7 @@ template <std::integral T> class IntLogScaleIterator {
         return *this;
     }
 
-    IntLogScaleIterator operator++(int) {
+    IntLogScaleIterator operator++(int) const {
         IntLogScaleIterator tmp = *this;
         ++(*this);
         return tmp;
@@ -118,14 +135,29 @@ template <std::integral T> class IntLogScaleIterator {
     size_t m_index;
     T m_current;
 };
+static_assert(std::input_iterator<IntLogScaleIterator<int>>);
+static_assert(std::sentinel_for<IntLogScaleIterator<int>, IntLogScaleIterator<int>>);
 
-template <std::integral T> class IntLogScaleRange {
+template <std::integral T> class IntLogScaleRange : std::ranges::view_base {
   public:
+    using iterator = IntLogScaleIterator<T>;
     IntLogScaleRange(T start, T end, size_t numPoints)
         : m_start(start),
           m_multiplier(std::pow(static_cast<double>(end) / start, 1.0 / (numPoints - 1))),
           m_numPoints(numPoints) {
         assert(start > 0 && end > start && numPoints > 1);
+    }
+    IntLogScaleRange(const IntLogScaleRange&) = default;            // Copy constructor
+    IntLogScaleRange(IntLogScaleRange&&) = default;                 // Move constructor
+    IntLogScaleRange& operator=(const IntLogScaleRange&) = default; // Copy assignment
+    IntLogScaleRange& operator=(IntLogScaleRange&&) = default;      // Move assignment
+                                                                    //
+    IntLogScaleIterator<T> begin() {
+        return IntLogScaleIterator<T>(m_start, m_multiplier, 0);
+    }
+
+    IntLogScaleIterator<T> end() {
+        return IntLogScaleIterator<T>(m_start, m_multiplier, m_numPoints);
     }
 
     IntLogScaleIterator<T> begin() const {
@@ -136,11 +168,17 @@ template <std::integral T> class IntLogScaleRange {
         return IntLogScaleIterator<T>(m_start, m_multiplier, m_numPoints);
     }
 
+    std::ptrdiff_t size() const noexcept {
+        return m_numPoints;
+    }
+
   private:
     T m_start;
     double m_multiplier;
     size_t m_numPoints;
 };
+static_assert(std::ranges::input_range<IntLogScaleRange<int>>);
+static_assert(std::ranges::sized_range<IntLogScaleRange<int>>);
 
 } // namespace internal
 
@@ -155,4 +193,4 @@ template <wrs::arithmetic T> auto log10scale(T start, T end, size_t numPoints) {
     }
 }
 
-} // namespace wrs
+} // namespace wrs::eval

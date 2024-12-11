@@ -6,7 +6,7 @@
 #include <optional>
 #include <span>
 #include <vector>
-namespace wrs::test {
+namespace wrs::eval {
 
 template <std::integral I, wrs::typed_allocator<I> Allocator>
 std::vector<I, Allocator> histogram(std::span<const I> samples,

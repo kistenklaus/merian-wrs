@@ -136,7 +136,6 @@ assert_is_alias_table(const std::span<T> weights,
     // Normalize sampled to probabilties * totalWeight (Should be decently stable )
     const P totalWeightP = static_cast<P>(totalWeight);
     const P sampledSize = static_cast<P>(sampled.size());
-    P averageWeight = totalWeight / sampledSize;
     for (std::size_t i = 0; i < sampled.size(); ++i) {
         // Prevent floating point reordering under -ffast-math (i.e -Ofast)
         volatile P s = sampled[i];

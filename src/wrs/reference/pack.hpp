@@ -40,8 +40,8 @@ P pack(const std::span<I> heavyIndices,
         assert(h < N);
         w = weights[h];
     }
-    uint64_t lightToPack = i1 - static_cast<int64_t>(i);
-    uint64_t heavyToPack = j1 - static_cast<int64_t>(j);
+    /* uint64_t lightToPack = i1 - static_cast<int64_t>(i); */
+    /* uint64_t heavyToPack = j1 - static_cast<int64_t>(j); */
     while (j != heavyCount) {
         /* fmt::println("TODO-list : light = {}, heavy = {}", lightToPack, heavyToPack); */
         /* fmt::println("w = {}, i = {}, j = {}", w, i, j); */
@@ -65,7 +65,7 @@ P pack(const std::span<I> heavyIndices,
                         I h = heavyIndices[j];
                         assert(h < N);
                         aliasTable[h] = std::make_tuple(1.0f, h);
-                        heavyToPack -= 1;
+                        /* heavyToPack -= 1; */
                         w = (w + 0) - averageWeight;
                         j += 1;
                     }
@@ -85,7 +85,7 @@ P pack(const std::span<I> heavyIndices,
             P prob = weights[l] / averageWeight; // normalize to redirect prob.
             /* fmt::println("\tRedirecting access weight to {} with probability {}", h, prob); */
             aliasTable[l] = std::make_tuple(prob, h);
-            lightToPack -= 1;
+            /* lightToPack -= 1; */
             /* fmt::println("\tpacking {}", l); */
             w = (w + weights[l]) - averageWeight;
             i += 1; // next light item
@@ -106,7 +106,7 @@ P pack(const std::span<I> heavyIndices,
                     I h = heavyIndices[j];
                     P prob = weights[l] / averageWeight;
                     aliasTable[l] = std::make_tuple(prob, h);
-                    lightToPack -= 1;
+                    /* lightToPack -= 1; */
                     w = (w + weights[l]) - averageWeight;
                     ++i;
                     /* fmt::println("\tpacking badly {} residual weight = {}", l, w); */
@@ -117,7 +117,7 @@ P pack(const std::span<I> heavyIndices,
             if (j + 1 >= heavyCount) {
                 // This should only happen on the last heavy element!
                 aliasTable[h] = std::make_tuple(prob, h);
-                heavyToPack -= 1;
+                /* heavyToPack -= 1; */
                 /* fmt::println("\tpacking {} (last heavy element)", h); */
                 w = (w + 0) - averageWeight;
                 while (i < i1) {
@@ -126,7 +126,7 @@ P pack(const std::span<I> heavyIndices,
                     I h = heavyIndices[j];
                     P prob = weights[l] / averageWeight;
                     aliasTable[l] = std::make_tuple(prob, h);
-                    lightToPack -= 1;
+                    /* lightToPack -= 1; */
                     w = (w + weights[l]) - averageWeight;
                     ++i;
                     /* fmt::println("\tpacking badly {} residual weight = {}", l, w); */
@@ -136,7 +136,7 @@ P pack(const std::span<I> heavyIndices,
                 I hnext = heavyIndices[j + 1];
                 assert(hnext < N);
                 aliasTable[h] = std::make_tuple(prob, hnext);
-                heavyToPack -= 1;
+                /* heavyToPack -= 1; */
                 /* fmt::println("\tpacking {}", h); */
                 w = (w + weights[hnext]) - averageWeight;
                 j += 1; // next heavy item
@@ -171,12 +171,8 @@ wrs::alias_table_t<P, I, Allocator> packSplits(const std::span<I> heavyIndices,
     for (size_t k = 0; k < splits.size(); k++) {
         const auto& [i0, j0, s] = prevSplit;
         const auto& [i1, j1, r] = splits[k];
-        P residual = wrs::reference::pack<T, P, I>(heavyIndices, lightIndicies, weights,
+        wrs::reference::pack<T, P, I>(heavyIndices, lightIndicies, weights,
                                                    averageWeight, i0, i1, j0, j1, s, aliasTable);
-        /* if (std::abs(residual - r) > 0.25) { */
-        /*     SPDLOG_WARN( */
-        /*         fmt::format("Numerical instability. Expected residual {}, Got {}", r, residual)); */
-        /* } */
         prevSplit = splits[k];
     }
 
