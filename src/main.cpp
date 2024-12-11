@@ -2,9 +2,6 @@
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
-#include "src/wrs/algorithm/mean/decoupled/test.hpp"
-#include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
-#include "src/wrs/algorithm/split/scalar/test.hpp"
 #include "src/wrs/test/test.hpp"
 #include <memory>
 #include <set>

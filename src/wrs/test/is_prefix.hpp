@@ -39,10 +39,11 @@ template <wrs::arithmetic T> struct IsPrefixIndexError {
         }
         if (type & IS_PREFIX_ERROR_TYPE_UNSTABLE) {
             ss << "\t\t\tPrefix is numerically unstable:\n";
+            ss << std::fixed << std::setprecision(6);
             ss << "\t\t\t\tExpected: " << prevPrefix << " + " << element << " \u2248 "
                << prevPrefix + element << "\t\t" << "Diff: |"
                << std::abs((prevPrefix - prefix) + element) << "|\n";
-            ss << "\t\t\t\t     Got: " << prefix << "\n";
+            ss << "\t\t\t\t     Got: " << prefix << std::endl;
         }
         if (type & IS_PREFIX_ERROR_TYPE_NOT_A_PREFIX_SUM) {
             ss << "\t\t\tPrefix is not really a prefix sum:\n";

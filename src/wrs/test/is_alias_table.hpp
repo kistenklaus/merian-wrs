@@ -55,12 +55,16 @@ template <wrs::arithmetic T, std::floating_point P, std::integral I, wrs::generi
     std::vector<IndexError, allocator> errors;
     I N;
     I N_got;
+    P maxOversample;
+    P maxUndersample;
 
     IsAliasTableError(ErrorType type,
                       std::vector<IndexError, allocator>&& errors,
                       I N,
-                      I N_got)
-        : type(type), errors(std::move(errors)), N(N), N_got(N_got) {}
+                      I N_got, P maxOversample = {},
+                      P maxUndersample = {})
+        : type(type), errors(std::move(errors)), N(N), N_got(N_got), maxOversample(maxOversample),
+    maxUndersample(maxUndersample){}
 
     operator bool() const {
         return type != IS_ALIAS_TABLE_ERROR_TYPE_NONE;
@@ -79,13 +83,13 @@ template <wrs::arithmetic T, std::floating_point P, std::integral I, wrs::generi
             ss << "\t\t-INVALID_ALIAS\n";
         }
         if (type & IS_ALIAS_TABLE_ERROR_TYPE_UNDERSAMPLED_WEIGHT) {
-            ss << "\t\t-UNDERSAMPLED_WEIGHT\n";
+            ss << "\t\t-UNDERSAMPLED_WEIGHT: worstCase = " << maxUndersample << "\n";
         }
         if (type & IS_ALIAS_TABLE_ERROR_TYPE_OVERSAMPLED_WEIGHT) {
-            ss << "\t\t-OVERSAMPLED_WEIGHT\n";
+            ss << "\t\t-OVERSAMPLED_WEIGHT : worstCase = "<< maxOversample << "\n";
         }
 
-        constexpr std::size_t MAX_LOG = 32;
+        constexpr std::size_t MAX_LOG = 3;
         for (const auto& error : errors | std::views::take(MAX_LOG)) {
             error.appendMessageToStringStream(ss, N);
         }
@@ -132,6 +136,7 @@ assert_is_alias_table(const std::span<T> weights,
     // Normalize sampled to probabilties * totalWeight (Should be decently stable )
     const P totalWeightP = static_cast<P>(totalWeight);
     const P sampledSize = static_cast<P>(sampled.size());
+    P averageWeight = totalWeight / sampledSize;
     for (std::size_t i = 0; i < sampled.size(); ++i) {
         // Prevent floating point reordering under -ffast-math (i.e -Ofast)
         volatile P s = sampled[i];
@@ -141,6 +146,8 @@ assert_is_alias_table(const std::span<T> weights,
     }
 
     std::size_t errorCount = 0;
+    P maxOversample = 0;
+    P maxUndersample = 0;
     for (size_t i = 0; i < aliasTable.size(); ++i) {
         std::uint8_t type = IS_ALIAS_TABLE_ERROR_TYPE_NONE;
         const auto& [p, a] = aliasTable[i];
@@ -148,8 +155,10 @@ assert_is_alias_table(const std::span<T> weights,
             type |= IS_ALIAS_TABLE_ERROR_TYPE_INVALID_ALIAS;
         }
         if (sampled[i] - errorMargin > weights[i]) {
+            maxOversample = std::max(sampled[i] - weights[i], maxOversample);
             type |= IS_ALIAS_TABLE_ERROR_TYPE_OVERSAMPLED_WEIGHT;
         } else if (sampled[i] + errorMargin < weights[i]) {
+            maxUndersample = std::max(weights[i] - sampled[i], maxUndersample);
             type |= IS_ALIAS_TABLE_ERROR_TYPE_UNDERSAMPLED_WEIGHT;
         }
         if (type != IS_ALIAS_TABLE_ERROR_TYPE_NONE) {
@@ -183,7 +192,7 @@ assert_is_alias_table(const std::span<T> weights,
     }
 
     return Error(static_cast<ErrorType>(aggError), std::move(errors), weights.size(),
-                 aliasTable.size());
+                 aliasTable.size(), maxOversample, maxUndersample);
 }
 
 namespace pmr {

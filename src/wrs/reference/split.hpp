@@ -63,7 +63,7 @@ std::vector<wrs::split_t<T, I>, Allocator> splitK(const std::span<T> heavyPrefix
         const std::uintmax_t temp = static_cast<std::uintmax_t>(N) * static_cast<std::uintmax_t>(k);
         const I n =
             static_cast<I>(wrs::ceilDiv<std::uintmax_t>(temp, static_cast<std::uintmax_t>(K)));
-        fmt::println("Computing split {}/{} with {} elements of {} elements", k, K, n, N);
+        /* fmt::println("Computing split {}/{} with {} elements of {} elements", k, K, n, N); */
         splits[k - 1] = split<T, I>(heavyPrefix, lightPrefix, mean, n);
     }
     splits.back() =

@@ -16,10 +16,18 @@ prefix_sum(const std::span<T> elements, bool ensureMonotone = true, const Alloca
     // Inital not work efficient algorithm:
     // - Reasonable numerical stability errors should not accumulate that much
     // - Problem: Reuslt is not guaranteed to be monotone when working with floating point numbers
-    for (uint64_t shift = 1; shift <= N; shift <<= 1) {
-        for (size_t i = N - 1; i >= shift; --i) {
-            prefix.at(i) += prefix.at(i - shift);
-        }
+
+    // Initialize Kahan summation variables
+    double sum = 0.0f;
+    double c = 0.0f; // compensation term
+
+    for (uint64_t i = 0; i < N; ++i) {
+        double y = prefix[i] - c; // subtract the previous compensation
+        double t = sum + y;       // add the current element to the sum
+        c = (t - sum) - y;       // calculate the new compensation
+        sum = t;                 // update the sum
+
+        prefix[i] = sum; // Store the current prefix sum
     }
 
     if (ensureMonotone) {

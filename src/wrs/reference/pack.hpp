@@ -33,7 +33,7 @@ P pack(const std::span<I> heavyIndices,
     I i = i0;
     // Can underflow on the first iteration!, which is fine because it overflows right after
     I j = j0;
-    P w = static_cast<P>(spill);
+    double w = static_cast<P>(spill);
     if (w == 0.0f) {
         assert(j < heavyCount);
         I h = heavyIndices[j];
@@ -42,11 +42,10 @@ P pack(const std::span<I> heavyIndices,
     }
     uint64_t lightToPack = i1 - static_cast<int64_t>(i);
     uint64_t heavyToPack = j1 - static_cast<int64_t>(j);
-    uint8_t exitType = 0;
     while (j != heavyCount) {
         /* fmt::println("TODO-list : light = {}, heavy = {}", lightToPack, heavyToPack); */
         /* fmt::println("w = {}, i = {}, j = {}", w, i, j); */
-        auto diff = std::abs(w - averageWeight);
+        /* auto diff = std::abs(w - averageWeight); */
         /* if (diff < 0.01) { */
         /*     SPDLOG_WARN(fmt::format("uhh {}", diff)); */
         /* } */
@@ -54,12 +53,11 @@ P pack(const std::span<I> heavyIndices,
             if (i >= i1) {
                 /* fmt::println("Exit while packing light"); */
                 if (j != j1) {
-                    static uint32_t c = 0;
-
                     // Pack remaining heavy
                     /* SPDLOG_WARN("Packing remaining heavy"); */
                     /* if (std::abs(averageWeight - w) > 0.001) { */
-                    /*     SPDLOG_WARN(fmt::format("Numerical instability : Expected : {}, Got : {}", */
+                    /*     SPDLOG_WARN(fmt::format("Numerical instability : Expected : {}, Got :
+                     * {}", */
                     /*                             averageWeight, w)); */
                     /* } */
                     assert(j < heavyCount);
@@ -71,9 +69,6 @@ P pack(const std::span<I> heavyIndices,
                         w = (w + 0) - averageWeight;
                         j += 1;
                     }
-                    exitType = c;
-                } else {
-                    exitType = 1;
                 }
                 break;
             }
@@ -101,7 +96,7 @@ P pack(const std::span<I> heavyIndices,
             // pack heavy element
             if (j >= j1) {
                 /* assert(j == j1); // Just assuming for now! */
-                // no more heavy elements
+                // no more heavy elements pack remaining light
                 /* fmt::println("Exit while packing heavy, lm = {}, hm = {}", lightToPack, */
                 /*              heavyToPack); */
                 /* fmt::println("w = {}, avg = {}", w, averageWeight); */
@@ -116,7 +111,6 @@ P pack(const std::span<I> heavyIndices,
                     ++i;
                     /* fmt::println("\tpacking badly {} residual weight = {}", l, w); */
                 }
-                exitType = 2;
                 break;
             }
             P prob = w / averageWeight;
@@ -137,7 +131,6 @@ P pack(const std::span<I> heavyIndices,
                     ++i;
                     /* fmt::println("\tpacking badly {} residual weight = {}", l, w); */
                 }
-                exitType = 3;
                 break;
             } else {
                 I hnext = heavyIndices[j + 1];
@@ -152,12 +145,12 @@ P pack(const std::span<I> heavyIndices,
     }
     /* assert(lightToPack == 0); */
     /* assert(heavyToPack == 0); */
-    static int count = 0;
-    if (lightToPack != 0 || heavyToPack != 0) {
-        count += 1;
-        fmt::println("({},{},{},{},{}), remaining = ({},{}) [{}], type = {}", i0, i1, j0, j1, spill,
-                     lightToPack, heavyToPack, count, exitType);
-    }
+    /* static int count = 0; */
+    /* if (lightToPack != 0 || heavyToPack != 0) { */
+    /*     count += 1; */
+    /*     fmt::println("({},{},{},{},{}), remaining = ({},{}) [{}]", i0, i1, j0, j1, spill, */
+    /*                  lightToPack, heavyToPack, count); */
+    /* } */
     /* fmt::println("Redisual : {}", w); */
     return w;
 }
@@ -175,21 +168,17 @@ wrs::alias_table_t<P, I, Allocator> packSplits(const std::span<I> heavyIndices,
     wrs::split_t<T, I> prevSplit = std::make_tuple(I{}, I{}, T{});
     const I N = static_cast<I>(weights.size());
     wrs::alias_table_t<P, I, Allocator> aliasTable{N, alloc};
-    fmt::println("PACKING");
     for (size_t k = 0; k < splits.size(); k++) {
-        /* fmt::println("PACKING SPLIT[{}] = {}", k, splits[k]); */
         const auto& [i0, j0, s] = prevSplit;
         const auto& [i1, j1, r] = splits[k];
         P residual = wrs::reference::pack<T, P, I>(heavyIndices, lightIndicies, weights,
                                                    averageWeight, i0, i1, j0, j1, s, aliasTable);
-        if (std::abs(residual - r) > 0.25) {
-            /* SPDLOG_WARN( */
-            /*     fmt::format("Numerical instability. Expected residual {}, Got {}", r, residual));
-             */
-        }
+        /* if (std::abs(residual - r) > 0.25) { */
+        /*     SPDLOG_WARN( */
+        /*         fmt::format("Numerical instability. Expected residual {}, Got {}", r, residual)); */
+        /* } */
         prevSplit = splits[k];
     }
-    fmt::println("DONE");
 
     return aliasTable; // NRTO
 }

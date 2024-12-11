@@ -1,6 +1,7 @@
 #pragma once
 
 #include "src/wrs/why.hpp"
+#include <algorithm>
 #include <cassert>
 #include <concepts>
 #include <fmt/base.h>
@@ -38,6 +39,59 @@ T tree_reduction(const std::span<T> elements, const Allocator& alloc = {}) {
         }
     }
     return scratch.front();
+}
+
+template <typename T>
+T neumaier_reduction(const std::span<T> elements) {
+    T sum = 0;
+    T c = 0; // Error term
+    
+    for (const T& element : elements) {
+        T y = element - c;
+        T t = sum + y;
+        c = (t - sum) - y;  // Update error term
+        sum = t;
+    }
+    
+    return sum;
+}
+
+template <typename T>
+T pairwise_kahan_reduction(const std::span<T> elements) {
+    std::vector<T> summed_elements{elements.begin(),elements.end()};
+
+    // Pairwise summation
+    while (summed_elements.size() > 1) {
+        std::vector<T> next_summed_elements;
+        for (size_t i = 0; i < summed_elements.size(); i += 2) {
+            if (i + 1 < summed_elements.size()) {
+                T a = summed_elements[i];
+                T b = summed_elements[i + 1];
+                T sum = a + b;
+                T c = (sum - a) - b;
+                next_summed_elements.push_back(sum - c);
+            } else {
+                next_summed_elements.push_back(summed_elements[i]);
+            }
+        }
+        summed_elements = next_summed_elements;
+    }
+
+    return summed_elements[0];
+}
+
+template <typename T>
+T kahan_reduction(const std::span<T> elements) {
+    T sum = 0;          // Running total sum
+    T c = 0;            // Compensation term
+    for (const T& element : elements) {
+        T y = element - c;     // Subtract compensation from current element
+        T t = sum + y;         // Add the adjusted value to the sum
+        c = (t - sum) - y;     // Calculate the new compensation
+        sum = t;               // Update the running total
+    }
+
+    return sum;
 }
 
 template <wrs::arithmetic T, wrs::typed_allocator<T> Allocator = std::allocator<T>>

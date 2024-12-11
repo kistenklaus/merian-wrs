@@ -4,6 +4,7 @@
 #include "src/wrs/reference/pack.hpp"
 #include "src/wrs/reference/partition.hpp"
 #include "src/wrs/reference/prefix_sum.hpp"
+#include "src/wrs/reference/reduce.hpp"
 #include "src/wrs/reference/split.hpp"
 #include <fmt/base.h>
 #include <memory>
@@ -19,10 +20,16 @@ template <wrs::arithmetic T,
 std::vector<wrs::alias_table_entry_t<P, I>,
             typename std::allocator_traits<Allocator>::template rebind_alloc<
                 wrs::alias_table_entry_t<P, I>>>
-psa_alias_table(const std::span<T>& weights,
-                const T totalWeight,
+psa_alias_table(const std::span<T> weights_,
                 const I K,
                 const Allocator& alloc = {}) {
+
+    std::vector<T> weights {weights_.begin(), weights_.end()};
+    for (size_t i = 0; i < weights.size(); ++i) {
+      weights[i] *= 0.0001;
+    }
+
+    const auto totalWeight = wrs::reference::kahan_reduction<T>(weights);
 
     using Entry = wrs::alias_table_entry_t<P, I>;
     using EntryAllocator = std::allocator_traits<Allocator>::template rebind_alloc<Entry>;
@@ -67,11 +74,10 @@ template <wrs::arithmetic T, std::floating_point P, std::integral I>
 std::vector<wrs::alias_table_entry_t<P, I>,
             std::pmr::polymorphic_allocator<wrs::alias_table_entry_t<P, I>>>
 psa_alias_table(const std::span<T>& weights,
-                const T totalWeight,
                 const I K,
                 const std::pmr::polymorphic_allocator<void>& alloc = {}) {
     return wrs::reference::psa_alias_table<T, P, I, std::pmr::polymorphic_allocator<void>>(
-        weights, totalWeight, K, alloc);
+        weights, K, alloc);
 }
 
 } // namespace pmr

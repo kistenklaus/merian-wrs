@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <fmt/base.h>
 #include <fmt/format.h>
+#include <functional>
 #include <limits>
 #include <random>
 #include <spdlog/spdlog.h>
@@ -15,6 +16,8 @@ enum class Distribution {
     PSEUDO_RANDOM_UNIFORM,
     RANDOM_UNIFORM,
     SEEDED_RANDOM_UNIFORM,
+    SEEDED_RANDOM_EXPONENTIAL,
+    SEEDED_RANDOM_NORMAL,
 };
 
 struct WeightGenInfo {
@@ -43,6 +46,13 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
         break;
     case Distribution::SEEDED_RANDOM_UNIFORM:
         loggingThreshold = 1e7;
+        break;
+    case Distribution::SEEDED_RANDOM_EXPONENTIAL:
+        loggingThreshold = 1e7;
+        break;
+    case Distribution::SEEDED_RANDOM_NORMAL:
+        loggingThreshold = 1e7;
+        break;
         break;
     }
 
@@ -103,6 +113,40 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
                                          i / static_cast<float>(count) * 100));
             }
             weights[i] = dist(rng);
+        }
+        break;
+    }
+    case Distribution::SEEDED_RANDOM_EXPONENTIAL: {
+        std::random_device seedRng{};
+        std::uniform_int_distribution<uint64_t> seedDist{1, std::numeric_limits<uint64_t>::max()};
+        uint64_t seed = seedDist(seedRng);
+        SPDLOG_DEBUG(fmt::format("Seeding mt19937 with seed = {}", seed));
+        std::mt19937 rng{seed};
+        std::exponential_distribution<T> dist{1.0f};
+        for (size_t i = 0; i < weights.size(); ++i) {
+            if (enableLogging && nextChunk == i) {
+                nextChunk += logChunkSize;
+                SPDLOG_DEBUG(fmt::format("Generating numbers : {}% done",
+                                         i / static_cast<float>(count) * 100));
+            }
+            weights[i] = dist(rng);
+        }
+        break;
+    }
+    case Distribution::SEEDED_RANDOM_NORMAL: {
+        std::random_device seedRng{};
+        std::uniform_int_distribution<uint64_t> seedDist{1, std::numeric_limits<uint64_t>::max()};
+        uint64_t seed = seedDist(seedRng);
+        SPDLOG_DEBUG(fmt::format("Seeding mt19937 with seed = {}", seed));
+        std::mt19937 rng{seed};
+        std::normal_distribution<T> dist{10.0f};
+        for (size_t i = 0; i < weights.size(); ++i) {
+            if (enableLogging && nextChunk == i) {
+                nextChunk += logChunkSize;
+                SPDLOG_DEBUG(fmt::format("Generating numbers : {}% done",
+                                         i / static_cast<float>(count) * 100));
+            }
+            weights[i] = std::abs(dist(rng));
         }
         break;
     }
