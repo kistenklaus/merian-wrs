@@ -11,8 +11,12 @@ template <std::floating_point P, std::integral I> using alias_table_entry_t = st
 
 template <std::floating_point P,
           std::integral I,
-          wrs::typed_allocator<wrs::alias_table_entry_t<P, I>> Allocator>
+          wrs::typed_allocator<wrs::alias_table_entry_t<P, I>> Allocator = std::allocator<wrs::alias_table_entry_t<P, I>>>
 using alias_table_t = std::vector<wrs::alias_table_entry_t<P, I>, Allocator>;
+
+template <std::floating_point P,
+          std::integral I>
+using const_alias_table_ref = std::span<const wrs::alias_table_entry_t<P, I>>;
 
 template <wrs::arithmetic T, std::integral I> using split_t = std::tuple<I, I, T>;
 

@@ -7,6 +7,7 @@
 #include "src/wrs/eval/chi_square.hpp"
 #include "src/wrs/eval/logscale.hpp"
 #include "src/wrs/eval/rms.hpp"
+#include "src/wrs/export/csv.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/generic_types.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
@@ -16,6 +17,7 @@
 #include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/psa_alias_table.hpp"
 #include "src/wrs/reference/reduce.hpp"
+#include "src/wrs/reference/sample_alias_table.hpp"
 #include "src/wrs/reference/split.hpp"
 #include "src/wrs/reference/sweeping_alias_table.hpp"
 #include "src/wrs/test/is_alias_table.hpp"
@@ -326,9 +328,9 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
         const uint32_t K = N / 32;
         SPDLOG_DEBUG(
             fmt::format("Testing wrs::reference::psa_alias_table... N = {}, K = {}", N, K));
-        using weight_t = float;
-        std::pmr::vector<weight_t> weights = wrs::pmr::generate_weights<weight_t>(
-            wrs::Distribution::PSEUDO_RANDOM_UNIFORM, N, resource);
+        using weight_t = double;
+        const std::pmr::vector<weight_t> weights = wrs::pmr::generate_weights<weight_t>(
+            wrs::Distribution::SEEDED_RANDOM_EXPONENTIAL, N, resource);
         /* std::sort(weights.begin(), weights.end()); */
         /* std::vector<weight_t> weights = {2,2,2,2,2,1,1,1,1,1}; */
         assert(N == static_cast<uint32_t>(weights.size()));
@@ -350,12 +352,27 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
                 "Test of tests failed: psa alias table references or assertions are invalid.\n{}",
                 err.message()));
         }
+
+        SPDLOG_DEBUG("Sampling alias table... (might take a while)");
+        constexpr std::size_t S = N * 1000;
+        auto samples =
+            wrs::reference::pmr::sample_alias_table<weight_t, uint32_t>(aliasTable, S, resource);
+
+        /* fmt::println("samples = {}", samples); */
+
+        auto rmseCurve = wrs::eval::pmr::rmse_curve<weight_t, uint32_t>(
+            weights, samples, wrs::eval::log10scale<uint32_t>(1000, S, 1000), std::nullopt, resource);
+
+        wrs::exp::CSVWriter<2> csv({"sample_size", "rmse"}, "psa_ref_rmse_float_exponential.csv");
+        for (const auto& [x,y] :rmseCurve) {
+          csv.pushRow(x,y);
+        }
     }
 }
 
 static void testChiSquared(std::pmr::memory_resource* resource) {
     using I = std::size_t;
-    using T = double;
+    using T = float;
     constexpr size_t N = static_cast<std::size_t>(100);
     constexpr size_t S = static_cast<std::size_t>(1e6);
 
@@ -378,21 +395,20 @@ static void testChiSquared(std::pmr::memory_resource* resource) {
         floatWeights[i] = std::max(static_cast<T>(weights[i]), T{});
     }
 
-    T chiSquared = wrs::eval::chi_square<T, I>(samples, floatWeights);
-    T critial = wrs::eval::chi_square_critical_value<T>(N, 0.05);
-    fmt::println("chiSquared = {}, critial = {}", chiSquared, critial);
-    T alpha = wrs::eval::chi_square_alpha<T>(chiSquared, N);
-    fmt::println("alpha = {}", alpha);
-
-    for (auto s : wrs::eval::log10scale<I>(100, 1e6, 10)) {
-        fmt::println("s = {}", s);
-    }
+    /* T chiSquared = wrs::eval::chi_square<T, I>(samples, floatWeights); */
+    /* T critial = wrs::eval::chi_square_critical_value<T>(N, 0.05); */
+    /* T alpha = wrs::eval::chi_square_alpha<T>(chiSquared, N); */
 
     wrs::eval::log10::IntLogScaleRange<I> x = wrs::eval::log10scale<I>(100, 1e6, 10);
     auto rmseCurve = wrs::eval::rmse_curve<T, I, wrs::eval::log10::IntLogScaleRange<I>,
                                            std::pmr::polymorphic_allocator<void>>(
         floatWeights, samples, x, std::nullopt, resource);
 
+    wrs::exp::CSVWriter<2> csv({"samples", "rmse"}, "rmse.csv");
+
+    for (const auto& [x, y] : rmseCurve) {
+        csv.pushRow(x, y);
+    }
     /* fmt::println("RMSE = {}", rmseCurve); */
 }
 

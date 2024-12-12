@@ -2,6 +2,9 @@
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
+#include "src/wrs/eval/psa_ref_eval.hpp"
+#include "src/wrs/eval/std_eval.hpp"
+#include "src/wrs/eval/sweeping_eval.hpp"
 #include "src/wrs/test/test.hpp"
 #include <memory>
 #include <set>
@@ -26,7 +29,12 @@ int main() {
         throw std::runtime_error("Failed to create context!!!");
     }
 
-    wrs::test::testTests();
+    wrs::eval::write_sweeping_rmse_curves();
+    wrs::eval::write_std_rmse_curves();
+    wrs::eval::write_psa_rmse_curves();
+    /* wrs::eval::write_std_rmse_curves(); */
+    /* wrs::eval::write_psa_rmse_curves(); */
+    /* wrs::test::testTests(); */
     /* wrs::test::decoupled_mean::test(context); */
     /* wrs::test::decoupled_prefix_partition::test(context); */
     /* wrs::test::scalar_split::test(context); */

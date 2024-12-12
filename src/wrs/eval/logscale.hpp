@@ -115,7 +115,7 @@ template <std::integral T> class IntLogScaleIterator {
         return *this;
     }
 
-    IntLogScaleIterator operator++(int) const {
+    IntLogScaleIterator operator++(int) {
         IntLogScaleIterator tmp = *this;
         ++(*this);
         return tmp;
@@ -182,7 +182,18 @@ static_assert(std::ranges::sized_range<IntLogScaleRange<int>>);
 
 } // namespace internal
 
-template <wrs::arithmetic T> auto log10scale(T start, T end, size_t numPoints) {
+/* template <wrs::arithmetic T> auto log10scale(T start, T end, size_t numPoints) { */
+/*     if constexpr (std::is_floating_point_v<T>) { */
+/*         return log10::FloatLogScaleRange<T>(start, end, numPoints); */
+/*     } else if constexpr (std::is_integral_v<T>) { */
+/*         return log10::IntLogScaleRange<T>(start, end, numPoints); */
+/*     } else { */
+/*         static_assert(std::is_floating_point_v<T> || std::is_integral_v<T>, */
+/*                       "Unsupported type for log10scale"); */
+/*     } */
+/* } */
+
+template <std::integral T> log10::IntLogScaleRange<T> log10scale(T start, T end, size_t numPoints) {
     if constexpr (std::is_floating_point_v<T>) {
         return log10::FloatLogScaleRange<T>(start, end, numPoints);
     } else if constexpr (std::is_integral_v<T>) {

@@ -30,7 +30,7 @@ static I nextLight(const std::span<T>& weights, I i, P pivot) {
 template <wrs::arithmetic T, std::floating_point P, std::integral I>
 static I nextHeavy(const std::span<T>& weights, I i, P pivot) {
     const I N = static_cast<I>(weights.size());
-    if (i >= N)  {
+    if (i >= N) {
         return N;
     }
     assert(i < N);
@@ -45,13 +45,16 @@ static I nextHeavy(const std::span<T>& weights, I i, P pivot) {
 
 } // namespace sweeping_internal
 
-template <wrs::arithmetic T, std::floating_point P, std::integral I,wrs::generic_allocator Allocator = std::allocator<void>>
+template <wrs::arithmetic T,
+          std::floating_point P,
+          std::integral I,
+          wrs::generic_allocator Allocator = std::allocator<void>>
 std::vector<wrs::alias_table_entry_t<P, I>,
             typename std::allocator_traits<Allocator>::template rebind_alloc<
                 wrs::alias_table_entry_t<P, I>>>
 sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator& alloc = {}) {
-    using EntryAllocator = std::allocator_traits<Allocator>::template rebind_alloc<
-        wrs::alias_table_entry_t<P, I>>;
+    using EntryAllocator =
+        std::allocator_traits<Allocator>::template rebind_alloc<wrs::alias_table_entry_t<P, I>>;
     using Entry = wrs::alias_table_entry_t<P, I>;
 
     const I N = weights.size();
@@ -61,6 +64,7 @@ sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator&
 
     std::vector<Entry, EntryAllocator> aliasTable{N, EntryAllocator{alloc}};
     if (j == N) {
+        fmt::println("ALL WEIGHTS ARE EQUAL");
         for (I k = 0; k < N; ++k) {
             /* std::numeric_limits<float>::i */
             aliasTable[k] = std::make_tuple(static_cast<P>(1.0), k);

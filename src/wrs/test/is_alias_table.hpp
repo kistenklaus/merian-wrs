@@ -106,8 +106,8 @@ IsAliasTableError<
     P,
     I,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsAliasTableIndexError<T, P, I>>>
-assert_is_alias_table(const std::span<T> weights,
-                      const std::span<wrs::alias_table_entry_t<P, I>> aliasTable,
+assert_is_alias_table(std::span<const T> weights,
+                      std::span<const wrs::alias_table_entry_t<P, I>> aliasTable,
                       const T totalWeight,
                       const P errorMargin = 0.001,
                       const Allocator& alloc = {}) {
@@ -197,8 +197,8 @@ assert_is_alias_table(const std::span<T> weights,
 namespace pmr {
 template <wrs::arithmetic T, std::floating_point P, std::integral I>
 IsAliasTableError<T, P, I, std::pmr::polymorphic_allocator<IsAliasTableIndexError<T, P, I>>>
-assert_is_alias_table(const std::span<T> weights,
-                      const std::span<wrs::alias_table_entry_t<P, I>> aliasTable,
+assert_is_alias_table(std::span<const T> weights,
+                      std::span<const wrs::alias_table_entry_t<P, I>> aliasTable,
                       const T totalWeight,
                       const P errorMargin = 0.001,
                       const std::pmr::polymorphic_allocator<void>& alloc = {}) {

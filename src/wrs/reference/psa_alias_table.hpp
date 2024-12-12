@@ -20,7 +20,7 @@ template <wrs::arithmetic T,
 std::vector<wrs::alias_table_entry_t<P, I>,
             typename std::allocator_traits<Allocator>::template rebind_alloc<
                 wrs::alias_table_entry_t<P, I>>>
-psa_alias_table(const std::span<T> weights_,
+psa_alias_table(std::span<const T> weights_,
                 const I K,
                 const Allocator& alloc = {}) {
 
@@ -73,9 +73,10 @@ namespace pmr {
 template <wrs::arithmetic T, std::floating_point P, std::integral I>
 std::vector<wrs::alias_table_entry_t<P, I>,
             std::pmr::polymorphic_allocator<wrs::alias_table_entry_t<P, I>>>
-psa_alias_table(const std::span<T>& weights,
+psa_alias_table(std::span<const T> weights,
                 const I K,
                 const std::pmr::polymorphic_allocator<void>& alloc = {}) {
+    assert(K < weights.size());
     return wrs::reference::psa_alias_table<T, P, I, std::pmr::polymorphic_allocator<void>>(
         weights, K, alloc);
 }

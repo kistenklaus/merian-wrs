@@ -4,8 +4,10 @@
 #include "src/wrs/reference/reduce.hpp"
 #include <cmath>
 #include <concepts>
+#include <fmt/base.h>
 #include <glm/ext/scalar_constants.hpp>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -39,7 +41,7 @@ E rmse(std::span<const E> weights,
         E diff = observed - expected;
         rmse2 += diff * diff;
     }
-    const E rmse = std::sqrt(rmse2 / static_cast<E>(weights.size()));
+    const E rmse = std::sqrt(rmse2 / static_cast<E>(samples.size()));
     return rmse2;
 }
 
@@ -100,22 +102,49 @@ rmse_curve(std::span<const E> weights,
             histogram[samples[i]]++;
         }
 
+        assert(std::accumulate(histogram.begin(), histogram.end(), 0) == n);
+
         lastN = n;
 
-        E rmse = E(0);
+        E rmse = E{};
+        E c = E{};
+
+        E expectedAverage = static_cast<E>(n) / *totalWeight;
+
         for (size_t i = 0; i < weights.size(); ++i) {
             E w = weights[i];
             assert(w >= 0);
-            E expectedProbability = w / *totalWeight;
-            E observedProbability = static_cast<E>(histogram[i]) / n;
-            E diff = expectedProbability - observedProbability;
-            rmse += diff * diff;
+            const E expected = weights[i] / *totalWeight;
+            const E observed = static_cast<E>(histogram[i]) / n;
+            const E diff = expected - observed;
+            /* const E diff = (w * n - histogram[i] * totalWeight.value()) / (*totalWeight * n); */
+            const E diff2 = diff * diff;
+            const E term = diff2 - c;
+            const E temp = rmse + term;
+            c = (temp - rmse) - term;
+            rmse = temp;
         }
-        rmse = std::sqrt(rmse / weights.size());
+        rmse = sqrt(rmse / static_cast<E>(weights.size()));
 
         results.emplace_back(n, rmse);
     }
 
     return results;
 }
+
+namespace pmr {
+
+template <std::floating_point E, std::integral I, std::ranges::input_range Scale>
+    requires std::same_as<std::ranges::range_value_t<Scale>, I>
+std::pmr::vector<std::tuple<I, E>>
+rmse_curve(std::span<const E> weights,
+           std::span<const I> samples,
+           const Scale xScale,
+           std::optional<E> totalWeight = std::nullopt,
+           const std::pmr::polymorphic_allocator<void>& alloc = {}) {
+    return wrs::eval::rmse_curve<E, I, Scale, std::pmr::polymorphic_allocator<void>>(
+        weights, samples, xScale, totalWeight, alloc);
+}
+} // namespace pmr
+
 } // namespace wrs::eval

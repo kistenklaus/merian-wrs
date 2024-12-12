@@ -42,7 +42,7 @@ T tree_reduction(const std::span<T> elements, const Allocator& alloc = {}) {
 }
 
 template <typename T>
-T neumaier_reduction(const std::span<T> elements) {
+T neumaier_reduction(std::span<const T> elements) {
     T sum = 0;
     T c = 0; // Error term
     

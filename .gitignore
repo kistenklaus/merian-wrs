@@ -8,3 +8,5 @@
 vgcore.*
 *.test
 imgui.ini
+
+*.csv

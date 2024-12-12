@@ -139,7 +139,7 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
         uint64_t seed = seedDist(seedRng);
         SPDLOG_DEBUG(fmt::format("Seeding mt19937 with seed = {}", seed));
         std::mt19937 rng{seed};
-        std::normal_distribution<T> dist{10.0f};
+        std::normal_distribution<T> dist{5.0f};
         for (size_t i = 0; i < weights.size(); ++i) {
             if (enableLogging && nextChunk == i) {
                 nextChunk += logChunkSize;
