@@ -114,9 +114,9 @@ namespace pmr {
 
 template <std::totally_ordered T>
 IsPartitionError<T, std::pmr::polymorphic_allocator<IsPartitionIndexError<T>>>
-assert_is_stable_partition(const std::span<T> heavy,
-                           const std::span<T> light,
-                           const std::span<T> elements,
+assert_is_stable_partition(std::span<const T> heavy,
+                           std::span<const T> light,
+                           std::span<const T> elements,
                            T pivot,
                            const std::pmr::polymorphic_allocator<void>& alloc = {}) {
     return wrs::test::assert_is_partition<T, std::pmr::polymorphic_allocator<void>>(

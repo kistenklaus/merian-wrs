@@ -60,9 +60,9 @@ template <std::totally_ordered T, wrs::generic_allocator Allocator = std::alloca
 IsPartitionError<
     T,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsPartitionIndexError<T>>>
-assert_is_partition(const std::span<T> heavy,
-                    const std::span<T> light,
-                    const std::span<T> elements,
+assert_is_partition(std::span<const T> heavy,
+                    std::span<const T> light,
+                    std::span<const T> elements,
                     T pivot,
                     const Allocator& alloc = {}) {
     using Error = IsPartitionError<
@@ -165,9 +165,9 @@ namespace pmr {
 
 template <std::totally_ordered T>
 IsPartitionError<T, std::pmr::polymorphic_allocator<IsPartitionIndexError<T>>>
-assert_is_partition(const std::span<T> heavy,
-                    const std::span<T> light,
-                    const std::span<T> elements,
+assert_is_partition(std::span<const T> heavy,
+                    std::span<const T> light,
+                    std::span<const T> elements,
                     T pivot,
                     const std::pmr::polymorphic_allocator<void>& alloc = {}) {
     return wrs::test::assert_is_partition<T, std::pmr::polymorphic_allocator<void>>(

@@ -4,6 +4,7 @@
 #include "src/wrs/algorithm/prefix_partition/decoupled/test/test_cases.hpp"
 #include "src/wrs/algorithm/prefix_partition/decoupled/test/test_types.hpp"
 #include "src/wrs/test/test.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace wrs::test::decoupled_prefix_partition {
 
@@ -72,13 +73,18 @@ inline std::tuple<Buffers, Buffers> allocateBuffers(const wrs::test::TestContext
         context.alloc->createBuffer(maxPrefixBufferSize, vk::BufferUsageFlagBits::eTransferDst,
                                     merian::MemoryMappingType::HOST_ACCESS_RANDOM);
 
-    buffers.partition = context.alloc->createBuffer(maxPartitionBufferSize,
-                                                    Buffers::PARTITION_BUFFER_USAGE_FLAGS |
-                                                        vk::BufferUsageFlagBits::eTransferSrc,
-                                                    merian::MemoryMappingType::NONE);
-    stage.partition =
-        context.alloc->createBuffer(maxPartitionBufferSize, vk::BufferUsageFlagBits::eTransferDst,
-                                    merian::MemoryMappingType::HOST_ACCESS_RANDOM);
+    if (maxPartitionBufferSize > 0) {
+        buffers.partition = context.alloc->createBuffer(maxPartitionBufferSize,
+                                                        Buffers::PARTITION_BUFFER_USAGE_FLAGS |
+                                                            vk::BufferUsageFlagBits::eTransferSrc,
+                                                        merian::MemoryMappingType::NONE);
+        stage.partition = context.alloc->createBuffer(
+            maxPartitionBufferSize, vk::BufferUsageFlagBits::eTransferDst,
+            merian::MemoryMappingType::HOST_ACCESS_RANDOM);
+    }else {
+      buffers.partition = VK_NULL_HANDLE;
+      stage.partition = VK_NULL_HANDLE;
+    }
 
     return std::make_tuple(buffers, stage);
 }

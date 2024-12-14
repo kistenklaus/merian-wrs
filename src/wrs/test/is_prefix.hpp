@@ -98,8 +98,8 @@ template <wrs::arithmetic T, wrs::generic_allocator Allocator = std::allocator<v
 IsPrefixError<
     T,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsPrefixIndexError<T>>>
-assert_is_inclusive_prefix(const std::span<T> elements,
-                           const std::span<T> prefix,
+assert_is_inclusive_prefix(std::span<const T> elements,
+                           std::span<const T> prefix,
                            const Allocator& alloc = std::allocator<void>{}) {
     using Error = IsPrefixError<
         T, typename std::allocator_traits<Allocator>::template rebind_alloc<IsPrefixIndexError<T>>>;
@@ -225,8 +225,8 @@ namespace pmr {
 
 template <wrs::arithmetic T>
 IsPrefixError<T, std::pmr::polymorphic_allocator<IsPrefixIndexError<T>>>
-assert_is_inclusive_prefix(const std::span<T> elements,
-                           const std::span<T> prefix,
+assert_is_inclusive_prefix(std::span<const T> elements,
+                           std::span<const T> prefix,
                            const std::pmr::polymorphic_allocator<void>& alloc = {}) {
     return wrs::test::assert_is_inclusive_prefix<T, std::pmr::polymorphic_allocator<void>>(
         elements, prefix, alloc);

@@ -85,8 +85,8 @@ struct DecoupledPrefixPartitionBuffers {
      * Must be set iff. WRITE_PARTITION is set.
      *
      * Layout: T[[N]]
-     * Elements 0,...n-1 contains the elements over all elements above the pivot
-     * Elements n,...,N+1 contain the elements over all elements
+     * Elements 0,...n-1 contains the indicies of all elements above the pivot
+     * Elements n,...,N+1 contain the indicies of all elements below or equal to the pivot (in revrse)
      *
      */
     std::optional<merian::BufferHandle> partition;
