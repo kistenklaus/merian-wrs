@@ -9,13 +9,16 @@
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
 #include "src/wrs/reference/partition.hpp"
-#include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/test/is_prefix.hpp"
 #include "src/wrs/test/is_stable_partition.hpp"
 #include "src/wrs/test/test.hpp"
+#include "src/wrs/types/glsl.hpp"
+#include "src/wrs/types/partition.hpp"
 #include <algorithm>
 #include <cstring>
+#include <fmt/base.h>
 #include <memory_resource>
+#include <ranges>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <tuple>
@@ -119,7 +122,7 @@ static void downloadResultsToStage(vk::CommandBuffer cmd,
 }
 
 template <typename weight_t>
-static std::tuple<std::span<weight_t>, std::span<weight_t>, std::pmr::vector<weight_t>>
+static wrs::Partition<weight_t, std::pmr::vector<weight_t>>
 downloadPrefixFromStage(Buffers& stage,
                         uint32_t elementCount,
                         std::pmr::memory_resource* resource) {
@@ -131,15 +134,14 @@ downloadPrefixFromStage(Buffers& stage,
     std::pmr::vector<weight_t> storage{elementCount, resource};
     std::memcpy(storage.data(), heavyLightMapped, elementCount * sizeof(weight_t));
     stage.partitionPrefix->get_memory()->unmap();
-    std::span<weight_t> heavy{storage.begin(), storage.begin() + heavyCount};
+
     std::span<weight_t> light{storage.begin() + heavyCount, storage.end()};
     std::reverse(light.begin(), light.end());
-
-    return std::make_tuple(heavy, light, std::move(storage));
+    return wrs::Partition<weight_t, std::pmr::vector<weight_t>>(std::move(storage), heavyCount);
 }
 
 template <typename weight_t>
-static std::tuple<std::span<uint32_t>, std::span<uint32_t>, std::pmr::vector<uint32_t>>
+static wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>>
 downloadPartitionFromStage(Buffers& stage,
                            uint32_t elementCount,
                            uint32_t heavyCount,
@@ -148,10 +150,11 @@ downloadPartitionFromStage(Buffers& stage,
     std::pmr::vector<uint32_t> storage{elementCount, resource};
     std::memcpy(storage.data(), partitionMapped, elementCount * sizeof(uint32_t));
     stage.partition.value()->get_memory()->unmap();
-    std::span<uint32_t> heavy{storage.begin(), storage.begin() + heavyCount};
     std::span<uint32_t> light{storage.begin() + heavyCount, storage.end()};
     std::reverse(light.begin(), light.end());
-    return std::make_tuple(heavy, light, std::move(storage));
+
+    return wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>>(std::move(storage),
+                                                                              heavyCount);
 }
 
 template <typename weight_t>
@@ -209,10 +212,10 @@ bool runTestCase(const wrs::test::TestContext& context,
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
         std::string recordingLabel =
             fmt::format("Recoding: [workgroupSize={},rows={},elementCount={},"
-                        "distribution={},stable={},writePartition={},it={}]",
+                        "distribution={},stable={},writePartition={}]",
                         testCase.workgroupSize, testCase.rows, testCase.elementCount,
                         wrs::distribution_to_pretty_string(testCase.distribution), testCase.stable,
-                        testCase.writePartition, i + 1);
+                        testCase.writePartition);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
 
@@ -257,41 +260,33 @@ bool runTestCase(const wrs::test::TestContext& context,
             std::make_tuple<std::span<weight_t>, std::span<weight_t>, std::pmr::vector<weight_t>>(
                 {}, {}, std::move(_hack));
 
+        wrs::Partition<weight_t, std::pmr::vector<weight_t>> heavyLightPrefix;
+
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Downloading prefix from staging buffers");
-            auto temp = downloadPrefixFromStage<weight_t>(stage, testCase.elementCount, resource);
-            std::swap(temp, prefixTuple);
+            heavyLightPrefix = downloadPrefixFromStage<weight_t>(stage, testCase.elementCount, resource);
         }
-        const auto& [heavyPrefix, lightPrefix, prefixStorage] = prefixTuple;
+        const auto heavyPrefix = heavyLightPrefix.heavy();
+        const auto lightPrefix = heavyLightPrefix.light();
 
-        std::span<uint32_t> heavyPartitionIndices;
-        std::span<uint32_t> lightPartitionIndices;
-        std::pmr::vector<uint32_t> partitionStorage{resource};
+        wrs::Partition<uint32_t, std::pmr::vector<uint32_t>> heavyLightIndices;
         if (testCase.writePartition) {
             MERIAN_PROFILE_SCOPE(context.profiler, "Downloading partition from staging buffers");
-            auto [heavy, light, storage] = downloadPartitionFromStage<weight_t>(
-                stage, testCase.elementCount, heavyPrefix.size(), resource);
-            partitionStorage.swap(storage);
-            heavyPartitionIndices = heavy;
-            lightPartitionIndices = light;
+            heavyLightIndices = downloadPartitionFromStage<weight_t>(stage, testCase.elementCount,
+                                                                      heavyPrefix.size(), resource);
         } else {
             MERIAN_PROFILE_SCOPE(context.profiler, "Compute reference stable partition");
-            auto [heavy, light, storage] =
-                wrs::reference::pmr::stable_partition_indicies<weight_t, uint32_t>(elements, pivot, resource);
-            partitionStorage.swap(storage);
-            heavyPartitionIndices = heavy;
-            lightPartitionIndices = light;
+            heavyLightIndices =
+                wrs::reference::pmr::stable_partition_indicies<weight_t, uint32_t>(elements, pivot,
+                                                                                   resource);
         }
-        std::pmr::vector<weight_t> heavyPartition{heavyPartitionIndices.size(), resource};
-        std::pmr::vector<weight_t> lightPartition{lightPartitionIndices.size(), resource};
-        { // Convert partition indices to partitions
-          for (size_t i = 0;i < heavyPartitionIndices.size(); ++i) {
-            heavyPartition[i] = elements[heavyPartitionIndices[i]];
-          }
-          for (size_t i = 0;i < lightPartitionIndices.size(); ++i) {
-            lightPartition[i] = elements[lightPartitionIndices[i]];
-          }
-        }
+        auto deref = [&](const auto i) { return elements[i]; };
+        auto heavyPartitionView = heavyLightIndices.heavy() | std::views::transform(deref);
+        std::pmr::vector<weight_t> heavyPartition{heavyPartitionView.begin(),
+                                                  heavyPartitionView.end(), resource};
+        auto lightPartitionView = heavyLightIndices.light() | std::views::transform(deref);
+        std::pmr::vector<weight_t> lightPartition{lightPartitionView.begin(), lightPartitionView.end(), resource};
+
 
         SPDLOG_DEBUG("Testing partition");
         // 8. Test partition
@@ -309,8 +304,8 @@ bool runTestCase(const wrs::test::TestContext& context,
         // 9. Test prefix sums
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Test heavy prefix");
-            const auto err =
-                wrs::test::pmr::assert_is_inclusive_prefix<weight_t>(heavyPartition, heavyPrefix, resource);
+            const auto err = wrs::test::pmr::assert_is_inclusive_prefix<weight_t>(
+                heavyPartition, heavyPrefix, resource);
             if (err) {
                 SPDLOG_ERROR(fmt::format("Invalid heavy partition prefix!\n{}", err.message()));
                 failed = true;
@@ -318,8 +313,8 @@ bool runTestCase(const wrs::test::TestContext& context,
         }
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Test light prefix");
-            const auto err =
-                wrs::test::pmr::assert_is_inclusive_prefix<weight_t>(lightPartition, lightPrefix, resource);
+            const auto err = wrs::test::pmr::assert_is_inclusive_prefix<weight_t>(
+                lightPartition, lightPrefix, resource);
             if (err) {
                 SPDLOG_ERROR(fmt::format("Invalid light partition prefix!\n{}", err.message()));
                 failed = true;

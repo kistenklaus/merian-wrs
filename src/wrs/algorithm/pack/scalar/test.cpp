@@ -5,7 +5,6 @@
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/pack/scalar/ScalarPack.hpp"
 #include "src/wrs/gen/weight_generator.h"
-#include "src/wrs/generic_types.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
@@ -57,7 +56,7 @@ static void uploadPartitionIndicies(vk::CommandBuffer cmd,
 
 template <wrs::arithmetic weight_t>
 static void uploadSplits(vk::CommandBuffer cmd,
-                         std::span<const wrs::split_t<weight_t, wrs::glsl::uint>> splits,
+                         std::span<const wrs::Split<weight_t, wrs::glsl::uint>> splits,
                          Buffers& buffers,
                          Buffers& stage) {
 }
@@ -99,27 +98,22 @@ static bool runTestCase(const TestContext& context,
 
         // 1.1 Compute reference input
         weight_t averageWeight;
-        std::pmr::vector<wrs::glsl::uint> partitionIndexStorage{resource};
-        std::span<wrs::glsl::uint> heavyPartitionIndicies;
-        std::span<wrs::glsl::uint> lightPartitionIndicies;
+        wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>> heavyLightIndicies;
         std::pmr::vector<weight_t> heavyPrefix{resource};
         std::pmr::vector<weight_t> lightPrefix{resource};
-        std::pmr::vector<wrs::split_t<weight_t, wrs::glsl::uint>> splits{resource};
+        std::pmr::vector<wrs::Split<weight_t, wrs::glsl::uint>> splits{resource};
         {
             weight_t totalWeight = wrs::reference::kahan_reduction<weight_t>(weights);
             averageWeight = totalWeight / static_cast<weight_t>(N);
-            auto [heavyIndices, lightIndicies, indexStorage] =
+            heavyLightIndicies =
                 wrs::reference::pmr::stable_partition_indicies<weight_t, uint32_t>(
                     weights, averageWeight, resource);
-            partitionIndexStorage.swap(indexStorage);
-            heavyPartitionIndicies = heavyIndices;
-            lightPartitionIndicies = lightIndicies;
 
             const auto& deref = [&](const uint32_t i) -> weight_t { return weights[i]; };
             heavyPrefix = wrs::reference::pmr::prefix_sum<weight_t>(
-                heavyPartitionIndicies | std::views::transform(deref), resource);
+                heavyLightIndicies.heavy() | std::views::transform(deref), resource);
             lightPrefix = wrs::reference::pmr::prefix_sum<weight_t>(
-                lightPartitionIndicies | std::views::transform(deref), resource);
+                heavyLightIndicies.light() | std::views::transform(deref), resource);
 
             splits = wrs::reference::pmr::splitK<weight_t, wrs::glsl::uint>(
                 heavyPrefix, lightPrefix, averageWeight, N, K, resource);

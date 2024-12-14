@@ -1,6 +1,6 @@
 #pragma once
 
-#include "src/wrs/generic_types.hpp"
+#include "src/wrs/types/alias_table.hpp"
 #include "src/wrs/why.hpp"
 #include <concepts>
 #include <memory>
@@ -107,7 +107,7 @@ IsAliasTableError<
     I,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsAliasTableIndexError<T, P, I>>>
 assert_is_alias_table(std::span<const T> weights,
-                      std::span<const wrs::alias_table_entry_t<P, I>> aliasTable,
+                      std::span<const wrs::AliasTableEntry<P, I>> aliasTable,
                       const T totalWeight,
                       const P errorMargin = 0.001,
                       const Allocator& alloc = {}) {
@@ -126,10 +126,10 @@ assert_is_alias_table(std::span<const T> weights,
     // Compute weights sampled by the alias table!
     std::vector<P, PAllocator> sampled{aliasTable.size(), PAllocator{alloc}};
     for (std::size_t i = 0; i < aliasTable.size(); ++i) {
-        const auto& [p, a] = aliasTable[i];
-        sampled[i] += p;
-        if (a < sampled.size()) {
-            sampled[a] += (1.0f - p);
+        const auto& entry = aliasTable[i];
+        sampled[i] += entry.p;
+        if (entry.a < sampled.size()) {
+            sampled[entry.a] += (1.0f - entry.p);
         }
     }
     /* P norm = static_cast<P>(reduction) / static_cast<P>(sampled.size()); */
@@ -149,8 +149,8 @@ assert_is_alias_table(std::span<const T> weights,
     P maxUndersample = 0;
     for (size_t i = 0; i < aliasTable.size(); ++i) {
         std::uint8_t type = IS_ALIAS_TABLE_ERROR_TYPE_NONE;
-        const auto& [p, a] = aliasTable[i];
-        if (a >= aliasTable.size()) {
+        const auto& entry = aliasTable[i];
+        if (entry.a >= aliasTable.size()) {
             type |= IS_ALIAS_TABLE_ERROR_TYPE_INVALID_ALIAS;
         }
         if (sampled[i] - errorMargin > weights[i]) {
@@ -170,8 +170,8 @@ assert_is_alias_table(std::span<const T> weights,
     std::size_t e = 0;
     for (size_t i = 0; i < aliasTable.size(); ++i) {
         std::uint8_t type = IS_ALIAS_TABLE_ERROR_TYPE_NONE;
-        const auto& [p, a] = aliasTable[i];
-        if (a >= aliasTable.size()) {
+        const auto& entry = aliasTable[i];
+        if (entry.a >= aliasTable.size()) {
             type |= IS_ALIAS_TABLE_ERROR_TYPE_INVALID_ALIAS;
         }
         if (sampled[i] - errorMargin > weights[i]) {
@@ -185,7 +185,7 @@ assert_is_alias_table(std::span<const T> weights,
             errors[e].weight = weights[i];
             errors[e].sampledWeight = sampled[i];
             errors[e].index = i;
-            errors[e].alias = a;
+            errors[e].alias = entry.a;
             e++;
         }
     }
@@ -198,7 +198,7 @@ namespace pmr {
 template <wrs::arithmetic T, std::floating_point P, std::integral I>
 IsAliasTableError<T, P, I, std::pmr::polymorphic_allocator<IsAliasTableIndexError<T, P, I>>>
 assert_is_alias_table(std::span<const T> weights,
-                      std::span<const wrs::alias_table_entry_t<P, I>> aliasTable,
+                      std::span<const wrs::AliasTableEntry<P, I>> aliasTable,
                       const T totalWeight,
                       const P errorMargin = 0.001,
                       const std::pmr::polymorphic_allocator<void>& alloc = {}) {

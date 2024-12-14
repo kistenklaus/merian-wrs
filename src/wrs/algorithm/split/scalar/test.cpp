@@ -4,7 +4,6 @@
 #include "src/wrs/algorithm/split/scalar/ScalarSplit.hpp"
 #include "src/wrs/algorithm/split/scalar/test/test_cases.hpp"
 #include "src/wrs/algorithm/split/scalar/test/test_setup.hpp"
-#include "src/wrs/generic_types.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
@@ -12,6 +11,7 @@
 #include "src/wrs/reference/partition.hpp"
 #include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/split.hpp"
+#include "src/wrs/test/is_split.hpp"
 #include "src/wrs/test/test.hpp"
 #include <algorithm>
 #include <cstdlib>
@@ -184,30 +184,28 @@ static void runTestCase(const wrs::test::TestContext& context,
         // the swap operation does not deallocate. Requires that both parterns of the swap
         // own memory from allocators that compare equal (see pmr::memory_resource
         // or the C++11 allocator_traits )
-        std::pmr::vector<weight_t> _hack{resource};
-        auto partitionStorage =
-            std::make_tuple<std::span<weight_t>, std::span<weight_t>, std::pmr::vector<weight_t>>(
-                {}, {}, std::move(_hack));
+        wrs::Partition<weight_t, std::pmr::vector<weight_t>> heavyLightPartition;
         {
             SPDLOG_DEBUG("Compute partition");
             MERIAN_PROFILE_SCOPE(context.profiler, "Compute partitions");
-            auto temp =
+            heavyLightPartition =
                 wrs::reference::pmr::stable_partition<weight_t>(weights, averageWeight, resource);
-            // Swaps memory without reallocation or copy
-            std::swap(temp, partitionStorage);
         }
-        const auto& [heavyPartition, lightPartition, _] = partitionStorage;
+        const auto heavyPartition = heavyLightPartition.heavy();
+        const auto lightPartition = heavyLightPartition.light();
 
         // 4. Compute prefix sums
         std::pmr::vector<weight_t> heavyPrefixSum{resource};
+        std::pmr::vector<weight_t> lightPrefixSum{resource};
         std::pmr::vector<weight_t> reverseLightPrefixSum{resource};
         {
             SPDLOG_DEBUG("Compute partition prefix sums");
             MERIAN_PROFILE_SCOPE(context.profiler, "Compute partition prefix sums");
             heavyPrefixSum =
                 wrs::reference::pmr::prefix_sum<weight_t>(heavyPartition, false, resource);
-            reverseLightPrefixSum =
+            lightPrefixSum =
                 wrs::reference::pmr::prefix_sum<weight_t>(lightPartition, false, resource);
+            reverseLightPrefixSum = lightPrefixSum;
             std::reverse(reverseLightPrefixSum.begin(),
                          reverseLightPrefixSum.end()); // required by the layout!
         }
@@ -216,15 +214,15 @@ static void runTestCase(const wrs::test::TestContext& context,
         context.profiler->end();
 
         // ============== Compute reference ===============
-        std::pmr::vector<wrs::split_t<weight_t, uint32_t>> reference{resource};
-        {
-            SPDLOG_DEBUG("Compute reference split (CPU)");
-            MERIAN_PROFILE_SCOPE(context.profiler, "Compute reference split (CPU)");
-            std::pmr::vector<weight_t> lightPrefix = reverseLightPrefixSum;
-            std::reverse(lightPrefix.begin(), lightPrefix.end());
-            reference = std::move(wrs::reference::pmr::splitK<weight_t, uint32_t>(
-                heavyPrefixSum, lightPrefix, averageWeight, N, K, resource));
-        }
+        /* std::pmr::vector<wrs::Split<weight_t, uint32_t>> reference{resource}; */
+        /* { */
+        /*     SPDLOG_DEBUG("Compute reference split (CPU)"); */
+        /*     MERIAN_PROFILE_SCOPE(context.profiler, "Compute reference split (CPU)"); */
+        /*     std::pmr::vector<weight_t> lightPrefix = reverseLightPrefixSum; */
+        /*     std::reverse(lightPrefix.begin(), lightPrefix.end()); */
+        /*     reference = std::move(wrs::reference::pmr::splitK<weight_t, uint32_t>( */
+        /*         heavyPrefixSum, lightPrefix, averageWeight, N, K, resource)); */
+        /* } */
 
         // =========== Start Recoding =========
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
@@ -268,7 +266,7 @@ static void runTestCase(const wrs::test::TestContext& context,
         }
 
         // ========= Download results from Stage ======
-        std::pmr::vector<Split> splits{resource};
+        std::pmr::vector<wrs::Split<weight_t, wrs::glsl::uint>> splits{resource};
         {
             SPDLOG_DEBUG("Download results from stage");
             MERIAN_PROFILE_SCOPE(context.profiler, "Download results from stage");
@@ -277,37 +275,10 @@ static void runTestCase(const wrs::test::TestContext& context,
 
         // ========= Compare results against reference ==========
         {
-            SPDLOG_DEBUG("Comparing results against reference");
-            MERIAN_PROFILE_SCOPE(context.profiler, "Compare results against reference");
-            constexpr size_t MAX_LOG = 10;
-            size_t errorCounter = 0;
-            for (size_t i = 0; i < K; ++i) {
-                const auto& split = splits.at(i);
-                const auto& ref = reference.at(i);
-                bool matches = true;
-                if (std::get<0>(ref) != split.i) {
-                    matches = false;
-                }
-                if (std::get<1>(ref) != split.j) {
-                    matches = false;
-                }
-                if (std::abs(std::get<2>(ref) - split.spill) > 0.01) {
-                    matches = false;
-                }
-                if (!matches) {
-                    if (errorCounter < MAX_LOG) {
-                        SPDLOG_ERROR(fmt::format("ScalarSplit does not match the reference\n"
-                                                 "Expected ({}, {}, {}), Got ({}, {}, {})",
-                                                 std::get<0>(ref), std::get<1>(ref),
-                                                 std::get<2>(ref), split.i, split.j, split.spill));
-                    }
-                    errorCounter += 1;
-                }
-            }
-            if (errorCounter != 0) {
-                SPDLOG_ERROR(fmt::format("ScalarSplit does not match the reference\n"
-                                         "Assention failed at {} out of {} indicies",
-                                         errorCounter, K));
+            auto err = wrs::test::pmr::assert_is_split<weight_t, wrs::glsl::uint>(
+                splits, K, heavyPrefixSum, lightPrefixSum, averageWeight, 0.01, resource);
+            if (err) {
+                SPDLOG_ERROR(fmt::format("Invalid split!\n{}", err.message()));
             }
         }
     }

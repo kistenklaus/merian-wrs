@@ -5,11 +5,8 @@
 #include "merian/vk/memory/resource_allocator.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/eval/chi_square.hpp"
-#include "src/wrs/eval/logscale.hpp"
-#include "src/wrs/eval/rms.hpp"
 #include "src/wrs/export/csv.hpp"
 #include "src/wrs/gen/weight_generator.h"
-#include "src/wrs/generic_types.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
@@ -17,12 +14,13 @@
 #include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/psa_alias_table.hpp"
 #include "src/wrs/reference/reduce.hpp"
-#include "src/wrs/reference/sample_alias_table.hpp"
 #include "src/wrs/reference/split.hpp"
 #include "src/wrs/reference/sweeping_alias_table.hpp"
-#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/is_partition.hpp"
+#include "src/wrs/types/alias_table.hpp"
+#include "src/wrs/types/split.hpp"
 #include "src/wrs/test/is_split.hpp"
+#include "src/wrs/test/is_alias_table.hpp"
 #include <cassert>
 #include <fmt/base.h>
 #include <fmt/format.h>
@@ -31,7 +29,6 @@
 #include <numeric>
 #include <random>
 #include <spdlog/spdlog.h>
-#include <stack>
 #include <stdexcept>
 
 wrs::test::TestContext wrs::test::setupTestContext(const merian::ContextHandle& context) {
@@ -65,18 +62,21 @@ static void testPartitionTests(std::pmr::memory_resource* resource) {
                    static_cast<float>(weights.size());
     float pivot = average;
 
-    const auto [heavy, light, partitionStorage] =
+    const auto heavyLightPartition =
         wrs::reference::pmr::partition<float>(weights, pivot, resource);
 
-    auto partitionError =
-        wrs::test::pmr::assert_is_partition<float>(heavy, light, weights, pivot, resource);
+    auto partitionError = wrs::test::pmr::assert_is_partition<float>(
+        heavyLightPartition.heavy(), heavyLightPartition.light(), weights, pivot, resource);
     if (partitionError) {
+        SPDLOG_ERROR(partitionError.message());
         throw std::runtime_error("Test of test failed: wrs::reference::pmr::partition or "
-                                 "wrs::test::pmr::assert_is_partition is wrong");
+                                 "wrs::test::pmr::assert_is_partition is wrong. Expected no error");
     }
 
-    std::pmr::vector<float> invalidHeavy{heavy.begin(), heavy.end(), resource};
-    std::pmr::vector<float> invalidLight{light.begin(), light.end(), resource};
+    std::pmr::vector<float> invalidHeavy{heavyLightPartition.heavy().begin(),
+                                         heavyLightPartition.heavy().end(), resource};
+    std::pmr::vector<float> invalidLight{heavyLightPartition.light().begin(),
+                                         heavyLightPartition.light().end(), resource};
     float bh = invalidHeavy.back();
     invalidHeavy.pop_back();
     float bl = invalidLight.back();
@@ -87,16 +87,20 @@ static void testPartitionTests(std::pmr::memory_resource* resource) {
     auto assertError = wrs::test::pmr::assert_is_partition<float>(invalidHeavy, invalidLight,
                                                                   weights, pivot, resource);
     if (!assertError) {
+
+        SPDLOG_ERROR(assertError.message());
         throw std::runtime_error("Test of test failed: wrs::reference::pmr::partition or "
-                                 "wrs::test::pmr::assert_is_partition is wrong");
+                                 "wrs::test::pmr::assert_is_partition is wrong. Expected error");
     }
 
     { // Test stable_partition_indices
 
         SPDLOG_DEBUG("Testing wrs::reference::pmr::stable_partition_indices");
-        const auto [heavyIndices, lightIndices, _storage] =
+        const auto heavyLightIndicies =
             wrs::reference::pmr::stable_partition_indicies<float, uint32_t>(weights, pivot,
                                                                             resource);
+        const auto heavyIndices = heavyLightIndicies.heavy();
+        const auto lightIndices = heavyLightIndicies.light();
         std::pmr::vector<float> heavyPartition{heavyIndices.size(), resource};
         std::pmr::vector<float> lightPartition{lightIndices.size(), resource};
         for (size_t i = 0; i < heavyIndices.size(); ++i) {
@@ -108,13 +112,17 @@ static void testPartitionTests(std::pmr::memory_resource* resource) {
         auto err = wrs::test::pmr::assert_is_partition<float>(heavyPartition, lightPartition,
                                                               weights, pivot);
         if (err) {
+            SPDLOG_ERROR(err.message());
             throw std::runtime_error(
                 "Test of test failed: wrs::reference::pmr::stable_partition_indices is wrong!");
         }
 
         SPDLOG_DEBUG("Testing wrs::reference::pmr::stable_partition");
 
-        const auto [rh, rl, _] = wrs::reference::stable_partition<float>(weights, pivot);
+        const auto heavyLightPartition =
+            wrs::reference::pmr::stable_partition<float>(weights, pivot, resource);
+        const auto rh = heavyLightPartition.heavy();
+        const auto rl = heavyLightPartition.light();
         assert(rh.size() == heavyIndices.size());
         for (size_t i = 0; i < heavyPartition.size(); ++i) {
             assert(rh[i] == heavyPartition[i]);
@@ -253,15 +261,17 @@ static void testSplitTests(std::pmr::memory_resource* resource) {
     float reduction = wrs::reference::tree_reduction<float>(weights);
     float average = reduction / static_cast<float>(weights.size());
 
-    auto [heavy, light, storage] =
+    auto heavyLightPartition =
         wrs::reference::pmr::stable_partition<float>(weights, average, resource);
+    const auto heavy = heavyLightPartition.heavy();
+    const auto light = heavyLightPartition.light();
 
     std::pmr::vector<float> heavyPrefix =
         wrs::reference::pmr::prefix_sum<float>(heavy, false, resource);
     std::pmr::vector<float> lightPrefix =
         wrs::reference::pmr::prefix_sum<float>(light, false, resource);
 
-    std::pmr::vector<wrs::split_t<float, uint32_t>> splits =
+    std::pmr::vector<wrs::Split<float, uint32_t>> splits =
         wrs::reference::pmr::splitK<float, uint32_t>(heavyPrefix, lightPrefix, average, N, K,
                                                      resource);
 
@@ -299,7 +309,7 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
         float totalWeight = wrs::reference::pmr::tree_reduction<float>(weights, resource);
 
         SPDLOG_DEBUG("Compute reference");
-        std::pmr::vector<wrs::alias_table_entry_t<float, uint32_t>> aliasTable =
+        const wrs::pmr::AliasTable<float, uint32_t> aliasTable =
             wrs::reference::pmr::sweeping_alias_table<float, float, uint32_t>(weights, totalWeight,
                                                                               resource);
         const auto err = wrs::test::pmr::assert_is_alias_table<float, float, uint32_t>(
@@ -317,14 +327,14 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
             fmt::format("Testing wrs::reference::psa_alias_table... N = {}, K = {}", N, K));
         using weight_t = double;
         const std::pmr::vector<weight_t> weights = wrs::pmr::generate_weights<weight_t>(
-            wrs::Distribution::SEEDED_RANDOM_EXPONENTIAL, N, resource);
+            wrs::Distribution::PSEUDO_RANDOM_UNIFORM, N, resource);
         /* std::sort(weights.begin(), weights.end()); */
         /* std::vector<weight_t> weights = {2,2,2,2,2,1,1,1,1,1}; */
         assert(N == static_cast<uint32_t>(weights.size()));
-        const float totalWeight = wrs::reference::neumaier_reduction<weight_t>(weights);
+        const float totalWeight = wrs::reference::kahan_reduction<weight_t>(weights);
         /* const float averageWeight = totalWeight / static_cast<float>(N); */
 
-        wrs::pmr::alias_table_t<weight_t, uint32_t> aliasTable =
+        wrs::pmr::AliasTable<weight_t, uint32_t> aliasTable =
             wrs::reference::pmr::psa_alias_table<weight_t, weight_t, uint32_t>(weights, K,
 
                                                                                resource);

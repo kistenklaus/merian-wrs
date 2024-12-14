@@ -7,6 +7,7 @@
 #include <vector>
 namespace wrs {
 
+
 template <std::floating_point P, std::integral I> using alias_table_entry_t = std::tuple<P, I>;
 
 template <std::floating_point P,

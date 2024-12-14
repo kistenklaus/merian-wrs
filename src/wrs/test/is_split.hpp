@@ -1,6 +1,6 @@
 #pragma once
 
-#include "src/wrs/generic_types.hpp"
+#include "src/wrs/types/split.hpp"
 #include "src/wrs/why.hpp"
 #include <concepts>
 #include <cstddef>
@@ -28,7 +28,7 @@ template <wrs::arithmetic T, std::integral I> struct IsSplitIndexError {
     using Type = IsSplitErrorType;
     Type type;
     I index;
-    wrs::split_t<T, I> split;
+    wrs::Split<T, I> split;
     size_t n;
     T target;
     T sigma;
@@ -38,8 +38,8 @@ template <wrs::arithmetic T, std::integral I> struct IsSplitIndexError {
 
     void appendMessageToStringStream(std::stringstream& ss, I N, I K) const {
         ss << "\t\tFailure at index = " << index << ":\n";
-        ss << "\t\t\tGot = (" << std::get<0>(split) << ", " << std::get<1>(split) << ", "
-           << std::get<2>(split) << ")\n";
+        ss << "\t\t\tGot = (" << split.i << ", " << split.j << ", "
+           << split.spill << ")\n";
         if (type & IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND) {
             if (index != K - 1) {
                 ss << "\t\t\ti out of bound. N = " << N << "\n";
@@ -56,7 +56,7 @@ template <wrs::arithmetic T, std::integral I> struct IsSplitIndexError {
         }
         if (type & IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT) {
             ss << "\t\t\tBroken Invariant: i + j = n\n";
-            ss << "\t\t\t\ti = " << std::get<0>(split) << ", j = " << std::get<1>(split)
+            ss << "\t\t\t\ti = " << split.i << ", j = " << split.j
                << ", n = " << n << "\n";
         }
         if (type & IS_SPLIT_ERROR_TYPE_BROKEN_SIGMA_INVARIANT) {
@@ -64,7 +64,7 @@ template <wrs::arithmetic T, std::integral I> struct IsSplitIndexError {
                << " > " << target << " \n";
         }
         if (type & IS_SPLIT_ERROR_TYPE_INVALID_SPILL) {
-          ss << "\t\t\tInvalid spill. Expected " << sigma2 - target << ", Got " << std::get<2>(split) << "\n";
+          ss << "\t\t\tInvalid spill. Expected " << sigma2 - target << ", Got " << split.spill << "\n";
           ss << "\t\t\tsigma2 = " << sigma << ", target = " << target << ", diff = " << sigma2 - target << "\n";
         }
     }
@@ -116,7 +116,7 @@ IsSplitError<
     T,
     I,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsSplitIndexError<T, I>>>
-assert_is_split(std::span<wrs::split_t<T, I>> splits,
+assert_is_split(std::span<wrs::Split<T, I>> splits,
                 I K,
                 std::span<T> heavyPrefix,
                 std::span<T> lightPrefix,
@@ -139,7 +139,10 @@ assert_is_split(std::span<wrs::split_t<T, I>> splits,
     size_t errorCount = 0;
     for (I k = 1; k <= K - 1; ++k) {
 
-        const auto& [i, j, spill] = splits[k - 1];
+        const auto& split = splits[k - 1];
+        const auto& i = split.i;
+        const auto& j = split.j;
+        const auto& spill = split.spill;
 
         std::uint8_t type = IS_SPLIT_ERROR_TYPE_NONE;
 
@@ -175,9 +178,9 @@ assert_is_split(std::span<wrs::split_t<T, I>> splits,
             errorCount += 1;
         }
     }
-    if (std::get<0>(splits.back()) != static_cast<I>(lightPrefix.size()) &&
-        std::get<1>(splits.back()) != static_cast<I>(heavyPrefix.size()) &&
-        std::get<2>(splits.back()) > 0.01) {
+    if (splits.back().i != static_cast<I>(lightPrefix.size()) &&
+        splits.back().j != static_cast<I>(heavyPrefix.size()) &&
+        splits.back().spill > 0.01) {
         errorCount += 1;
     }
 
@@ -187,7 +190,11 @@ assert_is_split(std::span<wrs::split_t<T, I>> splits,
     size_t e = 0;
     for (size_t k = 1; k <= K - 1; ++k) {
 
-        const auto& [i, j, spill] = splits[k - 1];
+        const auto& split = splits[k - 1];
+        const auto& i = split.i;
+        const auto& j = split.j;
+        const auto& spill = split.spill;
+
 
         std::uint8_t type = IS_SPLIT_ERROR_TYPE_NONE;
 
@@ -236,13 +243,13 @@ assert_is_split(std::span<wrs::split_t<T, I>> splits,
         }
     }
     std::uint8_t type = IS_SPLIT_ERROR_TYPE_NONE;
-    if (std::get<0>(splits.back()) != static_cast<I>(lightPrefix.size())) {
+    if (splits.back().i != static_cast<I>(lightPrefix.size())) {
         type |= IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND;
     }
-    if (std::get<1>(splits.back()) != static_cast<I>(heavyPrefix.size())) {
+    if (splits.back().j != static_cast<I>(heavyPrefix.size())) {
         type |= IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND;
     }
-    if (std::get<2>(splits.back()) > 0.01) {
+    if (splits.back().spill > 0.01) {
         type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIGMA_INVARIANT;
     }
     if (type != IS_SPLIT_ERROR_TYPE_NONE) {
@@ -263,7 +270,7 @@ assert_is_split(std::span<wrs::split_t<T, I>> splits,
 namespace pmr {
 template <wrs::arithmetic T, std::integral I>
 IsSplitError<T, I, std::pmr::polymorphic_allocator<IsSplitIndexError<T, I>>>
-assert_is_split(std::span<wrs::split_t<T, I>> splits,
+assert_is_split(std::span<wrs::Split<T, I>> splits,
                 I K,
                 std::span<T> heavyPrefix,
                 std::span<T> lightPrefix,

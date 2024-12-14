@@ -6,6 +6,8 @@
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "src/wrs/why.hpp"
+#include "src/wrs/types/split.hpp"
 #include <concepts>
 #include <memory>
 #include <stdexcept>
@@ -57,11 +59,8 @@ struct ScalarSplitBuffers {
         return sizeOfSplitDescriptor * K;
     }
 
-    template <typename weight_t> struct Split {
-        uint32_t i;
-        uint32_t j;
-        weight_t spill;
-    };
+    template<std::floating_point weight_t> 
+    using Split = wrs::Split<weight_t, wrs::glsl::uint>;
 };
 
 template <typename T = float> class ScalarSplit {

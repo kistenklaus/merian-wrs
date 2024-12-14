@@ -25,21 +25,21 @@ class FallbackResource : public wrs::memory::MemoryResource {
     void do_deallocate(void* pointer, std::size_t bytes, std::size_t alignment) override {
         OwnType p = m_primaryUpstream->owns(pointer);
         if (p == OWNS_STRONGLY) {
-            m_primaryUpstream->deallocate(pointer, bytes, alignment);
-            return;
+          m_primaryUpstream->deallocate(pointer, bytes, alignment);
+          return;
         }
         OwnType f = m_fallbackUpstream->owns(pointer);
         if (f == OWNS_STRONGLY) {
-            m_fallbackUpstream->deallocate(pointer, bytes);
-            return;
+          m_fallbackUpstream->deallocate(pointer, bytes);
+          return;
         }
         if (p == OWNS_WEAKLY) {
-            m_primaryUpstream->deallocate(pointer, bytes, alignment);
-            return;
+          m_primaryUpstream->deallocate(pointer, bytes, alignment);
+          return;
         }
         if (f == OWNS_WEAKLY) {
-            m_fallbackUpstream->deallocate(pointer, bytes);
-            return;
+          m_fallbackUpstream->deallocate(pointer, bytes);
+          return;
         }
         throw std::runtime_error("Deallocation failed: trying to deallocate non owned pointer");
     }
@@ -58,13 +58,14 @@ class FallbackResource : public wrs::memory::MemoryResource {
         OwnType p = m_primaryUpstream->owns(pointer);
         OwnType f = m_fallbackUpstream->owns(pointer);
         if (p == OWNS_STRONGLY || f == OWNS_STRONGLY) {
-            return OWNS_STRONGLY;
+          return OWNS_STRONGLY;
         }
         if (p == OWNS_WEAKLY || f == OWNS_WEAKLY) {
-            return OWNS_WEAKLY;
+          return OWNS_WEAKLY;
         }
         return DOES_NOT_OWN;
     }
+
 
   private:
     wrs::memory::MemoryResource* m_primaryUpstream;

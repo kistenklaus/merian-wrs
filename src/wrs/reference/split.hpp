@@ -1,6 +1,6 @@
 #pragma once
 
-#include "src/wrs/generic_types.hpp"
+#include "src/wrs/types/split.hpp"
 #include "src/wrs/why.hpp"
 #include <fmt/base.h>
 #include <memory>
@@ -12,8 +12,8 @@
 namespace wrs::reference {
 
 template <wrs::arithmetic T, std::integral I>
-wrs::split_t<T, I>
-split(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, I n) {
+wrs::Split<T, I>
+split(std::span<const T> heavyPrefix, std::span<const T> lightPrefix, T mean, I n) {
     const I lightCount = lightPrefix.size();
     const I heavyCount = heavyPrefix.size();
 
@@ -29,7 +29,7 @@ split(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, I 
         if (a > b) {
             const T light = lightPrefix[i];
             const T sigma2 = light + heavyPrefix[j + 1];
-            return std::make_tuple(i, j, sigma2 - target);
+            return Split(i, j, sigma2 - target);
         }
         const T heavy = j == 0 ? 0 : heavyPrefix[j - 1];
         const T light = i == 0 ? 0 : lightPrefix[i - 1];
@@ -38,7 +38,7 @@ split(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, I 
 
         if (sigma <= target) {
             if (sigma2 > target) {
-                return std::make_tuple(i, j, sigma2 - target);
+                return Split(i, j, sigma2 - target);
             } else {
                 a = j + 1;
             }
@@ -51,14 +51,14 @@ split(const std::span<T> heavyPrefix, const std::span<T> lightPrefix, T mean, I 
 
 template <wrs::arithmetic T,
           std::integral I,
-          wrs::typed_allocator<wrs::split_t<T, I>> Allocator = std::allocator<wrs::split_t<T, I>>>
-std::vector<wrs::split_t<T, I>, Allocator> splitK(const std::span<T> heavyPrefix,
-                                                  const std::span<T> lightPrefix,
-                                                  const T mean,
-                                                  const I N,
-                                                  const I K,
-                                                  const Allocator& alloc = {}) {
-    std::vector<wrs::split_t<T, I>, Allocator> splits(K, alloc);
+          wrs::typed_allocator<wrs::Split<T, I>> Allocator = std::allocator<wrs::Split<T, I>>>
+std::vector<wrs::Split<T, I>, Allocator> splitK(std::span<const T> heavyPrefix,
+                                                std::span<const T> lightPrefix,
+                                                const T mean,
+                                                const I N,
+                                                const I K,
+                                                const Allocator& alloc = {}) {
+    std::vector<wrs::Split<T, I>, Allocator> splits(K, alloc);
     for (I k = 1; k <= K - 1; ++k) {
         const std::uintmax_t temp = static_cast<std::uintmax_t>(N) * static_cast<std::uintmax_t>(k);
         const I n =
@@ -67,22 +67,22 @@ std::vector<wrs::split_t<T, I>, Allocator> splitK(const std::span<T> heavyPrefix
         splits[k - 1] = split<T, I>(heavyPrefix, lightPrefix, mean, n);
     }
     splits.back() =
-        std::make_tuple(static_cast<I>(lightPrefix.size()), static_cast<I>(heavyPrefix.size()), 0);
+        wrs::Split(static_cast<I>(lightPrefix.size()), static_cast<I>(heavyPrefix.size()), T{0});
     return splits;
 }
 
 namespace pmr {
 
 template <wrs::arithmetic T, std::integral I>
-std::pmr::vector<wrs::split_t<T, I>> inline splitK(
-    const std::span<T> heavyPrefix,
-    const std::span<T> lightPrefix,
+std::pmr::vector<wrs::Split<T, I>> inline splitK(
+    std::span<const T> heavyPrefix,
+    std::span<const T> lightPrefix,
     const T mean,
     const I N,
     const I K,
-    const std::pmr::polymorphic_allocator<wrs::split_t<T, I>>& alloc = {}) {
+    const std::pmr::polymorphic_allocator<wrs::Split<T, I>>& alloc = {}) {
     // Hope for RTO
-    return wrs::reference::splitK<T, I, std::pmr::polymorphic_allocator<wrs::split_t<T, I>>>(
+    return wrs::reference::splitK<T, I, std::pmr::polymorphic_allocator<wrs::Split<T, I>>>(
         heavyPrefix, lightPrefix, mean, N, K, alloc);
 }
 

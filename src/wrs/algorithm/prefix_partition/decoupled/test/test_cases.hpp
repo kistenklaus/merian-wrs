@@ -58,7 +58,7 @@ constexpr TestCase TEST_CASES[] = {
         .writePartition = true,
         .weight_type = WEIGHT_T_FLOAT,
         .fpivot = 0.5f,
-        .iterations = 1,
+        .iterations = 10,
     },
     /* TestCase{ */
     /*     .workgroupSize = 512, */

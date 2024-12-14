@@ -1,9 +1,10 @@
 #pragma once
 
-#include "src/wrs/generic_types.hpp"
+#include "src/wrs/types/alias_table.hpp"
 #include "src/wrs/why.hpp"
 #include <fmt/base.h>
 #include <random>
+#include <span>
 #include <vector>
 namespace wrs::reference {
 
@@ -11,9 +12,8 @@ static std::size_t C = 0;
 
 namespace alias_table_internals {
 
-
 template <std::floating_point P, std::integral I>
-I sample_single(const wrs::const_alias_table_ref<P, I> aliasTable, const I u1, const float u2) {
+I sample_single(wrs::ImmutableAliasTableReference<P, I> aliasTable, const I u1, const float u2) {
     assert(u1 < aliasTable.size());
     const auto& [p, a] = aliasTable[u1];
     if (u2 > p) {
@@ -26,12 +26,11 @@ I sample_single(const wrs::const_alias_table_ref<P, I> aliasTable, const I u1, c
 } // namespace alias_table_internals
 
 template <std::floating_point P, std::integral I>
-void sample_alias_table_inplace(const wrs::const_alias_table_ref<P, I> aliasTable,
-                                std::span<I> out_samples) {
+void sample_alias_table_inplace(wrs::ImmutableAliasTableReference<P, I> aliasTable, std::span<I> out_samples) {
     /* fmt::println("SampleCount = {}", out_samples); */
     std::random_device truRng;
     std::uniform_int_distribution<uint64_t> seedDist;
-    std::mt19937 rng {seedDist(truRng)};
+    std::mt19937 rng{seedDist(truRng)};
     std::uniform_int_distribution<I> u1Dist{0, aliasTable.size() - 1};
     std::uniform_real_distribution<P> u2Dist{0.0, 1.0};
     for (size_t i = 0; i < out_samples.size(); ++i) {
@@ -44,9 +43,8 @@ void sample_alias_table_inplace(const wrs::const_alias_table_ref<P, I> aliasTabl
 template <std::floating_point P,
           std::integral I,
           wrs::typed_allocator<I> Allocator = std::allocator<I>>
-std::vector<I, Allocator> sample_alias_table(const wrs::const_alias_table_ref<P, I> aliasTable,
-                                             std::size_t S,
-                                             const Allocator& alloc) {
+std::vector<I, Allocator>
+sample_alias_table(wrs::ImmutableAliasTableReference<P, I> aliasTable, std::size_t S, const Allocator& alloc) {
     std::vector<I, Allocator> samples{S, alloc};
     sample_alias_table_inplace<P, I>(aliasTable, samples);
     return samples;
@@ -55,10 +53,11 @@ std::vector<I, Allocator> sample_alias_table(const wrs::const_alias_table_ref<P,
 namespace pmr {
 
 template <std::floating_point P, std::integral I>
-std::pmr::vector<I> sample_alias_table(const wrs::const_alias_table_ref<P, I> aliasTable,
+std::pmr::vector<I> sample_alias_table(wrs::ImmutableAliasTableReference<P, I> aliasTable,
                                        std::size_t S,
                                        const std::pmr::polymorphic_allocator<I>& alloc = {}) {
-    return wrs::reference::sample_alias_table<P, I>(aliasTable, S, alloc);
+    return wrs::reference::sample_alias_table<P, I, std::pmr::polymorphic_allocator<I>>(aliasTable,
+                                                                                        S, alloc);
 }
 
 } // namespace pmr

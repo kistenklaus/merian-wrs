@@ -1,6 +1,7 @@
 #pragma once
 
-#include "src/wrs/generic_types.hpp"
+#include "src/wrs/types/alias_table.hpp"
+#include "src/wrs/why.hpp"
 #include <algorithm>
 #include <fmt/base.h>
 #include <memory>
@@ -49,13 +50,14 @@ template <wrs::arithmetic T,
           std::floating_point P,
           std::integral I,
           wrs::generic_allocator Allocator = std::allocator<void>>
-std::vector<wrs::alias_table_entry_t<P, I>,
-            typename std::allocator_traits<Allocator>::template rebind_alloc<
-                wrs::alias_table_entry_t<P, I>>>
+wrs::AliasTable<
+    P,
+    I,
+    typename std::allocator_traits<Allocator>::template rebind_alloc<wrs::AliasTableEntry<P, I>>>
 sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator& alloc = {}) {
     using EntryAllocator =
-        std::allocator_traits<Allocator>::template rebind_alloc<wrs::alias_table_entry_t<P, I>>;
-    using Entry = wrs::alias_table_entry_t<P, I>;
+        std::allocator_traits<Allocator>::template rebind_alloc<wrs::AliasTableEntry<P, I>>;
+    using Entry = wrs::AliasTableEntry<P, I>;
 
     const I N = weights.size();
     const P averageWeight = static_cast<P>(totalWeight) / static_cast<P>(N);
@@ -67,7 +69,7 @@ sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator&
         fmt::println("ALL WEIGHTS ARE EQUAL");
         for (I k = 0; k < N; ++k) {
             /* std::numeric_limits<float>::i */
-            aliasTable[k] = std::make_tuple(static_cast<P>(1.0), k);
+            aliasTable[k] = AliasTableEntry(P{1.0}, k);
         }
         return std::move(aliasTable);
     }
@@ -87,13 +89,13 @@ sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator&
                 /* } */
                 /* assert(std::abs(averageWeight - w) < 1e-10 * totalWeight); */
                 assert(j < N);
-                aliasTable[j] = std::make_tuple(1.0f, j);
+                aliasTable[j] = AliasTableEntry(P{1.0}, j);
                 break;
             }
             assert(i < N);
             /* assert(weights[i] <= averageWeight); */
             P prob = static_cast<P>(weights[i]) / static_cast<P>(averageWeight);
-            aliasTable[i] = std::make_tuple(prob, j);
+            aliasTable[i] = AliasTableEntry(prob, j);
             w = (w + weights[i]) - averageWeight;
             i = sweeping_internal::nextLight(weights, i + 1, averageWeight);
         } else {
@@ -107,17 +109,17 @@ sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator&
                 /*   fmt::println("w = {}, w! = {}", w, averageWeight); */
                 /* } */
                 /* assert(std::abs(w - averageWeight) < 1e-8); */
-                aliasTable[j] = std::make_tuple(1.0f, j);
+                aliasTable[j] = AliasTableEntry(P{1.0}, j);
                 for (I k = i; k < N; ++k) {
                     /* assert(std::abs(weights[k] - averageWeight) < 1e-3); */
                     assert(k < N);
-                    aliasTable[k] = std::make_tuple(1.0f, k);
+                    aliasTable[k] = AliasTableEntry(P{1.0}, k);
                 }
                 break;
             }
             P prob = static_cast<P>(w / averageWeight);
             assert(j < N);
-            aliasTable[j] = std::make_tuple(prob, jnext);
+            aliasTable[j] = AliasTableEntry(prob, jnext);
             j = jnext;
             w = (w + weights[j]) - averageWeight;
         }
@@ -128,11 +130,8 @@ sweeping_alias_table(std::span<T> weights, const T totalWeight, const Allocator&
 namespace pmr {
 
 template <wrs::arithmetic T, std::floating_point P, std::integral I>
-std::vector<wrs::alias_table_entry_t<P, I>,
-            std::pmr::polymorphic_allocator<wrs::alias_table_entry_t<P, I>>>
-sweeping_alias_table(std::span<T> weights,
-                     const T totalWeight,
-                     const std::pmr::polymorphic_allocator<void>& alloc) {
+wrs::pmr::AliasTable<P, I> sweeping_alias_table(
+    std::span<T> weights, const T totalWeight, const std::pmr::polymorphic_allocator<void>& alloc) {
     // Hope for RTO
     return wrs::reference::sweeping_alias_table<T, P, I, std::pmr::polymorphic_allocator<void>>(
         weights, totalWeight, alloc);
