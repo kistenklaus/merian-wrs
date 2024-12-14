@@ -224,6 +224,7 @@ void wrs::test::decoupled_mean::test(const merian::ContextHandle& context) {
             runTestCase<float>(testContext, testCase, buffers, stage, resource);
             break;
         }
+        stackResource.reset();
     }
 
     testContext.profiler->collect();

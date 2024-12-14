@@ -25,6 +25,9 @@ using partition_t = std::tuple<std::span<T>, std::span<T>, std::vector<T, Alloca
 template <std::integral I, wrs::typed_allocator<I> Allocator>
 using partition_indices_t = std::tuple<std::span<I>, std::span<I>, std::vector<I, Allocator>>;
 
+
+
+
 namespace pmr {
 
 template <wrs::arithmetic T>
@@ -37,6 +40,11 @@ template <std::floating_point P, std::integral I>
 using alias_table_t =
     wrs::alias_table_t<P, I, std::pmr::polymorphic_allocator<wrs::alias_table_entry_t<P, I>>>;
 
+
 } // namespace pmr
+
+namespace glsl  {
+  using uint = uint32_t;
+}
 
 } // namespace wrs

@@ -160,7 +160,7 @@ namespace pmr {
 template <std::floating_point T = float>
 std::pmr::vector<T> generate_weights(const Distribution distribution,
                                      uint32_t count,
-                                     const std::pmr::polymorphic_allocator<T>& alloc) {
+                                     const std::pmr::polymorphic_allocator<T>& alloc = {}) {
     return wrs::generate_weights<T, std::pmr::polymorphic_allocator<T>>(distribution, count, alloc);
 }
 

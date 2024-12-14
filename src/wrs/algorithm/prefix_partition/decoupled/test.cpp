@@ -28,10 +28,6 @@ vk::DeviceSize wrs::test::decoupled_prefix_partition::sizeOfWeight(WeightT ty) {
     switch (ty) {
     case WEIGHT_T_FLOAT:
         return sizeof(float);
-        /*case WEIGHT_T_DOUBLE:*/
-        /*    return sizeof(double);*/
-        /*case WEIGHT_T_UINT:*/
-        /*    return sizeof(uint32_t);*/
     }
     throw std::runtime_error("OH NO");
 }
