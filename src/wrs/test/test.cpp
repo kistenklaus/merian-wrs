@@ -150,18 +150,7 @@ static void testPrefixTests(std::pmr::memory_resource* resource) {
         auto prefixSumDouble =
             wrs::reference::pmr::prefix_sum<long double>(doubleWeights, resource);
         assert(prefixSumFloat.size() == prefixSumDouble.size());
-        /* for (std::size_t i = 0; i < prefixSumFloat.size(); ++i) { */
-        /*   double diff = std::abs(static_cast<long double>(prefixSumFloat[i]) -
-         * prefixSumDouble[i]); */
-        /*   if (diff > 0.01) { */
-        /*     SPDLOG_WARN(fmt::format("Prefix sum of floats is numerically unstable, when comparing
-         * against doubles\n" */
-        /*           "Double result {}, float result {}", prefixSumDouble[i], prefixSumFloat[i]));
-         */
-        /*   } */
-        /* } */
     }
-    /* assert(false); */
 }
 
 static void testReduceReference(std::pmr::memory_resource* resource) {
@@ -313,8 +302,6 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
         std::pmr::vector<wrs::alias_table_entry_t<float, uint32_t>> aliasTable =
             wrs::reference::pmr::sweeping_alias_table<float, float, uint32_t>(weights, totalWeight,
                                                                               resource);
-
-        SPDLOG_DEBUG("Test assertion");
         const auto err = wrs::test::pmr::assert_is_alias_table<float, float, uint32_t>(
             weights, aliasTable, totalWeight, 1e-4, resource);
         if (err) {
@@ -352,29 +339,14 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
                 "Test of tests failed: psa alias table references or assertions are invalid.\n{}",
                 err.message()));
         }
-
-        SPDLOG_DEBUG("Sampling alias table... (might take a while)");
-        constexpr std::size_t S = N * 1000;
-        auto samples =
-            wrs::reference::pmr::sample_alias_table<weight_t, uint32_t>(aliasTable, S, resource);
-
-        /* fmt::println("samples = {}", samples); */
-
-        auto rmseCurve = wrs::eval::pmr::rmse_curve<weight_t, uint32_t>(
-            weights, samples, wrs::eval::log10scale<uint32_t>(1000, S, 1000), std::nullopt, resource);
-
-        wrs::exp::CSVWriter<2> csv({"sample_size", "rmse"}, "psa_ref_rmse_float_exponential.csv");
-        for (const auto& [x,y] :rmseCurve) {
-          csv.pushRow(x,y);
-        }
     }
 }
 
 static void testChiSquared(std::pmr::memory_resource* resource) {
     using I = std::size_t;
     using T = float;
-    constexpr size_t N = static_cast<std::size_t>(100);
-    constexpr size_t S = static_cast<std::size_t>(1e6);
+    constexpr size_t N = static_cast<std::size_t>(10);
+    constexpr size_t S = static_cast<std::size_t>(1e4);
 
     std::mt19937 rng{};
     std::pmr::vector<I> weights{N, resource};
@@ -390,55 +362,44 @@ static void testChiSquared(std::pmr::memory_resource* resource) {
     }
 
     std::pmr::vector<T> floatWeights{N, resource};
-    ;
     for (size_t i = 0; i < N; ++i) {
         floatWeights[i] = std::max(static_cast<T>(weights[i]), T{});
     }
 
-    /* T chiSquared = wrs::eval::chi_square<T, I>(samples, floatWeights); */
-    /* T critial = wrs::eval::chi_square_critical_value<T>(N, 0.05); */
-    /* T alpha = wrs::eval::chi_square_alpha<T>(chiSquared, N); */
-
-    wrs::eval::log10::IntLogScaleRange<I> x = wrs::eval::log10scale<I>(100, 1e6, 10);
-    auto rmseCurve = wrs::eval::rmse_curve<T, I, wrs::eval::log10::IntLogScaleRange<I>,
-                                           std::pmr::polymorphic_allocator<void>>(
-        floatWeights, samples, x, std::nullopt, resource);
-
-    wrs::exp::CSVWriter<2> csv({"samples", "rmse"}, "rmse.csv");
-
-    for (const auto& [x, y] : rmseCurve) {
-        csv.pushRow(x, y);
+    T chiSquared = wrs::eval::chi_square<T, I>(samples, floatWeights);
+    T critial = wrs::eval::chi_square_critical_value<T>(N, 0.05);
+    if (chiSquared > critial) {
+        SPDLOG_ERROR("Test of tests failed: chi square reference test failed");
     }
-    /* fmt::println("RMSE = {}", rmseCurve); */
 }
 
 void wrs::test::testTests() {
-    SPDLOG_DEBUG("Testing tests...");
+    SPDLOG_INFO("Testing tests...");
     wrs::memory::StackResource stackResource{10000 * sizeof(float)};
     wrs::memory::FallbackResource fallbackResource{&stackResource};
     wrs::memory::SafeResource resource{&fallbackResource};
 
-    SPDLOG_DEBUG("Testing reduce reference");
+    SPDLOG_INFO("Testing reduce reference");
     stackResource.reset();
     testReduceReference(&resource);
 
-    SPDLOG_DEBUG("Testing partition assertions tests");
+    SPDLOG_INFO("Testing partition assertions tests");
     stackResource.reset();
     testPartitionTests(&resource);
 
-    SPDLOG_DEBUG("Testing inclusive prefix assertion tests");
+    SPDLOG_INFO("Testing inclusive prefix assertion tests");
     stackResource.reset();
     testPrefixTests(&resource);
 
-    SPDLOG_DEBUG("Testing split assertion tests");
+    SPDLOG_INFO("Testing split assertion tests");
     stackResource.reset();
     testSplitTests(&resource);
 
-    SPDLOG_DEBUG("Testing alias table assertion tests");
+    SPDLOG_INFO("Testing alias table assertion tests");
     stackResource.reset();
     testAliasTableTest(&resource);
 
-    SPDLOG_DEBUG("Testing chi squared evaluation");
+    SPDLOG_INFO("Testing chi squared evaluation");
     stackResource.reset();
     testChiSquared(&resource);
 

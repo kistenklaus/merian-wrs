@@ -58,11 +58,14 @@ bool lightPrefixAt(uint i, out monoid lightPrefix) {
     }
 }
 
-uint ceilDiv(uint a, uint b) {
-    if (a == 0) {
-        return 0;
-    }
-    return 1 + ((a - 1) / b); // avoids overflows
+// computes the ceiling division of a * b by c
+// assumes that a > c > b
+uint ceilMulDiv(uint a, uint b, uint c) {
+  uint div = a / c;
+  uint rem = a % c;
+  uint safe_part = div * b;
+  uint rem_part = (rem * b + c - 1) / c;
+  return safe_part + rem_part;
 }
 
 void main(void) {
@@ -74,24 +77,24 @@ void main(void) {
     lightPrefixFirst = N - 1;
 
     const uint k = gl_WorkGroupID.x + 1;
-    const uint n = ceilDiv(N * k, K);
-
-    const monoid target = mean * n;
+    const uint n = ceilMulDiv(N, k, K);
 
     if (gl_WorkGroupID.x == 0) {
-        splits[K - 1].i = N;
-        splits[K - 1].j = N;
+        splits[K - 1].i = lightCount;
+        splits[K - 1].j = heavyCount;
         splits[K - 1].spill = 0;
     }
 
     uint a = 0;
-    uint b = min(n, heavyCount) - 1;
+    uint b = min(n, heavyCount);
+    const monoid target = mean * n;
 
     uint j, i;
     monoid sigma2;
+
     while (true) {
         j = (a + b) / 2;
-        i = min(n - j, lightCount - 1);
+        i = min(n - j, lightCount);
 
         if (a > b) {
             sigma2 = partitionPrefix.heavyLight[lightPrefixFirst - i]
@@ -99,12 +102,12 @@ void main(void) {
             break;
         }
 
-        monoid heavy = partitionPrefix.heavyLight[j];
-        monoid heavy2 = partitionPrefix.heavyLight[j + 1];
-        monoid light = partitionPrefix.heavyLight[lightPrefixFirst - i];
+        monoid heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
+        monoid light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
 
         const monoid sigma = light + heavy;
         if (sigma <= target) {
+            monoid heavy2 = partitionPrefix.heavyLight[j];
             sigma2 = light + heavy2;
             if (sigma2 > target) {
                 break;
