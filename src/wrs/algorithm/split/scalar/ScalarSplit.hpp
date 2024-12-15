@@ -35,7 +35,7 @@ struct ScalarSplitBuffers {
     static constexpr vk::BufferUsageFlags PARTITION_PREFIX_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
     static constexpr vk::DeviceSize minPartitionPrefixBufferSize(uint32_t N, size_t sizeOfWeight) {
-        return sizeof(uint32_t) + sizeOfWeight * N;
+        return sizeof(uint32_t) + sizeof(uint32_t) + sizeOfWeight * N;
     }
 
     /**

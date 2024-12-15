@@ -6,6 +6,7 @@
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "src/wrs/types/glsl.hpp"
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_enums.hpp>
@@ -79,6 +80,10 @@ struct DecoupledPrefixPartitionBuffers {
     merian::BufferHandle partitionPrefix;
     static constexpr vk::BufferUsageFlagBits PREFIX_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr vk::DeviceSize minPartitionPrefixSize(std::size_t N, vk::DeviceSize sizeOfElement) {
+      return sizeOfElement * N + sizeof(wrs::glsl::uint);
+      
+    }
 
     /**
      * Buffer, which contains both partitions.
@@ -92,6 +97,9 @@ struct DecoupledPrefixPartitionBuffers {
     std::optional<merian::BufferHandle> partition;
     static constexpr vk::BufferUsageFlagBits PARTITION_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr vk::DeviceSize minPartitionIndices(std::size_t N) {
+      return sizeof(wrs::glsl::uint) * N + sizeof(wrs::glsl::uint);
+    }
 };
 
 template <typename T = float> class DecoupledPrefixPartition {

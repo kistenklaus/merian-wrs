@@ -6,6 +6,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "src/wrs/types/glsl.hpp"
 #include <concepts>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
@@ -14,6 +15,11 @@ namespace wrs {
 struct ScalarPackBuffers {
 
     merian::BufferHandle heavyLightIndicies; // bind = 0
+
+    constexpr vk::DeviceSize minHeavyLightIndiciesSize(std::size_t N) {
+      return N * sizeof(wrs::glsl::uint);
+    }
+    
     merian::BufferHandle weights; // binding = 1
     merian::BufferHandle mean; // bind = 2
     merian::BufferHandle splits; // bind = 3

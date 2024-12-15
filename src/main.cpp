@@ -3,6 +3,8 @@
 #include "merian/vk/extension/extension_vk_core.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
+#include "src/wrs/algorithm/mean/decoupled/test.hpp"
+#include "src/wrs/algorithm/pack/scalar/test.hpp"
 #include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
 #include "src/wrs/algorithm/split/scalar/test.hpp"
 #include "src/wrs/eval/psa_ref_eval.hpp"
@@ -43,8 +45,9 @@ int main() {
     /* wrs::eval::write_psa_rmse_curves(); */
     wrs::test::testTests();
     /* wrs::test::decoupled_mean::test(context); */
-    wrs::test::decoupled_prefix_partition::test(context);
+    /* wrs::test::decoupled_prefix_partition::test(context); */
     /* wrs::test::scalar_split::test(context); */
+    /* wrs::test::scalar_pack::test(context); */
 }
 
 
