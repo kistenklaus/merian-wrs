@@ -33,69 +33,21 @@ void uploadTestCase(vk::CommandBuffer cmd,
                     uint32_t rows,
                     Buffers& buffers,
                     Buffers& stage) {
-
-    { // Upload elements
-        elem_t* elementsMapped = stage.elements->get_memory()->map_as<elem_t>();
-        std::memcpy(elementsMapped, elements.data(), sizeof(elem_t) * elements.size());
-        stage.elements->get_memory()->unmap();
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer,
-                            {}, {},
-                            stage.elements->buffer_barrier(vk::AccessFlagBits::eHostWrite,
-                                                           vk::AccessFlagBits::eTransferRead),
-                            {});
-        vk::BufferCopy copy{0, 0, elements.size() * sizeof(elem_t)};
-        cmd.copyBuffer(*stage.elements, *buffers.elements, 1, &copy);
-
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.elements->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                             vk::AccessFlagBits::eShaderRead),
-                            {});
-    }
-    { // Reset decoupled state!
-
-        vk::DeviceSize clearRange =
-            Buffers::minDecoupledStateSize(elements.size(), workgroupSize, rows);
-        // Round to the next multiple of 4 (see vulkan docs)
-        clearRange = (clearRange + 4 - 1) / 4; // ceil div
-        clearRange *= 4;
-
-        if (clearRange >= buffers.decoupledStates->get_size()) {
-            clearRange = VK_WHOLE_SIZE;
-        }
-
-        cmd.fillBuffer(*buffers.decoupledStates, 0, VK_WHOLE_SIZE, 0);
-
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eComputeShader, {}, {},
-            buffers.decoupledStates->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                    vk::AccessFlagBits::eShaderRead),
-            {});
-    }
+    SPDLOG_DEBUG("Staged upload");
+    stage.setHostVisibleElements<elem_t>(elements);
+    SPDLOG_DEBUG("copy to device local");
+    Buffers::copyElements(cmd, buffers, stage, elements.size(), sizeof(elem_t));
+    SPDLOG_DEBUG("clear decoupled state");
+    buffers.resetDecoupledStates(cmd, elements.size(), workgroupSize, rows);
 }
 
 template <typename elem_t>
 void downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage) {
-    {
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eTransfer, {}, {},
-                            buffers.mean->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                         vk::AccessFlagBits::eTransferRead),
-                            {});
-        vk::BufferCopy copy{0, 0, sizeof(elem_t)};
-        cmd.copyBuffer(*buffers.mean, *stage.mean, 1, &copy);
-
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eHost,
-                            {}, {},
-                            stage.mean->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                       vk::AccessFlagBits::eHostRead),
-                            {});
-    }
+    Buffers::copyMean(cmd, buffers, stage, sizeof(elem_t));
 }
 
 template <typename elem_t> elem_t downloadFromStage(Buffers& stage) {
-    elem_t* meanMapped = stage.mean->get_memory()->map_as<elem_t>();
-    return *meanMapped;
+    return stage.getHostVisibleMean<elem_t>();
 }
 
 template <typename elem_t>
@@ -160,12 +112,14 @@ bool runTestCase(const TestContext& context,
 
         // Upload elements
         {
+            SPDLOG_DEBUG("Uploading elements");
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Uploading elements");
             uploadTestCase(cmd, elements, testCase.workgroupSize, testCase.rows, buffers, stage);
         }
 
         // Run algorithm
         {
+            SPDLOG_DEBUG("Running algorithm");
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute DecoupledMean");
             kernel.run(cmd, buffers, testCase.elementCount);
         }

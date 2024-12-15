@@ -1,4 +1,5 @@
 #include "merian/vk/context.hpp"
+#include "src/wrs/layout/StructLayout.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_core.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
@@ -16,6 +17,7 @@
 #include <set>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+
 
 int main() {
     
@@ -44,7 +46,7 @@ int main() {
     /* wrs::eval::write_std_rmse_curves(); */
     /* wrs::eval::write_psa_rmse_curves(); */
     wrs::test::testTests();
-    /* wrs::test::decoupled_mean::test(context); */
+    wrs::test::decoupled_mean::test(context);
     /* wrs::test::decoupled_prefix_partition::test(context); */
     /* wrs::test::scalar_split::test(context); */
     /* wrs::test::scalar_pack::test(context); */
