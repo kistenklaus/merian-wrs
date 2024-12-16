@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <concepts>
 #include <memory>
+#include <ranges>
 #include <span>
 #include <spdlog/spdlog.h>
 #include <utility>
@@ -24,6 +25,10 @@ template <std::totally_ordered T> struct IsPartitionIndexError {
     bool shouldBeHeavy;
     bool isHeavy;
     T value;
+
+    void appendMessageToStringStream(std::stringstream& ss) {
+        ss << "\t\tFailure at index = " << index << ":\n";
+    }
 };
 
 template <std::totally_ordered T, wrs::generic_allocator Allocator> struct IsPartitionError {
@@ -52,7 +57,23 @@ template <std::totally_ordered T, wrs::generic_allocator Allocator> struct IsPar
         return errorTypes != IS_PARTITION_ERROR_TYPE_NONE;
     }
     std::string message() const {
-        return "TODO: proper error message";
+        std::stringstream ss;
+        if (errorTypes & IS_PARTITION_ERROR_TYPE_INVALID_PARTITION_SIZES) {
+            ss << "AssertionFailed: The size of the partition is incorrect:\n";
+            ss << "\tExpected: " << elementCount << ", Got: " << heavyCount + lightCount << "\n";
+            return ss.str();
+        }
+
+        ss << "AssertionFailed: \"prefix\" is not partition.\n";
+        ss << "\tFailed at " << errors.size() << " out of " << elementCount << " elements\n";
+        constexpr size_t MAX_LOG = 3;
+        for (auto error : errors | std::views::take(MAX_LOG)) {
+            error.appendMessageToStringStream(ss);
+        }
+        if (errors.size() > MAX_LOG) {
+            ss << "\t...\n";
+        }
+        return ss.str();
     }
 };
 

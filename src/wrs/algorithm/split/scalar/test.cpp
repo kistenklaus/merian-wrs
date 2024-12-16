@@ -4,6 +4,7 @@
 #include "src/wrs/algorithm/split/scalar/ScalarSplit.hpp"
 #include "src/wrs/algorithm/split/scalar/test/test_cases.hpp"
 #include "src/wrs/algorithm/split/scalar/test/test_setup.hpp"
+#include "src/wrs/layout/layout_traits.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
@@ -13,12 +14,14 @@
 #include "src/wrs/reference/split.hpp"
 #include "src/wrs/test/is_split.hpp"
 #include "src/wrs/test/test.hpp"
+#include "src/wrs/types/partition.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <fmt/base.h>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <vector>
 #include <vulkan/vulkan_enums.hpp>
 
 using namespace wrs::test::scalar_split;
@@ -37,86 +40,51 @@ static void uploadTestCase(vk::CommandBuffer cmd,
                            const std::span<weight_t>& reverseLightPrefix,
                            const weight_t mean,
                            Buffers& buffers,
-                           Buffers& stage) {
+                           Buffers& stage,
+                           std::pmr::memory_resource* resource) {
     { // Upload heavy & light prefix sums
-        void* partitionPrefixMapped = stage.partitionPrefix->get_memory()->map();
-        uint32_t* heavyCountMapped = reinterpret_cast<uint32_t*>(partitionPrefixMapped);
-        float* heavyPrefixMapped = reinterpret_cast<float*>(heavyCountMapped + 1);
-        float* lightPrefixMapped = reinterpret_cast<float*>(heavyPrefixMapped + heavyPrefix.size());
+        std::size_t N = heavyPrefix.size() + reverseLightPrefix.size();
+        wrs::glsl::uint heavyCount = heavyPrefix.size();
+        wrs::Partition<weight_t, std::pmr::vector<weight_t>> heavyLight(
+            std::pmr::vector<weight_t>{N, resource}, heavyPrefix.size());
 
-        *heavyCountMapped = static_cast<uint32_t>(heavyPrefix.size());
-        std::memcpy(heavyPrefixMapped, heavyPrefix.data(), heavyPrefix.size() * sizeof(weight_t));
-        std::memcpy(lightPrefixMapped, reverseLightPrefix.data(),
-                    reverseLightPrefix.size() * sizeof(weight_t));
+        std::memcpy(heavyLight.heavy().data(), heavyPrefix.data(), heavyPrefix.size_bytes());
+        std::memcpy(heavyLight.light().data(), reverseLightPrefix.data(),
+                    reverseLightPrefix.size_bytes());
 
-        stage.partitionPrefix->get_memory()->unmap();
-
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer,
-                            {}, {},
-                            stage.partitionPrefix->buffer_barrier(
-                                vk::AccessFlagBits::eHostWrite, vk::AccessFlagBits::eTransferRead),
-                            {});
-
-        size_t N = heavyPrefix.size() + reverseLightPrefix.size();
-        vk::BufferCopy copy{0, 0, Buffers::minPartitionPrefixBufferSize(N, sizeof(weight_t))};
-        cmd.copyBuffer(*stage.partitionPrefix, *buffers.partitionPrefix, 1, &copy);
-
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eComputeShader, {}, {},
-            buffers.partitionPrefix->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                    vk::AccessFlagBits::eShaderRead),
-            {});
+        Buffers::PartitionPrefixView stageView{stage.partitionPrefix, N};
+        Buffers::PartitionPrefixView localView{buffers.partitionPrefix, N};
+        stageView.attribute<"heavyCount">().template upload<wrs::glsl::uint>(heavyCount);
+        stageView.attribute<"heavyLightIndices">().template upload<weight_t>(heavyLight.storage());
+        stageView.copyTo(cmd, localView);
+        localView.expectComputeRead(cmd);
     }
     { // Upload mean
-        weight_t* meanMapped = stage.mean->get_memory()->map_as<weight_t>();
-        *meanMapped = mean;
-        stage.mean->get_memory()->unmap();
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer,
-                            {}, {},
-                            stage.mean->buffer_barrier(vk::AccessFlagBits::eHostWrite,
-                                                       vk::AccessFlagBits::eTransferRead),
-                            {});
-
-        vk::BufferCopy copy{0, 0, Buffers::minMeanBufferSize(sizeof(weight_t))};
-        cmd.copyBuffer(*stage.mean, *buffers.mean, 1, &copy);
-
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.mean->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                         vk::AccessFlagBits::eShaderRead),
-                            {});
+        Buffers::MeanView stageView{stage.mean};
+        Buffers::MeanView localView{buffers.mean};
+        stageView.upload(mean);
+        stageView.copyTo(cmd, localView);
+        localView.expectComputeRead(cmd);
     }
 }
 
 template <typename weight_t>
 void downloadResultsToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, uint32_t K) {
-
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                        vk::PipelineStageFlagBits::eTransfer, {}, {},
-                        buffers.splits->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                       vk::AccessFlagBits::eTransferRead),
-                        {});
-
-    vk::BufferCopy copy{0, 0, Buffers::minSplitBufferSize(K, sizeof(weight_t))};
-    cmd.copyBuffer(*buffers.splits, *stage.splits, 1, &copy);
-
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eHost, {},
-                        {},
-                        stage.splits->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                     vk::AccessFlagBits::eHostRead),
-                        {});
+    Buffers::SplitsView stageView{stage.splits, K};
+    Buffers::SplitsView localView{buffers.splits, K};
+    localView.expectComputeWrite();
+    localView.copyTo(cmd, stageView);
+    stageView.expectHostRead(cmd);
 }
 
 template <typename weight_t>
 std::pmr::vector<Buffers::Split<weight_t>>
 downloadResultsFromStage(Buffers& stage, uint32_t K, std::pmr::memory_resource* resource) {
-    using Split = Buffers::Split<weight_t>;
-    std::pmr::vector<Split> splits(K, resource);
 
-    void* splitsMapped = stage.splits->get_memory()->map();
-    std::memcpy(splits.data(), splitsMapped, K * sizeof(Split));
-    stage.splits->get_memory()->unmap();
-    return std::move(splits);
+    Buffers::SplitsView stageView{stage.splits, K};
+    static_assert(wrs::layout::traits::IsStorageCompatibleStruct<Buffers::Split<weight_t>, typename Buffers::SplitsLayout::base_type>);
+    static_assert(wrs::layout::traits::IsComplexArrayLayout<Buffers::SplitsLayout>);
+    return stageView.template download<Buffers::Split<weight_t>, wrs::pmr_alloc<Buffers::Split<weight_t>>>(resource);
 }
 
 template <typename weight_t>
@@ -240,7 +208,7 @@ static void runTestCase(const wrs::test::TestContext& context,
             SPDLOG_DEBUG("Uploading input");
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload partition prefix & average");
             uploadTestCase<weight_t>(cmd, heavyPrefixSum, reverseLightPrefixSum, averageWeight,
-                                     buffers, stage);
+                                     buffers, stage, resource);
         }
 
         // ============= Execute algorithm =============
@@ -275,6 +243,7 @@ static void runTestCase(const wrs::test::TestContext& context,
 
         // ========= Compare results against reference ==========
         {
+            SPDLOG_DEBUG("Testing splits");
             auto err = wrs::test::pmr::assert_is_split<weight_t, wrs::glsl::uint>(
                 splits, K, heavyPrefixSum, lightPrefixSum, averageWeight, 0.01, resource);
             if (err) {

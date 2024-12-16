@@ -6,8 +6,14 @@
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
-#include "src/wrs/why.hpp"
+#include "src/wrs/layout/ArrayLayout.hpp"
+#include "src/wrs/layout/Attribute.hpp"
+#include "src/wrs/layout/StructLayout.hpp"
+#include "src/wrs/layout/PrimitiveLayout.hpp"
+#include "src/wrs/layout/BufferView.hpp"
+#include "src/wrs/types/glsl.hpp"
 #include "src/wrs/types/split.hpp"
+#include "src/wrs/why.hpp"
 #include <concepts>
 #include <memory>
 #include <stdexcept>
@@ -15,9 +21,13 @@
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_handles.hpp>
 
+#include "merian/vk/memory/resource_allocator.hpp"
+
 namespace wrs {
 
 struct ScalarSplitBuffers {
+    static constexpr auto storageQualifier = glsl::StorageQualifier::std140;
+    using weight_type = glsl::float_t;
 
     /**
      * Buffer which contains the prefix sums over both the heavy and light
@@ -37,6 +47,11 @@ struct ScalarSplitBuffers {
     static constexpr vk::DeviceSize minPartitionPrefixBufferSize(uint32_t N, size_t sizeOfWeight) {
         return sizeof(uint32_t) + sizeof(uint32_t) + sizeOfWeight * N;
     }
+    using PartitionPrefixLayout =
+        layout::StructLayout<storageQualifier,
+                             layout::Attribute<wrs::glsl::uint, "heavyCount">,
+                             layout::Attribute<weight_type*, "heavyLightIndices">>;
+    using PartitionPrefixView = layout::BufferView<PartitionPrefixLayout>;
 
     /**
      * Buffer which simply contains the average weight.
@@ -44,6 +59,9 @@ struct ScalarSplitBuffers {
     merian::BufferHandle mean;
     static constexpr vk::BufferUsageFlags MEAN_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
+    using MeanLayout = layout::PrimitiveLayout<weight_type, storageQualifier>; 
+    using MeanView = layout::BufferView<MeanLayout>;
+
     static constexpr vk::DeviceSize minMeanBufferSize(size_t sizeOfWeight) {
         return sizeOfWeight;
     }
@@ -54,13 +72,45 @@ struct ScalarSplitBuffers {
     merian::BufferHandle splits;
     static constexpr vk::BufferUsageFlags SPLITS_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
+    using SplitStructLayout = layout::StructLayout<storageQualifier,
+          layout::Attribute<wrs::glsl::uint, "i">,
+          layout::Attribute<wrs::glsl::uint, "j">,
+          layout::Attribute<weight_type, "spill">>;
+    using SplitsLayout = layout::ArrayLayout<SplitStructLayout, storageQualifier>;
+    using SplitsView = layout::BufferView<SplitsLayout>;
+
     static constexpr vk::DeviceSize minSplitBufferSize(uint32_t K, size_t sizeOfWeight) {
         vk::DeviceSize sizeOfSplitDescriptor = sizeof(uint32_t) + sizeof(uint32_t) + sizeOfWeight;
         return sizeOfSplitDescriptor * K;
     }
 
-    template<std::floating_point weight_t> 
-    using Split = wrs::Split<weight_t, wrs::glsl::uint>;
+    template <std::floating_point weight_t> using Split = wrs::Split<weight_t, wrs::glsl::uint>;
+
+    static ScalarSplitBuffers allocate(merian::ResourceAllocatorHandle alloc,
+                                         std::size_t weightCount,
+                                         std::size_t splitCount,
+                                         merian::MemoryMappingType memoryMapping) {
+        ScalarSplitBuffers buffers;
+        if (memoryMapping == merian::MemoryMappingType::NONE) {
+            buffers.partitionPrefix =
+                alloc->createBuffer(PartitionPrefixLayout::size(weightCount),
+                                    PARTITION_PREFIX_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.mean = alloc->createBuffer(MeanLayout::size(),
+                MEAN_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.splits = alloc->createBuffer(SplitsLayout::size(splitCount),
+                SPLITS_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+        } else {
+            buffers.partitionPrefix =
+                alloc->createBuffer(PartitionPrefixLayout::size(weightCount),
+                                    vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+            buffers.mean = alloc->createBuffer(MeanLayout::size(),
+                vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+            buffers.splits = alloc->createBuffer(SplitsLayout::size(splitCount),
+                vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+        }
+        return buffers;
+    }
+
 };
 
 template <typename T = float> class ScalarSplit {

@@ -1,12 +1,12 @@
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <glm/fwd.hpp>
 #include <type_traits>
 namespace wrs::glsl {
 
 enum class StorageQualifier : unsigned int {
-    none = 0,
     std140 = 1 << 0,
     std430 = 1 << 1,
 };
@@ -44,10 +44,90 @@ concept vec_like = vec2_like<T> || vec3_like<T> || vec4_like<T>;
 template <typename T>
 concept primitive_like = scalar_like<T> || vec_like<T>;
 
+
+template<scalar_like T, StorageQualifier Storage>
+constexpr std::size_t primitive_alignment() {
+  return 4;
+}
+template<scalar_like T, StorageQualifier Storage>
+constexpr std::size_t primitive_size() {
+  return 4;
+}
+
+template<scalar_like T, StorageQualifier Storage>
+constexpr bool has_contiguous_primitive_array_storage() {
+  switch (Storage) {
+  case StorageQualifier::std140:
+    return false;
+  case StorageQualifier::std430:
+    return true;
+  }
+}
+
+template<vec2_like T, StorageQualifier Storage>
+constexpr std::size_t primitive_alignment() {
+  return 8;
+}
+template<vec2_like T, StorageQualifier Storage>
+constexpr std::size_t primitive_size() {
+  return 8;
+}
+
+template<vec2_like T, StorageQualifier Storage>
+constexpr bool has_contiguous_primitive_array_storage() {
+  switch (Storage) {
+  case StorageQualifier::std140:
+    return false;
+  case StorageQualifier::std430:
+    return true;
+  }
+}
+
+template<vec3_like T, StorageQualifier Storage>
+constexpr std::size_t primitive_alignment() {
+  return 16;
+}
+template<vec3_like T, StorageQualifier Storage>
+constexpr std::size_t primitive_size() {
+  return 12;
+}
+
+template<vec3_like T, StorageQualifier Storage>
+constexpr bool has_contiguous_primitive_array_storage() {
+  switch (Storage) {
+  case StorageQualifier::std140:
+    return false;
+  case StorageQualifier::std430:
+    return false;
+  }
+}
+
+template<vec4_like T, StorageQualifier Storage>
+constexpr std::size_t primitive_alignment() {
+  return 16;
+}
+template<vec4_like T, StorageQualifier Storage>
+constexpr std::size_t primitive_size() {
+  return 16;
+}
+
+template<vec4_like T, StorageQualifier Storage>
+constexpr bool has_contiguous_primitive_array_storage() {
+  switch (Storage) {
+  case StorageQualifier::std140:
+    return true;
+  case StorageQualifier::std430:
+    return true;
+  }
+}
+
 // Concepts for GLSL layout compatibility
 template <typename T>
-concept storage_qualified_struct = requires { 
-{ T::storage_qualifier } -> std::convertible_to<wrs::glsl::StorageQualifier>;
+concept storage_qualified_struct = requires(T s, StorageQualifier storage) { 
+{ T::storage_qualifier };
+{ T::alignment(storage) } -> std::convertible_to<std::size_t>;
+{ T::size(storage) } -> std::convertible_to<std::size_t>;
 };
+
 
 }

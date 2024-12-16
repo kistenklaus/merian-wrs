@@ -22,6 +22,9 @@ template <typename Allocator, typename V>
 concept typed_allocator = generic_allocator<Allocator> &&
                           std::same_as<typename std::allocator_traits<Allocator>::value_type, V>;
 
+template<typename T>
+using pmr_alloc = std::pmr::polymorphic_allocator<T>;
+
 // Computes ceil(a / b)
 template <std::integral T>
 T ceilDiv(T a, T b) {

@@ -18,16 +18,16 @@ struct Split {
     monoid spill;
 };
 
-layout(set = 0, binding = 0) readonly buffer in_partitionPrefixSums {
+layout(set = 0, binding = 0, std140) readonly buffer in_partitionPrefixSums {
     uint heavyCount;
     monoid heavyLight[];
 } partitionPrefix;
 
-layout(set = 0, binding = 1) readonly buffer in_weightAverage {
+layout(set = 0, binding = 1, std140) readonly buffer in_weightAverage {
     monoid mean;
 } meta;
 
-layout(set = 0, binding = 2) writeonly buffer out_splits {
+layout(set = 0, binding = 2, std140) writeonly buffer out_splits {
     Split splits[];
 };
 

@@ -1,32 +1,44 @@
 #pragma once
 
+#include "merian/vk/memory/resource_allocations.hpp"
+
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
 #include "merian/vk/memory/resource_allocations.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "src/wrs/layout/ArrayLayout.hpp"
+#include "src/wrs/layout/BufferView.hpp"
+#include "src/wrs/layout/PrimitiveLayout.hpp"
+#include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_enums.hpp>
 
+#include "merian/vk/memory/resource_allocator.hpp"
+
 namespace wrs {
 
 struct DecoupledPrefixPartitionBuffers {
+    static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
+    using element_type = glsl::float_t;
     /**
      * Buffer, which contains all elements
      * over which the partition and the
      * prefix sums are computed.
-     * The buffer is requires to have a packed layout!.
+     * The buffer is requiring to have a packed layout!.
      *
      * Layout : T[[N]]
      *
      * MinSize: sizeof(T) * N
      */
     merian::BufferHandle elements;
-    static constexpr vk::BufferUsageFlagBits ELEMENT_BUFFER_USAGE_FLAGS =
+    static constexpr auto ELEMENT_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
+    using ElementsLayout = layout::ArrayLayout<element_type, storageQualifier>;
+    using ElementsView = layout::BufferView<ElementsLayout>;
 
     /**
      * Buffer, which contains the pivot element.
@@ -36,8 +48,10 @@ struct DecoupledPrefixPartitionBuffers {
      * MinSize: sizeof(T)
      */
     merian::BufferHandle pivot;
-    static constexpr vk::BufferUsageFlagBits PIVOT_BUFFER_USAGE_FLAGS =
+    static constexpr auto PIVOT_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
+    using PivotLayout = layout::PrimitiveLayout<float, storageQualifier>;
+    using PivotView = layout::BufferView<PivotLayout>;
 
     /**
      * Buffer, which holds internal state of the decoupled lookback.
@@ -47,22 +61,51 @@ struct DecoupledPrefixPartitionBuffers {
      * MinSize: ((DecoupledPrefixPartitionKernel)instance).minBufferDescriptorSize(N)
      */
     merian::BufferHandle batchDescriptors;
-    static constexpr vk::BufferUsageFlagBits BATCH_DESCRIPTOR_BUFFER_USAGE_FLAGS =
+    static constexpr auto BATCH_DESCRIPTOR_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
+
+    /* struct BatchDescriptor { */
+    /*     uint heavyCount; */
+    /*     uint heavyCountInclusivePrefix; */
+    /*     monoid heavySum; */
+    /*     monoid heavyInclusivePrefix; */
+    /*     monoid lightSum; */
+    /*     monoid lightInclusivePrefix; */
+    /*     state_t state; */
+    /* }; */
+    using _BatchDescriptorLayout = layout::StructLayout<storageQualifier,
+          layout::Attribute<glsl::uint, "heavyCount">,
+          layout::Attribute<glsl::uint, "heavyCountInclusivePrefix">,
+          layout::Attribute<element_type, "heavySum">,
+          layout::Attribute<element_type, "heavyInclusivePrefix">,
+          layout::Attribute<element_type, "lightSum">,
+          layout::Attribute<element_type, "lightInclusivePrefix">,
+          layout::Attribute<glsl::uint, "state">>;
+
+    using _BatchDescriptorArrayLayout = layout::ArrayLayout<_BatchDescriptorLayout,
+          storageQualifier>;
+
+    using BatchDescriptorsLayout = layout::StructLayout<storageQualifier,
+          layout::Attribute<glsl::uint, "atomicBatchCounter">,
+          layout::Attribute<_BatchDescriptorArrayLayout, "batchInfo">>;
+    using BatchDescriptorsView = layout::BufferView<BatchDescriptorsLayout>;
+
     constexpr static vk::DeviceSize
-    minBatchDescriptorSize(uint32_t N, uint32_t partitionSize, size_t sizeof_weight) {
-        uint32_t workgroupCount = (N + partitionSize - 1) / partitionSize;
+    minBatchDescriptorSize(const uint32_t N, const uint32_t partitionSize,
+                                                           const size_t sizeof_weight) {
+        const uint32_t workgroupCount = (N + partitionSize - 1) / partitionSize;
         vk::DeviceSize batchDescriptorSize = 4 * sizeof_weight + 2 * sizeof_weight + sizeof_weight;
         // TODO consider proper padding this is just a upper bound for a guess!
         batchDescriptorSize += sizeof(uint32_t) * 4;
         return batchDescriptorSize * workgroupCount;
     }
-    constexpr static vk::DeviceSize minBatchDescriptorSize(uint32_t N,
-                                                           uint32_t workgroupSize,
-                                                           uint32_t rows,
-                                                           size_t sizeof_weight) {
+
+    constexpr static vk::DeviceSize minBatchDescriptorSize(const uint32_t N,
+                                                           const uint32_t workgroupSize,
+                                                           const uint32_t rows,
+                                                           const size_t sizeOfWeight) {
         const uint32_t partitionSize = workgroupSize * rows;
-        return minBatchDescriptorSize(N, partitionSize, sizeof_weight);
+        return minBatchDescriptorSize(N, partitionSize, sizeOfWeight);
     }
 
     /**
@@ -81,9 +124,14 @@ struct DecoupledPrefixPartitionBuffers {
     static constexpr vk::BufferUsageFlagBits PREFIX_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
     static constexpr vk::DeviceSize minPartitionPrefixSize(std::size_t N, vk::DeviceSize sizeOfElement) {
-      return sizeOfElement * N + sizeof(wrs::glsl::uint);
-      
+      return sizeOfElement * N + sizeof(glsl::uint);
     }
+    using PartitionPrefixLayout = layout::StructLayout<storageQualifier,
+          layout::Attribute<wrs::glsl::uint, "heavyCount">,
+          layout::Attribute<element_type*, "heavyLightPrefix">>;
+    using PartitionPrefixView = layout::BufferView<PartitionPrefixLayout>;
+
+      
 
     /**
      * Buffer, which contains both partitions.
@@ -97,9 +145,59 @@ struct DecoupledPrefixPartitionBuffers {
     std::optional<merian::BufferHandle> partition;
     static constexpr vk::BufferUsageFlagBits PARTITION_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
+    using PartitionLayout = layout::StructLayout<storageQualifier,
+          layout::Attribute<wrs::glsl::uint, "heavyCount">,
+          layout::Attribute<wrs::glsl::uint*, "heavyLightIndices">>;
+    using PartitionView = layout::BufferView<PartitionLayout>;
+
+
     static constexpr vk::DeviceSize minPartitionIndices(std::size_t N) {
       return sizeof(wrs::glsl::uint) * N + sizeof(wrs::glsl::uint);
     }
+
+    static std::size_t partitionSize(std::size_t workgroupSize, std::size_t rows ) {
+      return workgroupSize * rows;
+    }
+    static std::size_t workgroupCount(std::size_t elementCount, std::size_t partitionSize) {
+      return (elementCount + partitionSize - 1) / partitionSize;
+    }
+
+
+    static DecoupledPrefixPartitionBuffers allocate(merian::ResourceAllocatorHandle alloc,
+                                         std::size_t elementCount,
+                                         std::size_t partitionSize,
+                                         merian::MemoryMappingType memoryMapping) {
+        std::size_t workgroupCount = (elementCount + partitionSize - 1) / partitionSize;
+        DecoupledPrefixPartitionBuffers buffers;
+        if (memoryMapping == merian::MemoryMappingType::NONE) {
+            buffers.elements =
+                alloc->createBuffer(ElementsLayout::size(elementCount),
+                                    ELEMENT_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.pivot = alloc->createBuffer(PivotLayout::size(),
+                PIVOT_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.batchDescriptors = alloc->createBuffer(BatchDescriptorsLayout::size(workgroupCount),
+                BATCH_DESCRIPTOR_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.partitionPrefix = alloc->createBuffer(PartitionPrefixLayout::size(elementCount),
+                PREFIX_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+            buffers.partition = alloc->createBuffer(PartitionLayout::size(elementCount),
+                PARTITION_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+        } else {
+            buffers.elements =
+                alloc->createBuffer(ElementsLayout::size(elementCount),
+                                    vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+            buffers.pivot = alloc->createBuffer(PivotLayout::size(),
+                vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+            buffers.batchDescriptors = alloc->createBuffer(BatchDescriptorsLayout::size(workgroupCount),
+                vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.partitionPrefix = alloc->createBuffer(PartitionPrefixLayout::size(elementCount),
+                vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.partition = alloc->createBuffer(PartitionLayout::size(elementCount),
+                vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+        }
+        return buffers;
+    }
+
+
 };
 
 template <typename T = float> class DecoupledPrefixPartition {
@@ -218,17 +316,17 @@ template <typename T = float> class DecoupledPrefixPartition {
             if (buffers.pivot->get_size() < sizeof(weight_t)) {
                 throw std::runtime_error("buffers.pivot is to small!");
             }
-            if (buffers.batchDescriptors->get_size() < minBufferDescriptorSize(N)) {
-                throw std::runtime_error("buffers.batchDescriptors is to small!");
-            }
-            if (buffers.partitionPrefix->get_size() < sizeof(weight_t) + sizeof(weight_t) * N) {
-                throw std::runtime_error("buffers.partitionPrefix is to small");
-            }
-            if (m_writePartition) {
-                if (buffers.partition.value()->get_size() < sizeof(weight_t) * N) {
-                    throw std::runtime_error("buffers.partition is to small");
-                }
-            }
+            /* if (buffers.batchDescriptors->get_size() < minBufferDescriptorSize(N)) { */
+            /*     throw std::runtime_error("buffers.batchDescriptors is to small!"); */
+            /* } */
+            /* if (buffers.partitionPrefix->get_size() < sizeof(weight_t) + sizeof(weight_t) * N) { */
+            /*     throw std::runtime_error("buffers.partitionPrefix is to small"); */
+            /* } */
+            /* if (m_writePartition) { */
+            /*     if (buffers.partition.value()->get_size() < sizeof(weight_t) * N) { */
+            /*         throw std::runtime_error("buffers.partition is to small"); */
+            /*     } */
+            /* } */
         }
         m_pipeline->bind(cmd);
         vk::DescriptorBufferInfo elementDesc = buffers.elements->get_descriptor_info();

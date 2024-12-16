@@ -1,4 +1,5 @@
 /build
+/buildDir
 **/.cache
 *.sublime-workspace
 

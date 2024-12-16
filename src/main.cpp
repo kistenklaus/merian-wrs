@@ -1,4 +1,5 @@
 #include "merian/vk/context.hpp"
+#include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_core.hpp"
@@ -26,7 +27,7 @@ int main() {
 
     spdlog::set_level(spdlog::level::debug);
 
-    // Setup Vulkan context.
+    // Setup Vulkan context
     const auto core = std::make_shared<merian::ExtensionVkCore>(
         std::set<std::string>{"vk12/vulkanMemoryModel", "vk12/vulkanMemoryModelDeviceScope"});
     const auto debug_utils = std::make_shared<merian::ExtensionVkDebugUtils>(false);
@@ -46,9 +47,9 @@ int main() {
     /* wrs::eval::write_std_rmse_curves(); */
     /* wrs::eval::write_psa_rmse_curves(); */
     wrs::test::testTests();
-    wrs::test::decoupled_mean::test(context);
+    /* wrs::test::decoupled_mean::test(context); */
     /* wrs::test::decoupled_prefix_partition::test(context); */
-    /* wrs::test::scalar_split::test(context); */
+    wrs::test::scalar_split::test(context);
     /* wrs::test::scalar_pack::test(context); */
 }
 

@@ -37,4 +37,15 @@ inline void pipelineBarrierHostReadAfterTransferWrite(vk::CommandBuffer cmd,
         {});
 }
 
+inline void copyBuffer(vk::CommandBuffer cmd,
+    merian::BufferHandle dst, merian::BufferHandle src, vk::DeviceSize size) {
+  vk::BufferCopy copy{0,0,size};
+  cmd.copyBuffer(*src, *dst, 1, &copy);
+}
+
+inline void zeroBuffer(vk::CommandBuffer cmd, 
+    merian::BufferHandle dst, vk::DeviceSize size) {
+  cmd.fillBuffer(*dst, 0, size, 0);
+}
+
 } // namespace wrs::common_vulkan

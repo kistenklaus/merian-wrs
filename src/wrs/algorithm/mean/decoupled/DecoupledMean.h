@@ -2,14 +2,15 @@
 
 #include "merian/vk/context.hpp"
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
-#include "merian/vk/memory/memory_allocator.hpp"
 #include "merian/vk/memory/resource_allocations.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
-#include "src/wrs/common_vulkan.hpp"
-#include "src/wrs/why.hpp"
+#include "src/wrs/layout/ArrayLayout.hpp"
+#include "src/wrs/layout/BufferView.hpp"
+#include "src/wrs/layout/StructLayout.hpp"
+#include "src/wrs/types/glsl.hpp"
 #include <concepts>
 #include <fmt/base.h>
 #include <memory>
@@ -17,119 +18,84 @@
 #include <stdexcept>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
+
+#include "merian/vk/memory/resource_allocator.hpp"
 namespace wrs {
 
-class DecoupledMeanBuffers {
-  public:
+struct DecoupledMeanBuffers {
+    using element_type = wrs::glsl::float_t;
+    // ELEMENTS
     merian::BufferHandle elements;
+    static constexpr glsl::StorageQualifier elementStorageQualifier =
+        glsl::StorageQualifier::std430;
+    using ElementsLayout = layout::ArrayLayout<element_type, elementStorageQualifier>;
+    using ElementsView = layout::BufferView<ElementsLayout>;
     static constexpr vk::BufferUsageFlags ELEMENT_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
-    static constexpr vk::DeviceSize minElementBufferSize(std::size_t N,
-                                                         vk::DeviceSize sizeOfElement) {
-        return N * sizeOfElement;
-    }
-    template <typename T> void setHostVisibleElements(std::span<const T> elements) {
-        SPDLOG_DEBUG("mapping..");
-        T* mapped = this->elements->get_memory()->map_as<T>();
-        SPDLOG_DEBUG("memcpy..");
-        std::memcpy(mapped, elements.data(), sizeof(T) * elements.size());
-        SPDLOG_DEBUG("unmap..");
-        this->elements->get_memory()->unmap();
-    }
-    template <typename T, wrs::typed_allocator<T> Allocator = std::allocator<T>>
-    std::vector<T, Allocator> getHostVisibleElements(std::size_t N,
-                                                     const Allocator& alloc = {}) const {
-        std::vector<T, Allocator> elements{alloc};
-        T* mapped = this->elements->get_memory()->map_as<T>();
-        std::memcpy(elements.data(), mapped, sizeof(T) * N);
-        this->elements->get_memory()->unmap();
-        return elements;
-    }
-    static void copyElements(vk::CommandBuffer cmd,
-                             DecoupledMeanBuffers& dst,
-                             DecoupledMeanBuffers& src,
-                             std::size_t N,
-                             vk::DeviceSize sizeOfElement,
-                             bool disableHostWriteBarrier = false,
-                             bool disableShaderReadBarrier = false) {
-        if (!disableHostWriteBarrier) {
-            wrs::common_vulkan::pipelineBarrierTransferReadAfterHostWrite(cmd, src.elements);
-        }
-        vk::BufferCopy copy{0, 0, minElementBufferSize(N, sizeOfElement)};
-        cmd.copyBuffer(*src.elements, *dst.elements, 1, &copy);
-        if (!disableShaderReadBarrier) {
-            wrs::common_vulkan::pipelineBarrierComputeReadAfterTransferWrite(cmd, dst.elements);
-        }
-    }
 
+    // MEAN
     merian::BufferHandle mean;
     static constexpr vk::BufferUsageFlags MEAN_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
-    static constexpr vk::DeviceSize minMeanBufferSize(vk::DeviceSize sizeOfElement) {
-        return sizeOfElement;
-    }
-    template <typename T> void setHostVisibleMean(T mean) {
-        T* mapped = this->mean->get_memory()->map_as<T>();
-        assert(mapped);
-        *mapped = mean;
-        this->mean->get_memory()->unmap();
-    }
-    template <typename T> T getHostVisibleMean() const {
-        T* mapped = this->mean->get_memory()->map_as<T>();
-        assert(mapped);
-        T mean = *mapped;
-        this->mean->get_memory()->unmap();
-        return mean;
-    }
-    static void copyMean(vk::CommandBuffer cmd,
-                         DecoupledMeanBuffers& dst,
-                         DecoupledMeanBuffers& src,
-                         vk::DeviceSize sizeOfElement,
-                         bool disableHostWriteBarrier = false,
-                         bool disableShaderReadBarrier = false) {
-        if (!disableHostWriteBarrier) {
-            wrs::common_vulkan::pipelineBarrierTransferReadAfterHostWrite(cmd, src.mean);
-        }
-        vk::BufferCopy copy{0, 0, minMeanBufferSize(sizeOfElement)};
-        cmd.copyBuffer(*src.mean, *dst.mean, 1, &copy);
-        if (!disableShaderReadBarrier) {
-            wrs::common_vulkan::pipelineBarrierComputeReadAfterTransferWrite(cmd, dst.mean);
-        }
-    }
+    static constexpr glsl::StorageQualifier meanStorageQualifier = glsl::StorageQualifier::std430;
+    using MeanLayout = layout::PrimitiveLayout<element_type, meanStorageQualifier>;
+    using MeanView = layout::BufferView<MeanLayout>;
 
+    // Decoupled State
     merian::BufferHandle decoupledStates;
+    static constexpr glsl::StorageQualifier decoupledStatesStorageQualifier =
+        glsl::StorageQualifier::std430;
+    using DecoupledStateLayout =
+        wrs::layout::StructLayout<decoupledStatesStorageQualifier,
+                                  layout::Attribute<element_type, "aggregate">,
+                                  layout::Attribute<element_type, "prefix">,
+                                  layout::Attribute<wrs::glsl::uint, "state">>;
+    using DecoupledStateArrayLayout =
+        wrs::layout::ArrayLayout<DecoupledStateLayout, decoupledStatesStorageQualifier>;
+    using DecoupledStatesLayout =
+        wrs::layout::StructLayout<decoupledStatesStorageQualifier,
+                                  layout::Attribute<wrs::glsl::uint, "counter">,
+                                  layout::Attribute<DecoupledStateArrayLayout, "partitions">>;
+    using DecoupledStatesView = layout::BufferView<DecoupledStatesLayout>;
+
     static constexpr vk::BufferUsageFlags DECOUPLED_STATE_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
-    static constexpr vk::DeviceSize minDecoupledStateSize(uint32_t N, uint32_t partitionSize) {
-        const uint32_t workgroupCount = (N + partitionSize - 1) / partitionSize;
-        const vk::DeviceSize stateSize = sizeof(uint32_t) + sizeof(float) * 2;
-        return workgroupCount * stateSize + // partitionStates states
-               sizeof(uint32_t);            // atomic partition counter
+
+    static std::size_t partitionSize(std::size_t workgroupSize, std::size_t rows ) {
+      return workgroupSize * rows;
     }
-    static constexpr vk::DeviceSize
-    minDecoupledStateSize(uint32_t N, uint32_t workgroupSize, uint32_t rows) {
-        return minDecoupledStateSize(N, workgroupSize * rows);
-    }
-    void resetDecoupledStates(vk::CommandBuffer cmd,
-                              uint32_t N,
-                              uint32_t partitionSize,
-                              bool disableShaderReadBarrier = false) {
-        cmd.fillBuffer(*this->decoupledStates, 0, minDecoupledStateSize(N, partitionSize), 0);
-        if (!disableShaderReadBarrier) {
-            wrs::common_vulkan::pipelineBarrierComputeReadAfterTransferWrite(cmd,
-                                                                             this->decoupledStates);
+
+    static DecoupledMeanBuffers allocate(merian::ResourceAllocatorHandle alloc,
+                                         std::size_t elementCount,
+                                         std::size_t partitionSize,
+                                         merian::MemoryMappingType memoryMapping) {
+      std::size_t workgroupCount = (elementCount + partitionSize - 1) / partitionSize;
+        DecoupledMeanBuffers buffers;
+        if (memoryMapping == merian::MemoryMappingType::NONE) {
+            buffers.elements =
+                alloc->createBuffer(ElementsLayout::size(elementCount),
+                                    ELEMENT_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.mean = alloc->createBuffer(MeanLayout::size(),
+                MEAN_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+            buffers.decoupledStates = alloc->createBuffer(DecoupledStatesLayout::size(workgroupCount),
+                MEAN_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+        } else {
+            buffers.elements = alloc->createBuffer(ElementsLayout::size(elementCount),
+                                                   vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+            buffers.mean = alloc->createBuffer(MeanLayout::size(),
+                vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.decoupledStates = alloc->createBuffer(DecoupledStatesLayout::size(workgroupCount),
+                {}, memoryMapping);
         }
+        return buffers;
     }
-    void resetDecoupledStates(vk::CommandBuffer cmd,
-                              uint32_t N,
-                              uint32_t workgroupSize,
-                              uint32_t rows,
-                              bool disableShaderReadBarrier = false) {
-        cmd.fillBuffer(*this->decoupledStates, 0, minDecoupledStateSize(N, workgroupSize, rows), 0);
-        if (!disableShaderReadBarrier) {
-            wrs::common_vulkan::pipelineBarrierComputeReadAfterTransferWrite(cmd,
-                                                                             this->decoupledStates);
-        }
+
+    static DecoupledMeanBuffers allocate(merian::ResourceAllocatorHandle alloc,
+                                         std::size_t elementCount,
+                                         std::size_t workgroupSize,
+                                         std::size_t rows,
+                                         merian::MemoryMappingType memoryMapping) {
+      return allocate(alloc, elementCount, partitionSize(workgroupSize, rows), memoryMapping);
     }
 };
 
@@ -144,6 +110,7 @@ template <typename T = float> class DecoupledMean {
 #endif
   public:
     using elem_t = T;
+    using Buffers = DecoupledMeanBuffers;
     static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 512;
     static constexpr uint32_t DEFAULT_ROWS = 4;
 
@@ -195,6 +162,8 @@ template <typename T = float> class DecoupledMean {
     }
 
     void run(vk::CommandBuffer cmd, const DecoupledMeanBuffers& buffers, uint32_t N) {
+
+        uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
         if constexpr (CHECK_PARAMETERS) {
             // CHECK NULL POINTERS
             if (cmd == VK_NULL_HANDLE) {
@@ -216,10 +185,6 @@ template <typename T = float> class DecoupledMean {
             if (buffers.mean->get_size() < sizeof(elem_t)) {
                 throw std::runtime_error("buffers.mean is to small!");
             }
-            if (buffers.decoupledStates->get_size() <
-                DecoupledMeanBuffers::minDecoupledStateSize(N, m_partitionSize)) {
-                throw std::runtime_error("buffers.decoupledStates is to small!");
-            }
         }
         m_pipeline->bind(cmd);
         vk::DescriptorBufferInfo elementsDesc = buffers.elements->get_descriptor_info();
@@ -232,7 +197,6 @@ template <typename T = float> class DecoupledMean {
         m_pipeline->push_descriptor_set(cmd, m_writes);
         m_pipeline->push_constant(cmd, N);
 
-        uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
         cmd.dispatch(workgroupCount, 1, 1);
     }
 

@@ -37,51 +37,29 @@ vk::DeviceSize wrs::test::decoupled_prefix_partition::sizeOfWeight(WeightT ty) {
 
 template <typename weight_t>
 static void uploadTestCase(vk::CommandBuffer cmd,
-                           const std::span<weight_t> elements,
+                           std::span<const weight_t> elements,
+                           std::size_t partitionSize,
                            weight_t pivot,
                            Buffers& buffers,
                            Buffers& stage) {
     {
-        weight_t* elementsMapped = stage.elements->get_memory()->map_as<weight_t>();
-        std::memcpy(elementsMapped, elements.data(), elements.size() * sizeof(weight_t));
-        stage.elements->get_memory()->unmap();
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer,
-                            {}, {},
-                            stage.elements->buffer_barrier(vk::AccessFlagBits::eHostWrite,
-                                                           vk::AccessFlagBits::eTransferRead),
-                            {});
-        vk::BufferCopy copy{0, 0, elements.size() * sizeof(weight_t)};
-        cmd.copyBuffer(*stage.elements, *buffers.elements, 1, &copy);
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.elements->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                             vk::AccessFlagBits::eShaderRead),
-                            {});
+        Buffers::ElementsView stageView{stage.elements, elements.size()};
+        Buffers::ElementsView localView{buffers.elements, elements.size()};
+        stageView.template upload<weight_t>(elements);
+        stageView.copyTo(cmd, localView);
+        stageView.expectComputeRead(cmd);
     }
     {
-        weight_t* pivotMapped = stage.pivot->get_memory()->map_as<weight_t>();
-        std::memcpy(pivotMapped, &pivot, sizeof(weight_t));
-        stage.pivot->get_memory()->unmap();
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer,
-                            {}, {},
-                            stage.pivot->buffer_barrier(vk::AccessFlagBits::eHostWrite,
-                                                        vk::AccessFlagBits::eTransferRead),
-                            {});
-        vk::BufferCopy copy{0, 0, sizeof(weight_t)};
-        cmd.copyBuffer(*stage.pivot, *buffers.pivot, 1, &copy);
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.pivot->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                          vk::AccessFlagBits::eShaderRead),
-                            {});
+       Buffers::PivotView stageView{stage.pivot};
+       Buffers::PivotView localView{buffers.pivot};
+       stageView.template upload<weight_t>(pivot);
+       stageView.copyTo(cmd, localView);
+       localView.expectComputeRead(cmd);
     }
     {
-        cmd.fillBuffer(*buffers.batchDescriptors, 0, buffers.batchDescriptors->get_size(), 0);
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eComputeShader, {}, {},
-            buffers.batchDescriptors->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                     vk::AccessFlagBits::eShaderRead),
-            {});
+      Buffers::BatchDescriptorsView localView{buffers.batchDescriptors, Buffers::workgroupCount(elements.size(), partitionSize)};
+      localView.zero(cmd);
+      localView.expectComputeRead(cmd);
     }
 }
 
@@ -90,34 +68,22 @@ static void downloadResultsToStage(vk::CommandBuffer cmd,
                                    Buffers& buffers,
                                    Buffers& stage,
                                    bool writePartition,
-                                   uint32_t elementCount) {
+                                   std::size_t elementCount) {
     if (writePartition) {
-        vk::BufferCopy copy{0, 0, elementCount * sizeof(weight_t)};
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eTransfer, {}, {},
-            buffers.partition.value()->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                      vk::AccessFlagBits::eTransferRead),
-            {});
-        cmd.copyBuffer(*buffers.partition.value(), *stage.partition.value(), 1, &copy);
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eHost,
-                            {}, {},
-                            stage.partition.value()->buffer_barrier(
-                                vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eHostRead),
-                            {});
+        Buffers::PartitionView stageView{stage.partition.value(), elementCount};
+        Buffers::PartitionView localView{buffers.partition.value(), elementCount};
+
+        localView.expectComputeWrite();
+        localView.copyTo(cmd, stageView);
+        stageView.expectHostRead(cmd);
     }
     {
-        vk::BufferCopy copy{0, 0, elementCount * sizeof(weight_t) + sizeof(uint32_t)};
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eTransfer, {}, {},
-            buffers.partitionPrefix->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                    vk::AccessFlagBits::eTransferRead),
-            {});
-        cmd.copyBuffer(*buffers.partitionPrefix, *stage.partitionPrefix, 1, &copy);
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eHost,
-                            {}, {},
-                            stage.partitionPrefix->buffer_barrier(
-                                vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eHostRead),
-                            {});
+      Buffers::PartitionPrefixView stageView{stage.partitionPrefix, elementCount};
+      Buffers::PartitionPrefixView localView{buffers.partitionPrefix, elementCount};
+
+      localView.expectComputeWrite();
+      localView.copyTo(cmd, stageView);
+      stageView.expectHostRead(cmd);
     }
 }
 
@@ -126,35 +92,35 @@ static wrs::Partition<weight_t, std::pmr::vector<weight_t>>
 downloadPrefixFromStage(Buffers& stage,
                         uint32_t elementCount,
                         std::pmr::memory_resource* resource) {
-    std::byte* mapped = stage.partitionPrefix->get_memory()->map_as<std::byte>();
-    uint32_t heavyCount = *reinterpret_cast<uint32_t*>(mapped);
-    // NOTE: This assumes that no alignment is required, which might be incorrect for
-    // sizeof(weight_t) = 8 (e.g double)
-    weight_t* heavyLightMapped = reinterpret_cast<weight_t*>(mapped + sizeof(uint32_t));
-    std::pmr::vector<weight_t> storage{elementCount, resource};
-    std::memcpy(storage.data(), heavyLightMapped, elementCount * sizeof(weight_t));
-    stage.partitionPrefix->get_memory()->unmap();
+    
+    Buffers::PartitionPrefixView stageView{stage.partitionPrefix, elementCount};
+    wrs::glsl::uint heavyCount = stageView.attribute<"heavyCount">()
+      .template download<wrs::glsl::uint>();
+    std::pmr::vector<weight_t> storage = stageView.attribute<"heavyLightPrefix">()
+      .template download<weight_t, wrs::pmr_alloc<weight_t>>(resource);
+    
+    wrs::Partition<weight_t, std::pmr::vector<weight_t>> heavyLightPrefix {std::move(storage), heavyCount};
+    std::ranges::reverse(heavyLightPrefix.light());
 
-    std::span<weight_t> light{storage.begin() + heavyCount, storage.end()};
-    std::reverse(light.begin(), light.end());
-    return wrs::Partition<weight_t, std::pmr::vector<weight_t>>(std::move(storage), heavyCount);
+    return heavyLightPrefix;
 }
 
 template <typename weight_t>
 static wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>>
 downloadPartitionFromStage(Buffers& stage,
                            uint32_t elementCount,
-                           uint32_t heavyCount,
                            std::pmr::memory_resource* resource) {
-    uint32_t* partitionMapped = stage.partition.value()->get_memory()->map_as<uint32_t>();
-    std::pmr::vector<uint32_t> storage{elementCount, resource};
-    std::memcpy(storage.data(), partitionMapped, elementCount * sizeof(uint32_t));
-    stage.partition.value()->get_memory()->unmap();
-    std::span<uint32_t> light{storage.begin() + heavyCount, storage.end()};
-    std::reverse(light.begin(), light.end());
+    Buffers::PartitionView stageView{stage.partition.value(), elementCount};
 
-    return wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>>(std::move(storage),
-                                                                              heavyCount);
+    wrs::glsl::uint heavyCount = stageView.attribute<"heavyCount">().template download<wrs::glsl::uint>();
+
+    std::pmr::vector<wrs::glsl::uint> storage = stageView.attribute<"heavyLightIndices">()
+      .template download<wrs::glsl::uint, wrs::pmr_alloc<wrs::glsl::uint>>(resource);
+
+    wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>> heavyLightPartition{std::move(storage),
+                                                                              heavyCount};
+    std::ranges::reverse(heavyLightPartition.light());
+    return heavyLightPartition;
 }
 
 template <typename weight_t>
@@ -223,7 +189,8 @@ bool runTestCase(const wrs::test::TestContext& context,
         {
             SPDLOG_DEBUG("Uploading weights & pivot");
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Uploading weights");
-            uploadTestCase<weight_t>(cmd, elements, pivot, buffers, stage);
+            std::size_t partitionSize = Buffers::partitionSize(testCase.workgroupSize, testCase.rows);
+            uploadTestCase<weight_t>(cmd, elements, partitionSize, pivot, buffers, stage);
         }
 
         // 4. Run test case
@@ -273,7 +240,7 @@ bool runTestCase(const wrs::test::TestContext& context,
         if (testCase.writePartition) {
             MERIAN_PROFILE_SCOPE(context.profiler, "Downloading partition from staging buffers");
             heavyLightIndices = downloadPartitionFromStage<weight_t>(stage, testCase.elementCount,
-                                                                      heavyPrefix.size(), resource);
+                                                                      resource);
         } else {
             MERIAN_PROFILE_SCOPE(context.profiler, "Compute reference stable partition");
             heavyLightIndices =

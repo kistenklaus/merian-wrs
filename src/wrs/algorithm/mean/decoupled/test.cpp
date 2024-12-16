@@ -1,7 +1,9 @@
 #include "./test.hpp"
+
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/mean/decoupled/DecoupledMean.h"
 #include "src/wrs/algorithm/mean/decoupled/test/test_cases.hpp"
+#include "src/wrs/common_vulkan.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test/test_setup.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test/test_types.hpp"
 #include "src/wrs/gen/weight_generator.h"
@@ -33,21 +35,36 @@ void uploadTestCase(vk::CommandBuffer cmd,
                     uint32_t rows,
                     Buffers& buffers,
                     Buffers& stage) {
+
+    std::size_t partitionSize = workgroupSize * rows;
+    std::size_t workgroupCount = (elements.size() + partitionSize - 1) / partitionSize;
+
     SPDLOG_DEBUG("Staged upload");
-    stage.setHostVisibleElements<elem_t>(elements);
-    SPDLOG_DEBUG("copy to device local");
-    Buffers::copyElements(cmd, buffers, stage, elements.size(), sizeof(elem_t));
-    SPDLOG_DEBUG("clear decoupled state");
-    buffers.resetDecoupledStates(cmd, elements.size(), workgroupSize, rows);
+    {
+      Buffers::ElementsView stageView{stage.elements, elements.size()};
+      Buffers::ElementsView localView{buffers.elements, elements.size()};
+      stageView.template upload<elem_t>(elements);
+      stageView.copyTo(cmd, localView);
+      localView.expectComputeRead(cmd);
+    }
+    {
+      Buffers::DecoupledStatesView localView{buffers.decoupledStates, workgroupCount};
+      localView.zero(cmd);
+      localView.expectComputeRead(cmd);
+    }
 }
 
 template <typename elem_t>
 void downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage) {
-    Buffers::copyMean(cmd, buffers, stage, sizeof(elem_t));
+  Buffers::MeanView stageView {stage.mean};
+  Buffers::MeanView localView {buffers.mean};
+  localView.copyTo(cmd, stageView);
+  stageView.expectHostRead(cmd);
 }
 
 template <typename elem_t> elem_t downloadFromStage(Buffers& stage) {
-    return stage.getHostVisibleMean<elem_t>();
+  Buffers::MeanView stageView {stage.mean};
+  return stageView.template download<elem_t>();
 }
 
 template <typename elem_t>
@@ -161,9 +178,11 @@ bool runTestCase(const TestContext& context,
 }
 
 void wrs::test::decoupled_mean::test(const merian::ContextHandle& context) {
+    SPDLOG_INFO("Testing decoupled_mean algorithm");
 
     TestContext testContext = setupTestContext(context);
 
+    SPDLOG_DEBUG("Allocating buffers");
     auto [buffers, stage] = allocateBuffers(testContext);
 
     wrs::memory::StackResource stackResource{buffers.elements->get_size() * 10};
