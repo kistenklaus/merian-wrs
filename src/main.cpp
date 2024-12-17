@@ -1,6 +1,4 @@
 #include "merian/vk/context.hpp"
-#include "src/wrs/layout/BufferView.hpp"
-#include "src/wrs/layout/StructLayout.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_core.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
@@ -8,12 +6,16 @@
 #include "src/wrs/algorithm/mean/decoupled/test.hpp"
 #include "src/wrs/algorithm/pack/scalar/test.hpp"
 #include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
+#include "src/wrs/algorithm/psa/scalar/ScalarPsa.hpp"
 #include "src/wrs/algorithm/split/scalar/test.hpp"
 #include "src/wrs/eval/psa_ref_eval.hpp"
 #include "src/wrs/eval/std_eval.hpp"
-#include "src/wrs/algorithm/psa/scalar/ScalarPsa.hpp"
 #include "src/wrs/eval/sweeping_eval.hpp"
+#include "src/wrs/layout/BufferView.hpp"
+#include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/test/test.hpp"
+#include "wrs/algorithm/pack/simd/test.hpp"
+
 #include <fmt/base.h>
 #include <memory>
 #include <set>
@@ -50,8 +52,9 @@ int main() {
     /* wrs::test::decoupled_mean::test(context); */
     //wrs::test::decoupled_prefix_partition::test(context);
      //wrs::test::scalar_split::test(context);
-    //wrs::test::scalar_pack::test(context);
-    wrs::test::scalar_psa::test(context);
+    wrs::test::scalar_pack::test(context);
+    wrs::test::simd_pack::test(context);
+    //wrs::test::scalar_psa::test(context);
 }
 
 

@@ -1,0 +1,152 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#pragma use_vulkan_memory_model
+
+#define monoid float
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+struct Split {
+    uint i;
+    uint j;
+    monoid spill;
+};
+
+
+struct AliasTableEntry {
+    monoid p;
+    uint a;
+};
+
+layout(set = 0, binding = 0) readonly buffer in_partitions {
+    uint heavyCount;
+    uint heavyLightIndicies[];
+};
+
+layout(set = 0, binding = 1) readonly buffer in_weights {
+    monoid weights[];
+};
+
+layout(set = 0, binding = 2) readonly buffer in_mean {
+    monoid mean;
+};
+
+layout(set = 0, binding = 3) readonly buffer in_splits {
+    Split splits[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer out_aliastable {
+    AliasTableEntry table[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint size;
+    uint K;
+} pc;
+
+void main(void) {
+    uint k = gl_GlobalInvocationID.x;
+    uint K = pc.K;
+    if (k >= K) {
+        return;
+    }
+    float spill;
+    uint i0, j0;
+    if (k == 0) {
+        i0 = 0;
+        j0 = 0;
+        spill = 0;
+    } else {
+        i0 = splits[k - 1].i;
+        j0 = splits[k - 1].j;
+        spill = splits[k - 1].spill;
+    }
+    uint i1 = splits[k].i;
+    uint j1 = splits[k].j;
+    float averageWeight = mean;
+    const uint N = pc.size;
+    const uint heavyCount = heavyCount;
+    const uint lightCount = N - heavyCount;
+    const uint lastLightIndex = N - 1;
+
+    uint i = i0;
+    uint j = j0;
+
+    float w = spill;
+    if (w == 0.0f) {
+        uint h = heavyLightIndicies[j];
+        w = weights[h];
+    }
+
+    while (j != heavyCount) {
+        if (w > averageWeight) {
+            if (i >= i1) {
+                if (j != j1) {
+                    while (j < j1) {
+                        uint h = heavyLightIndicies[j];
+                        table[h].p = 1.0;
+                        table[h].a = h;
+                        w = (w + 0) - averageWeight;
+                        j += 1;
+                    }
+                }
+                break;
+            }
+            uint l = heavyLightIndicies[lastLightIndex - i];
+            uint h = heavyLightIndicies[j];
+
+            float prob = weights[l] / averageWeight;
+
+            table[l].p = prob;
+            table[l].a = h;
+
+            w = (w + weights[l]) - averageWeight;
+            i += 1;
+        } else {
+            uint h = heavyLightIndicies[j];
+            if (j >= j1) {
+                while (i < i1) {
+                    uint l = heavyLightIndicies[lastLightIndex - i];
+                    uint h = heavyLightIndicies[j];
+                    float prob = weights[l] / averageWeight;
+                    table[l].p = prob;
+                    table[l].a = h;
+
+                    w = (w + weights[l]) - averageWeight;
+                    i += 1;
+                }
+                break;
+            }
+            float prob = w / averageWeight;
+            if (j + 1 >= heavyCount) {
+                table[h].p = prob;
+                table[h].a = h;
+
+                w = (w + 0) - averageWeight;
+                while (i < i1) {
+                    uint l = heavyLightIndicies[lastLightIndex - i];
+                    uint h = heavyLightIndicies[j];
+                    float prob = weights[l] / averageWeight;
+                    table[l].p = prob;
+                    table[l].a = h;
+
+                    w = (w + weights[l]) - averageWeight;
+                    i += 1;
+                }
+                break;
+            } else {
+              uint hnext = heavyLightIndicies[j + 1];
+              table[h].p = prob;
+              table[h].a = hnext;
+              w = (w + weights[hnext]) - averageWeight;
+              j += 1;
+            }
+        }
+        barrier();
+    }
+}

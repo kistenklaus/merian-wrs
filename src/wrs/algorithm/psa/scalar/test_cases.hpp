@@ -13,10 +13,10 @@ namespace wrs::test::scalar_psa {
 
     constexpr TestCase TEST_CASES[] = {
         TestCase {
-            .weightCount = static_cast<std::size_t>(1e7),
+            .weightCount = static_cast<std::size_t>(1024 * 2048),
             .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .splitCount = static_cast<std::size_t>(1e7) / 32,
-            .iterations = 1,
+            .splitCount = static_cast<std::size_t>(1024 * 2048) / 32,
+            .iterations = 100,
         },
     };
 
