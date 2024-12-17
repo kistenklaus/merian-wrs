@@ -46,9 +46,9 @@ psa_alias_table(std::span<const T> weights_, const I K, const Allocator& alloc =
         wrs::reference::stable_partition<T, TAllocator>(weights, averageWeight, TAllocator(alloc));
 
     const std::vector<T,TAllocator> heavyPrefix =
-        wrs::reference::prefix_sum<T, TAllocator>(heavyLightPartition.heavy(), true, TAllocator(alloc));
+        wrs::reference::prefix_sum<T, TAllocator>(heavyLightPartition.heavy(), TAllocator(alloc));
     const std::vector<T,TAllocator> lightPrefix =
-        wrs::reference::prefix_sum<T, TAllocator>(heavyLightPartition.light(), true, TAllocator(alloc));
+        wrs::reference::prefix_sum<T, TAllocator>(heavyLightPartition.light(), TAllocator(alloc));
 
     /* fmt::println("weights = {}", weights); */
     const std::vector<wrs::Split<T,I>,SplitAllocator> splits = wrs::reference::splitK<T, I, SplitAllocator>(

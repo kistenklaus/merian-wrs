@@ -11,6 +11,7 @@
 #include "src/wrs/algorithm/split/scalar/test.hpp"
 #include "src/wrs/eval/psa_ref_eval.hpp"
 #include "src/wrs/eval/std_eval.hpp"
+#include "src/wrs/algorithm/psa/scalar/ScalarPsa.hpp"
 #include "src/wrs/eval/sweeping_eval.hpp"
 #include "src/wrs/test/test.hpp"
 #include <fmt/base.h>
@@ -19,17 +20,16 @@
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
+#include "wrs/algorithm/psa/scalar/test.hpp"
+
 
 int main() {
-    
-
-
-
     spdlog::set_level(spdlog::level::debug);
 
     // Setup Vulkan context
     const auto core = std::make_shared<merian::ExtensionVkCore>(
         std::set<std::string>{"vk12/vulkanMemoryModel", "vk12/vulkanMemoryModelDeviceScope"});
+
     const auto debug_utils = std::make_shared<merian::ExtensionVkDebugUtils>(false);
     const auto resources = std::make_shared<merian::ExtensionResources>();
     const auto push_descriptor = std::make_shared<merian::ExtensionVkPushDescriptor>();
@@ -48,9 +48,10 @@ int main() {
     /* wrs::eval::write_psa_rmse_curves(); */
     wrs::test::testTests();
     /* wrs::test::decoupled_mean::test(context); */
-    /* wrs::test::decoupled_prefix_partition::test(context); */
-    wrs::test::scalar_split::test(context);
-    /* wrs::test::scalar_pack::test(context); */
+    //wrs::test::decoupled_prefix_partition::test(context);
+     //wrs::test::scalar_split::test(context);
+    //wrs::test::scalar_pack::test(context);
+    wrs::test::scalar_psa::test(context);
 }
 
 

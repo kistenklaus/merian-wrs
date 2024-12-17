@@ -1,8 +1,9 @@
-//
-// Created by kistenklaus on 16.12.24.
-//
+#pragma once
 
-#ifndef TEST_HPP
-#define TEST_HPP
+#include "merian/vk/context.hpp"
 
-#endif //TEST_HPP
+namespace wrs::test::scalar_psa {
+
+void test(const merian::ContextHandle& context);
+
+}

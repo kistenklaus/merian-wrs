@@ -214,13 +214,12 @@ template <typename T = float> class DecoupledPrefixPartition {
     static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 512;
     static constexpr uint32_t DEFAULT_ROWS = 4;
 
-    DecoupledPrefixPartition(const merian::ContextHandle& context,
-                             uint32_t workgroupSize = DEFAULT_WORKGROUP_SIZE,
-                             uint32_t rows = DEFAULT_ROWS,
-                             bool writePartition = false,
-                             bool stable = false)
-        : m_partitionSize(workgroupSize * rows), m_writePartition(writePartition), m_stable(stable),
-          m_writes() {
+    explicit DecoupledPrefixPartition(const merian::ContextHandle& context,
+                                      uint32_t workgroupSize = DEFAULT_WORKGROUP_SIZE,
+                                      uint32_t rows = DEFAULT_ROWS,
+                                      bool writePartition = false,
+                                      bool stable = false)
+        : m_partitionSize(workgroupSize * rows), m_writePartition(writePartition), m_stable(stable) {
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
                 .add_binding_storage_buffer()

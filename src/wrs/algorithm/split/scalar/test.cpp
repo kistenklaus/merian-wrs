@@ -170,14 +170,14 @@ static void runTestCase(const wrs::test::TestContext& context,
             SPDLOG_DEBUG("Compute partition prefix sums");
             MERIAN_PROFILE_SCOPE(context.profiler, "Compute partition prefix sums");
             heavyPrefixSum =
-                wrs::reference::pmr::prefix_sum<weight_t>(heavyPartition, false, resource);
+                wrs::reference::pmr::prefix_sum<weight_t>(heavyPartition, resource);
             lightPrefixSum =
-                wrs::reference::pmr::prefix_sum<weight_t>(lightPartition, false, resource);
+                wrs::reference::pmr::prefix_sum<weight_t>(lightPartition, resource);
             reverseLightPrefixSum = lightPrefixSum;
             std::reverse(reverseLightPrefixSum.begin(),
                          reverseLightPrefixSum.end()); // required by the layout!
         }
-        uint32_t N = static_cast<uint32_t>(heavyPrefixSum.size() + reverseLightPrefixSum.size());
+        auto N = static_cast<uint32_t>(heavyPrefixSum.size() + reverseLightPrefixSum.size());
         uint32_t K = testCase.splitCount;
         context.profiler->end();
 
@@ -250,6 +250,7 @@ static void runTestCase(const wrs::test::TestContext& context,
                 SPDLOG_ERROR(fmt::format("Invalid split!\n{}", err.message()));
             }
         }
+        context.profiler->collect(true,true);
     }
 }
 
@@ -275,7 +276,7 @@ void wrs::test::scalar_split::test(const merian::ContextHandle& context) {
         }
     }
 
-    testContext.profiler->collect();
+    testContext.profiler->collect(true,true);
     SPDLOG_INFO(fmt::format("Profiler results: \n{}",
                             merian::Profiler::get_report_str(testContext.profiler->get_report())));
 }

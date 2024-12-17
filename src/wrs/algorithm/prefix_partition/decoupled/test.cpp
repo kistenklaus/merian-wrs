@@ -22,6 +22,8 @@
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <tuple>
+#include <src/wrs/reference/reduce.hpp>
+#include <src/wrs/reference/split.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 
@@ -172,7 +174,8 @@ bool runTestCase(const wrs::test::TestContext& context,
             elements = std::move(wrs::pmr::generate_weights<weight_t>(
                 testCase.distribution, testCase.elementCount, resource));
         }
-        weight_t pivot = testCase.getPivot<weight_t>();
+        //weight_t pivot = testCase.getPivot<weight_t>();
+        auto pivot = wrs::reference::kahan_reduction<weight_t>(elements) / elements.size();
 
         // 2. Begin recording
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
@@ -287,7 +290,13 @@ bool runTestCase(const wrs::test::TestContext& context,
                 failed = true;
             }
         }
+
         context.profiler->collect(true, true);
+
+        {
+            SPDLOG_DEBUG("Running experiment");
+            wrs::reference::pmr::splitK<weight_t, wrs::glsl::uint>(heavyPrefix, lightPrefix, pivot, elements.size(), elements.size() / 32, resource);
+        }
     }
     return failed;
 }
@@ -316,7 +325,7 @@ void wrs::test::decoupled_prefix_partition::test(const merian::ContextHandle& co
         }
         stackResource.reset();
     }
-    c.profiler->collect();
+    c.profiler->collect(true,true);
     SPDLOG_INFO(fmt::format("Profiler results: \n{}",
                             merian::Profiler::get_report_str(c.profiler->get_report())));
 

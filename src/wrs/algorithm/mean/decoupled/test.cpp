@@ -173,6 +173,8 @@ bool runTestCase(const TestContext& context,
                                      referenceMean, mean));
             failed = true;
         }
+
+        context.profiler->collect(true, true);
     }
     return failed;
 }
@@ -200,7 +202,7 @@ void wrs::test::decoupled_mean::test(const merian::ContextHandle& context) {
         stackResource.reset();
     }
 
-    testContext.profiler->collect();
+    testContext.profiler->collect(true,true);
     SPDLOG_INFO(fmt::format("Profiler results: \n{}",
                             merian::Profiler::get_report_str(testContext.profiler->get_report())));
 }

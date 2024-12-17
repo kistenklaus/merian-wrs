@@ -8,7 +8,7 @@
 #include <cstdlib>
 #include <fmt/base.h>
 #include <spdlog/spdlog.h>
-#include <tuple>
+
 namespace wrs::reference {
 
 template <wrs::arithmetic T, std::floating_point P, std::integral I>

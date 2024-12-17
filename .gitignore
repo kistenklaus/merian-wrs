@@ -8,6 +8,8 @@
 
 vgcore.*
 *.test
+**.spv
 imgui.ini
+.idea
 
 *.csv

@@ -26,7 +26,7 @@
 namespace wrs {
 
 struct ScalarSplitBuffers {
-    static constexpr auto storageQualifier = glsl::StorageQualifier::std140;
+    static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
     using weight_type = glsl::float_t;
 
     /**
@@ -49,8 +49,8 @@ struct ScalarSplitBuffers {
     }
     using PartitionPrefixLayout =
         layout::StructLayout<storageQualifier,
-                             layout::Attribute<wrs::glsl::uint, "heavyCount">,
-                             layout::Attribute<weight_type*, "heavyLightIndices">>;
+                             layout::Attribute<wrs::glsl::uint, layout::StaticString("heavyCount")>,
+                             layout::Attribute<weight_type*, layout::StaticString("heavyLightIndices")>>;
     using PartitionPrefixView = layout::BufferView<PartitionPrefixLayout>;
 
     /**
@@ -160,44 +160,7 @@ template <typename T = float> class ScalarSplit {
         splits.setDescriptorType(vk::DescriptorType::eStorageBuffer);
     }
 
-    void run(vk::CommandBuffer cmd, const ScalarSplitBuffers& buffers, uint32_t N, uint32_t K) {
-
-        if constexpr (CHECK_PARAMETERS) {
-            // Null checks
-            if (cmd == VK_NULL_HANDLE) {
-                throw std::runtime_error("cmd (-buffer) is VK_NULL_HANDLE");
-            }
-            if (buffers.partitionPrefix == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.partitionPrefix is VK_NULL_HANDLE");
-            }
-            if (buffers.mean == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.mean is VK_NULL_HANDLE");
-            }
-            if (buffers.splits == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.splits is VK_NULL_HANDLE");
-            }
-            // Size checks
-            if (buffers.partitionPrefix->get_size() <
-                ScalarSplitBuffers::minPartitionPrefixBufferSize(N, sizeof(weight_t))) {
-                throw std::runtime_error(fmt::format(
-                    "buffers.partitionPrefix is to small!\n"
-                    "Requires : {}, Got {}",
-                    ScalarSplitBuffers::minPartitionPrefixBufferSize(N, sizeof(weight_t)),
-                    buffers.partitionPrefix->get_size()));
-            }
-            if (buffers.mean->get_size() <
-                ScalarSplitBuffers::minMeanBufferSize(sizeof(weight_t))) {
-                throw std::runtime_error("buffers.mean is to small!");
-            }
-            if (buffers.splits->get_size() <
-                ScalarSplitBuffers::minSplitBufferSize(K, sizeof(weight_t))) {
-                throw std::runtime_error("buffers.splits is to small!");
-            }
-            if (N < K) {
-                throw std::runtime_error("WTF are you doing");
-            }
-        }
-
+    void run(const vk::CommandBuffer cmd, const ScalarSplitBuffers& buffers, uint32_t N, uint32_t K) {
         m_pipeline->bind(cmd);
 
         vk::DescriptorBufferInfo prefixDesc = buffers.partitionPrefix->get_descriptor_info();
@@ -210,6 +173,7 @@ template <typename T = float> class ScalarSplit {
 
         // NOTE: tuples are stored in reverse order by entries (makes it a bit weird when mapping)
         m_pipeline->push_constant<std::tuple<uint32_t, uint32_t>>(cmd, std::make_tuple(N, K));
+        fmt::print("RUNNING-SPLIT with {}", K - 1);
         cmd.dispatch(K - 1, 1, 1);
     }
 

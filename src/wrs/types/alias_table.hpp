@@ -20,6 +20,24 @@ template <std::floating_point P = float, std::integral I = wrs::glsl::uint> stru
     bool operator==(const AliasTableEntry& o) const {
         return o == o.a && std::abs(p - o.p) < 1e-8;
     }
+
+    static constexpr glsl::StorageQualifier storage_qualifier = glsl::StorageQualifier::std430
+      | glsl::StorageQualifier::std140;
+
+    static constexpr std::size_t size(glsl::StorageQualifier storage) {
+      switch (storage) {
+        case glsl::StorageQualifier::std140:
+        case glsl::StorageQualifier::std430:
+          return sizeof(AliasTableEntry);
+      }
+    }
+    static constexpr std::size_t alignment(glsl::StorageQualifier storage) {
+      switch (storage) {
+        case glsl::StorageQualifier::std140:
+        case glsl::StorageQualifier::std430:
+          return alignof(AliasTableEntry);
+      }
+    }
 };
 static_assert(std::regular<AliasTableEntry<float, wrs::glsl::uint>>);
 static_assert(std::is_trivial_v<AliasTableEntry<>>);

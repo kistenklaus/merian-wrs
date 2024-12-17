@@ -8,7 +8,7 @@
 
 // For some reason precise is required to avoid numerical instabilities
 // against the reference for testing.
-#define monoid precise float
+#define monoid float
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
@@ -18,16 +18,16 @@ struct Split {
     monoid spill;
 };
 
-layout(set = 0, binding = 0, std140) readonly buffer in_partitionPrefixSums {
+layout(set = 0, binding = 0, std430) readonly buffer in_partitionPrefixSums {
     uint heavyCount;
     monoid heavyLight[];
 } partitionPrefix;
 
-layout(set = 0, binding = 1, std140) readonly buffer in_weightAverage {
+layout(set = 0, binding = 1, std430) readonly buffer in_weightAverage {
     monoid mean;
 } meta;
 
-layout(set = 0, binding = 2, std140) writeonly buffer out_splits {
+layout(set = 0, binding = 2, std430) writeonly buffer out_splits {
     Split splits[];
 };
 
@@ -89,8 +89,8 @@ void main(void) {
     uint b = min(n, heavyCount);
     const monoid target = mean * n;
 
-    uint j, i;
-    monoid sigma2;
+    uint j = 0, i = 0;
+    monoid sigma2 = 0;
 
     while (true) {
         j = (a + b) / 2;
@@ -102,10 +102,10 @@ void main(void) {
             break;
         }
 
-        monoid heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
-        monoid light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
-
+        const monoid heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
+        const monoid light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
         const monoid sigma = light + heavy;
+
         if (sigma <= target) {
             monoid heavy2 = partitionPrefix.heavyLight[j];
             sigma2 = light + heavy2;

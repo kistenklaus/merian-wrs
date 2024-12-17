@@ -102,7 +102,7 @@ class BufferView {
     }
 
 
-    template<typename T, wrs::typed_allocator<T> Allocator = std::allocator<T>>
+    template<typename T, typed_allocator<T> Allocator = std::allocator<T>>
     std::vector<T, Allocator> 
     download(const Allocator& alloc = {}) requires (
         traits::IsPrimitiveArrayLayout<Layout> &&
@@ -116,8 +116,8 @@ class BufferView {
       return out;
     }
 
-    template<wrs::layout::traits::IsStorageCompatibleStruct<typename Layout::base_type> S,
-        wrs::typed_allocator<S> Allocator = std::allocator<S>>
+    template<IsStorageCompatibleStruct<typename Layout::base_type> S,
+        typed_allocator<S> Allocator = std::allocator<S>>
     std::vector<S, Allocator> download(const Allocator& alloc = {}) requires (traits::IsComplexArrayLayout<Layout>) {
       assert(!m_barrierState->postTransferWrite);
       assert(!m_barrierState->postShaderWrite);
@@ -169,7 +169,7 @@ class BufferView {
       m_barrierState->postHostWrite = true;
     }
 
-    void zero(vk::CommandBuffer cmd) {
+    void zero(const vk::CommandBuffer cmd) {
       if (m_barrierState->postShaderWrite) {
         cmd.pipelineBarrier(
             vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eTransfer, {}, {},
@@ -178,11 +178,11 @@ class BufferView {
         m_barrierState->postShaderWrite = false;
       }
       if (m_barrierState->postHostWrite) {
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer, {}, {},
-            m_buffer->buffer_barrier(vk::AccessFlagBits::eHostWrite, vk::AccessFlagBits::eTransferRead),
-            {});
-        m_barrierState->postHostWrite = false;
+          cmd.pipelineBarrier(
+              vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer, {}, {},
+              m_buffer->buffer_barrier(vk::AccessFlagBits::eHostWrite, vk::AccessFlagBits::eTransferRead),
+              {});
+          m_barrierState->postHostWrite = false;
       }
       cmd.fillBuffer(*m_buffer, 0, size(), 0);
       m_barrierState->postTransferWrite = true;

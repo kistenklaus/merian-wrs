@@ -37,25 +37,35 @@ static void uploadPartitionIndicies(vk::CommandBuffer cmd,
                                     std::span<const wrs::glsl::uint> heavyIndicies,
                                     std::span<const wrs::glsl::uint> reverseLightIndicies,
                                     Buffers& buffers,
-                                    Buffers& stage) {
-    wrs::glsl::uint* indices = stage.heavyLightIndicies->get_memory()->map_as<wrs::glsl::uint>();
-    std::memcpy(indices, heavyIndicies.data(), sizeof(wrs::glsl::uint) * heavyIndicies.size());
-    std::memcpy(indices + heavyIndicies.size(), reverseLightIndicies.data(),
-                sizeof(wrs::glsl::uint) * reverseLightIndicies.size());
-    stage.heavyLightIndicies->get_memory()->unmap();
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer, {},
-                        {},
-                        stage.heavyLightIndicies->buffer_barrier(vk::AccessFlagBits::eHostWrite,
-                                                                 vk::AccessFlagBits::eTransferRead),
-                        {});
-    const std::size_t N = heavyIndicies.size() + reverseLightIndicies.size();
-    vk::BufferCopy copy{0, 0, N * sizeof(wrs::glsl::uint)};
-    cmd.copyBuffer(*stage.heavyLightIndicies, *buffers.heavyLightIndicies, 1, &copy);
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                        vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                        buffers.heavyLightIndicies->buffer_barrier(
-                            vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eShaderRead),
-                        {});
+                                    Buffers& stage,
+                                    std::pmr::memory_resource* resource) {
+    std::size_t N = heavyIndicies.size() + reverseLightIndicies.size();
+    wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>> partition{
+        std::pmr::vector<wrs::glsl::uint>{N, resource},
+        static_cast<std::ptrdiff_t>(heavyIndicies.size())};
+    std::memcpy(partition.heavy().data(), heavyIndicies.data(), heavyIndicies.size_bytes());
+    std::memcpy(partition.light().data(), reverseLightIndicies.data(),
+                reverseLightIndicies.size_bytes());
+
+    Buffers::PartitionIndicesView stageView{stage.partitionIndices, N};
+    Buffers::PartitionIndicesView localView{buffers.partitionIndices, N};
+    stageView.attribute<"heavyCount">().template upload<wrs::glsl::uint>(heavyIndicies.size());
+    stageView.attribute<"heavyLightIndices">().template upload<wrs::glsl::uint>(
+        partition.storage());
+    stageView.copyTo(cmd, localView);
+    localView.expectComputeRead(cmd);
+}
+
+template <wrs::arithmetic weight_t>
+static void uploadWeights(vk::CommandBuffer cmd,
+                          std::span<const weight_t> weights,
+                          Buffers& buffers,
+                          Buffers& stage) {
+    Buffers::WeightsView stageView{stage.weights, weights.size()};
+    Buffers::WeightsView localView{buffers.weights, weights.size()};
+    stageView.template upload<weight_t>(weights);
+    stageView.copyTo(cmd, localView);
+    localView.expectComputeRead(cmd);
 }
 
 template <wrs::arithmetic weight_t>
@@ -63,53 +73,40 @@ static void uploadSplits(vk::CommandBuffer cmd,
                          std::span<const wrs::Split<weight_t, wrs::glsl::uint>> splits,
                          Buffers& buffers,
                          Buffers& stage) {
-    wrs::Split<weight_t, wrs::glsl::uint>* mapped =
-        stage.splits->get_memory()->map_as<wrs::Split<weight_t, wrs::glsl::uint>>();
-    std::memcpy(mapped, splits.data(),
-                sizeof(wrs::Split<weight_t, wrs::glsl::uint>) * splits.size());
-    stage.splits->get_memory()->unmap();
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer, {},
-                        {},
-                        stage.splits->buffer_barrier(vk::AccessFlagBits::eHostWrite,
-                                                     vk::AccessFlagBits::eTransferRead),
-                        {});
-    vk::BufferCopy copy{0, 0, sizeof(wrs::Split<weight_t, wrs::glsl::uint>) * splits.size()};
-    cmd.copyBuffer(*stage.splits, *buffers.splits, 1, &copy);
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                        vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                        buffers.splits->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                       vk::AccessFlagBits::eShaderRead),
-                        {});
+    Buffers::SplitsView stageView{stage.splits, splits.size()};
+    Buffers::SplitsView localView{buffers.splits, splits.size()};
+    stageView.upload<wrs::Split<weight_t, wrs::glsl::uint>>(splits);
+    stageView.copyTo(cmd, localView);
+    localView.expectComputeRead(cmd);
+}
+
+template <wrs::arithmetic weight_t>
+static void
+uploadMean(vk::CommandBuffer cmd, weight_t averageWeight, Buffers& buffers, Buffers& stage) {
+    Buffers::MeanView stageView{stage.mean};
+    Buffers::MeanView localView{buffers.mean};
+    stageView.template upload(averageWeight);
+    stageView.copyTo(cmd, localView);
+    localView.expectComputeRead(cmd);
 }
 
 template <wrs::arithmetic weight_t>
 static void
 downloadAliasTableToStage(vk::CommandBuffer cmd, std::size_t N, Buffers& buffers, Buffers& stage) {
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                        vk::PipelineStageFlagBits::eTransfer, {}, {},
-                        buffers.aliasTable->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                           vk::AccessFlagBits::eTransferRead),
-                        {});
-
-    vk::BufferCopy copy{0, 0, sizeof(wrs::AliasTableEntry<weight_t, wrs::glsl::uint>) * N};
-    cmd.copyBuffer(*buffers.aliasTable, *stage.aliasTable, 1, &copy);
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eHost, {},
-                        {},
-                        stage.aliasTable->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
-                                                         vk::AccessFlagBits::eHostRead),
-                        {});
+    Buffers::AliasTableView stageView{stage.aliasTable, N};
+    Buffers::AliasTableView localView{buffers.aliasTable, N};
+    localView.expectComputeWrite();
+    localView.copyTo(cmd, stageView);
+    stageView.expectHostRead(cmd);
 }
 
 template <wrs::arithmetic weight_t>
 static wrs::pmr::AliasTable<weight_t, wrs::glsl::uint>
 downloadAliasTableFromStage(std::size_t N, Buffers& stage, std::pmr::memory_resource* resource) {
-    const wrs::AliasTableEntry<weight_t, wrs::glsl::uint>* mapped =
-        stage.aliasTable->get_memory()->map_as<wrs::AliasTableEntry<weight_t, wrs::glsl::uint>>();
-    wrs::pmr::AliasTable<weight_t, wrs::glsl::uint> aliasTable{N, resource};
-    std::memcpy(aliasTable.data(), mapped,
-                sizeof(wrs::AliasTableEntry<weight_t, wrs::glsl::uint>) * N);
-    stage.aliasTable->get_memory()->unmap();
-    return aliasTable;
+    Buffers::AliasTableView stageView{stage.aliasTable, N};
+    using Entry = wrs::AliasTableEntry<weight_t, wrs::glsl::uint>;
+
+    return stageView.template download<Entry, wrs::pmr_alloc<Entry>>(resource);
 }
 
 template <wrs::arithmetic weight_t>
@@ -128,6 +125,7 @@ static bool runTestCase(const TestContext& context,
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
+        MERIAN_PROFILE_SCOPE(context.profiler, testName);
         context.queue->wait_idle();
         if (testCase.iterations > 1) {
             if (testCase.weightCount > 1e6) {
@@ -144,10 +142,13 @@ static bool runTestCase(const TestContext& context,
         // 1. Generate weights
         std::pmr::vector<weight_t> weights{resource};
         {
+            MERIAN_PROFILE_SCOPE(context.profiler, "Generate weights");
+            SPDLOG_DEBUG("Generating weights...");
             weights = wrs::pmr::generate_weights<weight_t>(testCase.distribution, N, resource);
         }
 
         // 1.1 Compute reference input
+        SPDLOG_DEBUG("Computing input from references...");
         weight_t totalWeight;
         weight_t averageWeight;
         wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>> heavyLightIndicies;
@@ -155,57 +156,104 @@ static bool runTestCase(const TestContext& context,
         std::pmr::vector<weight_t> lightPrefix{resource};
         std::pmr::vector<wrs::Split<weight_t, wrs::glsl::uint>> splits{resource};
         {
+            MERIAN_PROFILE_SCOPE(context.profiler, "Compute reduction, partition,prefix,splits");
+            SPDLOG_DEBUG("Running kahan reduction to compute totalWeight...");
             totalWeight = wrs::reference::kahan_reduction<weight_t>(weights);
             averageWeight = totalWeight / static_cast<weight_t>(N);
+            SPDLOG_DEBUG("Running stable_partition_indicies to compute partition indices...");
             heavyLightIndicies = wrs::reference::pmr::stable_partition_indicies<weight_t, uint32_t>(
                 weights, averageWeight, resource);
 
+            SPDLOG_DEBUG("Running prefix_sum to compute heavyPrefix...");
             const auto& deref = [&](const uint32_t i) -> weight_t { return weights[i]; };
             heavyPrefix = wrs::reference::pmr::prefix_sum<weight_t>(
                 heavyLightIndicies.heavy() | std::views::transform(deref), resource);
+            SPDLOG_DEBUG("Running prefix_sum to compute lightPrefix...");
             lightPrefix = wrs::reference::pmr::prefix_sum<weight_t>(
                 heavyLightIndicies.light() | std::views::transform(deref), resource);
-
+            SPDLOG_DEBUG("Running splitK to compute splits...");
             splits = wrs::reference::pmr::splitK<weight_t, wrs::glsl::uint>(
                 heavyPrefix, lightPrefix, averageWeight, N, K, resource);
         }
         const auto heavyIndices = heavyLightIndicies.heavy();
         std::pmr::vector<wrs::glsl::uint> reverseLightIndices{
             heavyLightIndicies.light().begin(), heavyLightIndicies.light().end(), resource};
+        std::ranges::reverse(reverseLightIndices);
 
         // 2. Begin recoding
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
+        context.profiler->start(recordingLabel);
+        context.profiler->cmd_start(cmd, recordingLabel);
 
         // 3.0 Upload partition indices
         {
-            uploadPartitionIndicies(cmd, heavyIndices, reverseLightIndices, buffers, stage);
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload partition indices");
+            SPDLOG_DEBUG("Uploading partition indices...");
+            uploadPartitionIndicies(cmd, heavyIndices, reverseLightIndices, buffers, stage,
+                                    resource);
         }
         // 3.1 Upload splits
         {
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload splits");
+            SPDLOG_DEBUG("Uploading splits...");
             uploadSplits<weight_t>(cmd, splits, buffers, stage);
         }
+        { // 3.2 Upload mean
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload mean");
+            SPDLOG_DEBUG("Uploading mean...");
+            uploadMean<weight_t>(cmd, averageWeight, buffers, stage);
+        }
+        { // 3.3
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload weights");
+            SPDLOG_DEBUG("Uploading weights...");
+            uploadWeights<weight_t>(cmd, weights, buffers, stage);
+        }
+
         // 4. Run test case
         {
-            kernel.run(cmd, buffers);
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
+            SPDLOG_DEBUG("Execute algorithm");
+            kernel.run(cmd, testCase.weightCount, testCase.splitCount, buffers);
         }
 
         // 5. Download results to stage
         {
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
+            SPDLOG_DEBUG("Downloading results to stage...");
             downloadAliasTableToStage<weight_t>(cmd, N, buffers, stage);
         }
         // 6. Submit to device
         {
+            context.profiler->end();
+            context.profiler->cmd_end(cmd);
+            SPDLOG_DEBUG("Submitting to device...");
             cmd.end();
             context.queue->submit_wait(cmd);
         }
         // 7. Download from stage
         wrs::pmr::AliasTable<weight_t, wrs::glsl::uint> aliasTable{resource};
         {
+            SPDLOG_DEBUG("Downloading results from stage...");
             aliasTable = downloadAliasTableFromStage<weight_t>(N, stage, resource);
         }
+        /* fmt::println("SPLITS"); */
+        /* { */
+        /*   for (size_t i = 0; i < splits.size(); ++i) { */
+        /*     fmt::println("({},{},{})", splits[i].i, splits[i].j, splits[i].spill); */
+        /*   } */
+        /* } */
+        /* fmt::println("TABLE"); */
+        /* { */
+        /*   // Print table */
+        /*   for (size_t i = 0; i < aliasTable.size(); ++i) { */
+        /*     fmt::println("{} = ({},{})", i, aliasTable[i].p, aliasTable[i].a); */
+        /*   } */
+        /* } */
         // 8. Test pack invariants
         {
+
+            SPDLOG_DEBUG("Testing results");
             const auto err =
                 wrs::test::pmr::assert_is_alias_table<weight_t, weight_t, wrs::glsl::uint>(
                     weights, aliasTable, totalWeight, 0.01, resource);
@@ -213,6 +261,8 @@ static bool runTestCase(const TestContext& context,
                 SPDLOG_ERROR(err.message());
             }
         }
+
+        //context.profiler->collect(true, true);
     }
     return failed;
 }
@@ -242,6 +292,11 @@ void wrs::test::scalar_pack::test(const merian::ContextHandle& context) {
         }
         stackResource.reset();
     }
+
+    testContext.profiler->collect(true, true);
+    SPDLOG_INFO(fmt::format("Profiler results: \n{}",
+                            merian::Profiler::get_report_str(testContext.profiler->get_report())));
+
     if (failCount == 0) {
         SPDLOG_INFO("Scalar pack algorithm passed all tests");
     } else {

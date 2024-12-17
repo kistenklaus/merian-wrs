@@ -45,17 +45,17 @@ struct DecoupledMeanBuffers {
     merian::BufferHandle decoupledStates;
     static constexpr glsl::StorageQualifier decoupledStatesStorageQualifier =
         glsl::StorageQualifier::std430;
-    using DecoupledStateLayout =
+    using _DecoupledStateLayout =
         wrs::layout::StructLayout<decoupledStatesStorageQualifier,
                                   layout::Attribute<element_type, "aggregate">,
                                   layout::Attribute<element_type, "prefix">,
                                   layout::Attribute<wrs::glsl::uint, "state">>;
-    using DecoupledStateArrayLayout =
-        wrs::layout::ArrayLayout<DecoupledStateLayout, decoupledStatesStorageQualifier>;
+    using _DecoupledStateArrayLayout =
+        wrs::layout::ArrayLayout<_DecoupledStateLayout, decoupledStatesStorageQualifier>;
     using DecoupledStatesLayout =
         wrs::layout::StructLayout<decoupledStatesStorageQualifier,
                                   layout::Attribute<wrs::glsl::uint, "counter">,
-                                  layout::Attribute<DecoupledStateArrayLayout, "partitions">>;
+                                  layout::Attribute<_DecoupledStateArrayLayout, "partitions">>;
     using DecoupledStatesView = layout::BufferView<DecoupledStatesLayout>;
 
     static constexpr vk::BufferUsageFlags DECOUPLED_STATE_USAGE_FLAGS =

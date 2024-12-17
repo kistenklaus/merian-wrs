@@ -1,8 +1,23 @@
-//
-// Created by kistenklaus on 16.12.24.
-//
+#pragma once
+#include <src/wrs/gen/weight_generator.h>
 
-#ifndef TEST_CASES_HPP
-#define TEST_CASES_HPP
 
-#endif //TEST_CASES_HPP
+namespace wrs::test::scalar_psa {
+
+    struct TestCase {
+        std::size_t weightCount;
+        Distribution distribution;
+        std::size_t splitCount;
+        std::size_t iterations;
+    };
+
+    constexpr TestCase TEST_CASES[] = {
+        TestCase {
+            .weightCount = static_cast<std::size_t>(1e7),
+            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+            .splitCount = static_cast<std::size_t>(1e7) / 32,
+            .iterations = 1,
+        },
+    };
+
+}

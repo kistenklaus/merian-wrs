@@ -37,6 +37,14 @@ inline void pipelineBarrierHostReadAfterTransferWrite(vk::CommandBuffer cmd,
         {});
 }
 
+inline void pipelineBarrierComputeReadAfterComputeWrite(vk::CommandBuffer cmd,
+                                                      merian::BufferHandle buffer) {
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eComputeShader, {}, {},
+        buffer->buffer_barrier(vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
+        {});
+}
+
 inline void copyBuffer(vk::CommandBuffer cmd,
     merian::BufferHandle dst, merian::BufferHandle src, vk::DeviceSize size) {
   vk::BufferCopy copy{0,0,size};

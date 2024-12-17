@@ -51,7 +51,7 @@ constexpr TestCase TEST_CASES[] = {
     /* }, */
     TestCase{
         .workgroupSize = 512,
-        .rows = 5,
+        .rows = 4,
         .elementCount = static_cast<uint32_t>(1024 * 2048),
         .distribution = wrs::Distribution::SEEDED_RANDOM_UNIFORM,
         .stable = true,

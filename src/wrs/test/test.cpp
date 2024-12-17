@@ -267,9 +267,9 @@ static void testSplitTests(std::pmr::memory_resource* resource) {
     const auto light = heavyLightPartition.light();
 
     std::pmr::vector<float> heavyPrefix =
-        wrs::reference::pmr::prefix_sum<float>(heavy, false, resource);
+        wrs::reference::pmr::prefix_sum<float>(heavy, resource);
     std::pmr::vector<float> lightPrefix =
-        wrs::reference::pmr::prefix_sum<float>(light, false, resource);
+        wrs::reference::pmr::prefix_sum<float>(light, resource);
 
     std::pmr::vector<wrs::Split<float, uint32_t>> splits =
         wrs::reference::pmr::splitK<float, uint32_t>(heavyPrefix, lightPrefix, average, N, K,
