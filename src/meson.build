@@ -1,4 +1,5 @@
 src_files += files('main.cpp')
+src_files += files('renderdoc.cpp')
 
 
 src_files += files('wrs/gen/weight_generator.cpp')

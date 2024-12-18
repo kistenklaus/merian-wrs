@@ -126,24 +126,31 @@ void main(void) {
     uint ix = ix0 + (i0 - iMin);
     const uint ix1 = ix0 + (i1 - iMin);
 
-    while (ix != ix1 || jx != jx1) {
+    while (true) {
         bool packHeavy;
-        if (jx == jx1) {
+        bool A = jx == jx1;
+        bool B = ix == ix1;
+        if (A) {
             // Only light buckets left.
             packHeavy = false;
-        } else if (ix == ix1) {
+            if (B) {
+              break;
+            }
+        } else if (B) {
             // Only heavy buckets left.
             packHeavy = true;
         } else {
             packHeavy = w <= averageWeight;
         }
         uint h = heavyLightSharedIndices[jx];
-        uint weightIdx;
+        uint indicesIndex;
         if (packHeavy) {
-            weightIdx = heavyLightSharedIndices[jx + 1];
+            indicesIndex = jx + 1;
         } else {
-            weightIdx = heavyLightSharedIndices[ix];
+            indicesIndex = ix;
         }
+        subgroupBarrier();
+        uint weightIdx = heavyLightSharedIndices[indicesIndex];
         float weight = weights[weightIdx];
         float p;
         uint idx, a;
@@ -160,6 +167,7 @@ void main(void) {
             idx = weightIdx;
             ix += 1;
         }
+        subgroupBarrier();
         table[idx].p = p;
         table[idx].a = a;
         w = (w + weight) - averageWeight;

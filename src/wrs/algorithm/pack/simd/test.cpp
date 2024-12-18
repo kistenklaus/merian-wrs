@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <ranges>
 #include <spdlog/spdlog.h>
+#include "src/renderdoc.hpp"
 
 using namespace wrs::test::simd_pack;
 using namespace wrs::test;
@@ -281,6 +282,7 @@ void wrs::test::simd_pack::test(const merian::ContextHandle& context) {
 
     uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
+        renderdoc::startCapture();
         switch (testCase.weightType) {
         case WEIGHT_TYPE_FLOAT:
             bool failed = runTestCase<float>(testContext, testCase, buffers, stage, resource);
@@ -289,6 +291,7 @@ void wrs::test::simd_pack::test(const merian::ContextHandle& context) {
             }
             break;
         }
+        renderdoc::stopCapture();
         stackResource.reset();
     }
 
