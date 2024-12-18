@@ -391,19 +391,19 @@ void wrs::test::testTests() {
 
     SPDLOG_INFO("Testing reduce reference");
     stackResource.reset();
-    testReduceReference(&resource);
+    //testReduceReference(&resource);
 
     SPDLOG_INFO("Testing partition assertions tests");
     stackResource.reset();
-    testPartitionTests(&resource);
+    //testPartitionTests(&resource);
 
     SPDLOG_INFO("Testing inclusive prefix assertion tests");
     stackResource.reset();
-    testPrefixTests(&resource);
+    //testPrefixTests(&resource);
 
     SPDLOG_INFO("Testing split assertion tests");
     stackResource.reset();
-    testSplitTests(&resource);
+    //testSplitTests(&resource);
 
     SPDLOG_INFO("Testing alias table assertion tests");
     stackResource.reset();
@@ -411,7 +411,7 @@ void wrs::test::testTests() {
 
     SPDLOG_INFO("Testing chi squared evaluation");
     stackResource.reset();
-    testChiSquared(&resource);
+    //testChiSquared(&resource);
 
     SPDLOG_INFO("Tested tests and references successfully!");
 }

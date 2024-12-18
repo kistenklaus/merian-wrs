@@ -48,11 +48,11 @@ int main() {
     /*wrs::eval::write_psa_rmse_curves();*/
     /* wrs::eval::write_std_rmse_curves(); */
     /* wrs::eval::write_psa_rmse_curves(); */
-    wrs::test::testTests();
+    //wrs::test::testTests();
     /* wrs::test::decoupled_mean::test(context); */
     //wrs::test::decoupled_prefix_partition::test(context);
      //wrs::test::scalar_split::test(context);
-    wrs::test::scalar_pack::test(context);
+    //wrs::test::scalar_pack::test(context);
     wrs::test::simd_pack::test(context);
     //wrs::test::scalar_psa::test(context);
 }

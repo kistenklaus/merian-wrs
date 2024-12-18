@@ -51,9 +51,9 @@ struct SimdPackBuffers {
     using AliasTableLayout = layout::ArrayLayout<AliasTableEntryLayout, storageQualifier>;
     using AliasTableView = layout::BufferView<AliasTableLayout>;
 
-    static SimdPackBuffers allocate(merian::ResourceAllocatorHandle alloc,
-                                    std::size_t weightCount,
-                                    std::size_t splitCount,
+    static SimdPackBuffers allocate(const merian::ResourceAllocatorHandle& alloc,
+                                    const std::size_t weightCount,
+                                    const std::size_t splitCount,
                                     merian::MemoryMappingType memoryMapping) {
         SimdPackBuffers buffers;
         if (memoryMapping == merian::MemoryMappingType::NONE) {
@@ -110,7 +110,7 @@ template <typename T> class SimdPack {
     using Buffers = SimdPackBuffers;
     using weight_t = T;
 
-    SimdPack(const merian::ContextHandle& context) {
+    explicit SimdPack(const merian::ContextHandle& context, const glsl::uint workgroupSize = 32) : m_workgroupSize(workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -121,7 +121,7 @@ template <typename T> class SimdPack {
                 .add_binding_storage_buffer()
                 .build_push_descriptor_layout(context);
 
-        std::string shaderPath = "src/wrs/algorithm/pack/simd/float.comp";
+        const std::string shaderPath = "src/wrs/algorithm/pack/simd/float.comp";
 
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
@@ -134,8 +134,7 @@ template <typename T> class SimdPack {
                 .build_pipeline_layout();
 
         merian::SpecializationInfoBuilder specInfoBuilder;
-        m_subgroupSize = context->physical_device.physical_device_subgroup_properties.subgroupSize;
-        specInfoBuilder.add_entry(m_subgroupSize);
+        specInfoBuilder.add_entry(m_workgroupSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
@@ -177,14 +176,13 @@ template <typename T> class SimdPack {
         m_pipeline->push_descriptor_set(cmd, m_writes);
 
         m_pipeline->push_constant<PushConstant>(cmd, PushConstant{.N = N, .K = K});
-        const uint32_t workgroupCount = (K + m_subgroupSize - 1) / m_subgroupSize;
-        fmt::println("K = {}, workgroupCount = {}", K, workgroupCount);
+        const uint32_t workgroupCount = (K + m_workgroupSize - 1) / m_workgroupSize;
         cmd.dispatch(workgroupCount, 1, 1);
     }
 
   private:
     merian::PipelineHandle m_pipeline;
-    glsl::uint m_subgroupSize;
+    glsl::uint m_workgroupSize;
     std::vector<vk::WriteDescriptorSet> m_writes;
 };
 

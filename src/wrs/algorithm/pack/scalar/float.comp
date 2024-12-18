@@ -9,6 +9,8 @@
 
 #define monoid float
 
+
+layout(constant_id = 0) const uint SPLIT_SIZE = 1;
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 struct Split {
@@ -25,7 +27,7 @@ struct AliasTableEntry {
 
 layout(set = 0, binding = 0) readonly buffer in_partitions {
     uint heavyCount;
-    uint heavyLightIndicies[];
+    uint heavyLightIndices[];
 };
 
 layout(set = 0, binding = 1) readonly buffer in_weights {
@@ -74,73 +76,71 @@ void main(void) {
 
     float w = spill;
     if (w == 0.0f) {
-        uint h = heavyLightIndicies[j];
+        uint h = heavyLightIndices[j];
         w = weights[h];
     }
 
-    while (j != heavyCount) {
-        if (w > averageWeight) {
-            if (i >= i1) {
-                if (j != j1) {
-                    while (j < j1) {
-                        uint h = heavyLightIndicies[j];
-                        table[h].p = 1.0;
-                        table[h].a = h;
-                        w = (w + 0) - averageWeight;
-                        j += 1;
-                    }
-                }
-                break;
-            }
-            uint l = heavyLightIndicies[lastLightIndex - i];
-            uint h = heavyLightIndicies[j];
-
-            float prob = weights[l] / averageWeight;
-
-            table[l].p = prob;
-            table[l].a = h;
-
-            w = (w + weights[l]) - averageWeight;
-            i += 1;
-        } else {
-            uint h = heavyLightIndicies[j];
-            if (j >= j1) {
-                while (i < i1) {
-                    uint l = heavyLightIndicies[lastLightIndex - i];
-                    uint h = heavyLightIndicies[j];
-                    float prob = weights[l] / averageWeight;
-                    table[l].p = prob;
-                    table[l].a = h;
-
-                    w = (w + weights[l]) - averageWeight;
-                    i += 1;
-                }
-                break;
-            }
-            float prob = w / averageWeight;
-            if (j + 1 >= heavyCount) {
-                table[h].p = prob;
-                table[h].a = h;
-
-                w = (w + 0) - averageWeight;
-                while (i < i1) {
-                    uint l = heavyLightIndicies[lastLightIndex - i];
-                    uint h = heavyLightIndicies[j];
-                    float prob = weights[l] / averageWeight;
-                    table[l].p = prob;
-                    table[l].a = h;
-
-                    w = (w + weights[l]) - averageWeight;
-                    i += 1;
-                }
-                break;
-            } else {
-              uint hnext = heavyLightIndicies[j + 1];
-              table[h].p = prob;
-              table[h].a = hnext;
-              w = (w + weights[hnext]) - averageWeight;
-              j += 1;
-            }
+    while (i != i1 || j != j1) {
+        bool packHeavy;
+        // Checking bounds before the numerical comparision avoids
+        // Floating point inaccuracies while comparing!
+        if (j == j1) {
+            // Only light buckets left.
+            packHeavy = false;
+        }else if (i == i1) {
+            // Only heavy buckets left.
+            packHeavy = true;
+        }else {
+            packHeavy = w <= averageWeight;
         }
+        uint h = heavyLightIndices[j];
+        uint weightIdx;
+        if (packHeavy) {
+            //TODO REMOVE ME
+            if (j + 1 >= N) {
+                break;
+            }
+            weightIdx = heavyLightIndices[j + 1];
+        } else {
+            //TODO REMOVE ME
+            if (lastLightIndex - i >= N) {
+                break;
+            }
+            weightIdx = heavyLightIndices[lastLightIndex - i];
+        }
+        // TODO REMOVE ME
+        if (weightIdx >= N) {
+          break;
+        }
+        float weight = weights[weightIdx];
+        float p;
+        uint idx, a;
+        if (packHeavy) {
+            // Pack heavy bucket!
+            p = w / averageWeight;
+            a = weightIdx;
+            idx = h;
+            j += 1;
+        }else {
+            // Pack light bucket
+            p = weight / averageWeight;
+            a = h;
+            idx = weightIdx;
+            i += 1;
+        }
+        table[idx].p = p;
+        table[idx].a = a;
+        w = (w + weight) - averageWeight;
+    }
+    if (j1 == heavyCount - 1){
+        // Last heavy element overal has to be handled seperately otherwise,
+        // we access heavyIndices out of bound.
+        // Maybe this would actually be fine because of our layout. Then the residual of the
+        // last element which should always be zero, but numerical instabilities would be
+        // reassigned to the last light element, both are probably fine, but here we choose to
+        // redirect to not have the last heavy element redirect to anything makes it easier to debug!
+        uint h = heavyLightIndices[j];
+        table[h].p = 1.0f;
+        table[h].a = h;
     }
 }

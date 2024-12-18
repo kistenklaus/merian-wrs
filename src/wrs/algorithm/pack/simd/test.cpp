@@ -115,12 +115,12 @@ static bool runTestCase(const TestContext& context,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
     std::string testName =
-        fmt::format("{{weightCount={},dist={}splitCount={}}}", testCase.weightCount,
+        fmt::format("{{workgroupSize={},weightCount={},dist={}splitCount={}}}", testCase.workgroupSize,testCase.weightCount,
                     wrs::distribution_to_pretty_string(testCase.distribution), testCase.splitCount);
     SPDLOG_INFO("Running test case:{}", testName);
 
     SPDLOG_DEBUG("Creating ScalarPack instance");
-    wrs::SimdPack<weight_t> kernel{context.context};
+    wrs::SimdPack<weight_t> kernel{context.context, testCase.workgroupSize};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {

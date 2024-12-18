@@ -20,6 +20,7 @@ struct TestCase {
     uint32_t weightCount; // N
     Distribution distribution;
     uint32_t splitCount;  // K
+    uint32_t workgroupSize;
     uint32_t iterations;
 };
 

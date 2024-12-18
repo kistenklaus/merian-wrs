@@ -4,7 +4,7 @@
 #include "src/wrs/gen/weight_generator.h"
 namespace wrs::test::scalar_pack {
 
-using Buffers = wrs::ScalarPackBuffers;
+using Buffers = ScalarPackBuffers;
 
 enum WeightType {
     WEIGHT_TYPE_FLOAT,

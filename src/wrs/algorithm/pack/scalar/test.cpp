@@ -33,23 +33,23 @@ vk::DeviceSize wrs::test::scalar_pack::sizeOfWeight(const wrs::test::scalar_pack
     throw std::runtime_error("NOT IMPLEMENTED");
 }
 
-static void uploadPartitionIndicies(vk::CommandBuffer cmd,
-                                    std::span<const wrs::glsl::uint> heavyIndicies,
-                                    std::span<const wrs::glsl::uint> reverseLightIndicies,
-                                    Buffers& buffers,
-                                    Buffers& stage,
+static void uploadPartitionIndices(const vk::CommandBuffer cmd,
+                                   const std::span<const wrs::glsl::uint> heavyIndices,
+                                   const std::span<const wrs::glsl::uint> reverseLightIndices,
+                                   const Buffers& buffers,
+                                   const Buffers& stage,
                                     std::pmr::memory_resource* resource) {
-    std::size_t N = heavyIndicies.size() + reverseLightIndicies.size();
+    const std::size_t N = heavyIndices.size() + reverseLightIndices.size();
     wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>> partition{
         std::pmr::vector<wrs::glsl::uint>{N, resource},
-        static_cast<std::ptrdiff_t>(heavyIndicies.size())};
-    std::memcpy(partition.heavy().data(), heavyIndicies.data(), heavyIndicies.size_bytes());
-    std::memcpy(partition.light().data(), reverseLightIndicies.data(),
-                reverseLightIndicies.size_bytes());
+        static_cast<std::ptrdiff_t>(heavyIndices.size())};
+    std::memcpy(partition.heavy().data(), heavyIndices.data(), heavyIndices.size_bytes());
+    std::memcpy(partition.light().data(), reverseLightIndices.data(),
+                reverseLightIndices.size_bytes());
 
     Buffers::PartitionIndicesView stageView{stage.partitionIndices, N};
     Buffers::PartitionIndicesView localView{buffers.partitionIndices, N};
-    stageView.attribute<"heavyCount">().template upload<wrs::glsl::uint>(heavyIndicies.size());
+    stageView.attribute<"heavyCount">().template upload<wrs::glsl::uint>(heavyIndices.size());
     stageView.attribute<"heavyLightIndices">().template upload<wrs::glsl::uint>(
         partition.storage());
     stageView.copyTo(cmd, localView);
@@ -63,13 +63,13 @@ static void uploadWeights(vk::CommandBuffer cmd,
                           Buffers& stage) {
     Buffers::WeightsView stageView{stage.weights, weights.size()};
     Buffers::WeightsView localView{buffers.weights, weights.size()};
-    stageView.template upload<weight_t>(weights);
+    stageView.upload<weight_t>(weights);
     stageView.copyTo(cmd, localView);
     localView.expectComputeRead(cmd);
 }
 
 template <wrs::arithmetic weight_t>
-static void uploadSplits(vk::CommandBuffer cmd,
+static void uploadSplits(const vk::CommandBuffer cmd,
                          std::span<const wrs::Split<weight_t, wrs::glsl::uint>> splits,
                          Buffers& buffers,
                          Buffers& stage) {
@@ -85,14 +85,16 @@ static void
 uploadMean(vk::CommandBuffer cmd, weight_t averageWeight, Buffers& buffers, Buffers& stage) {
     Buffers::MeanView stageView{stage.mean};
     Buffers::MeanView localView{buffers.mean};
-    stageView.template upload(averageWeight);
+    stageView.upload(averageWeight);
     stageView.copyTo(cmd, localView);
     localView.expectComputeRead(cmd);
 }
 
-template <wrs::arithmetic weight_t>
 static void
-downloadAliasTableToStage(vk::CommandBuffer cmd, std::size_t N, Buffers& buffers, Buffers& stage) {
+downloadAliasTableToStage(const vk::CommandBuffer cmd,
+                                      const std::size_t N,
+                                      const Buffers& buffers,
+                                      const Buffers& stage) {
     Buffers::AliasTableView stageView{stage.aliasTable, N};
     Buffers::AliasTableView localView{buffers.aliasTable, N};
     localView.expectComputeWrite();
@@ -106,7 +108,7 @@ downloadAliasTableFromStage(std::size_t N, Buffers& stage, std::pmr::memory_reso
     Buffers::AliasTableView stageView{stage.aliasTable, N};
     using Entry = wrs::AliasTableEntry<weight_t, wrs::glsl::uint>;
 
-    return stageView.template download<Entry, wrs::pmr_alloc<Entry>>(resource);
+    return stageView.download<Entry, wrs::pmr_alloc<Entry>>(resource);
 }
 
 template <wrs::arithmetic weight_t>
@@ -190,7 +192,7 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload partition indices");
             SPDLOG_DEBUG("Uploading partition indices...");
-            uploadPartitionIndicies(cmd, heavyIndices, reverseLightIndices, buffers, stage,
+            uploadPartitionIndices(cmd, heavyIndices, reverseLightIndices, buffers, stage,
                                     resource);
         }
         // 3.1 Upload splits
@@ -221,7 +223,7 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
             SPDLOG_DEBUG("Downloading results to stage...");
-            downloadAliasTableToStage<weight_t>(cmd, N, buffers, stage);
+            downloadAliasTableToStage(cmd, N, buffers, stage);
         }
         // 6. Submit to device
         {
@@ -255,14 +257,14 @@ static bool runTestCase(const TestContext& context,
 
             SPDLOG_DEBUG("Testing results");
             const auto err =
-                wrs::test::pmr::assert_is_alias_table<weight_t, weight_t, wrs::glsl::uint>(
+                pmr::assert_is_alias_table<weight_t, weight_t, wrs::glsl::uint>(
                     weights, aliasTable, totalWeight, 0.01, resource);
             if (err) {
                 SPDLOG_ERROR(err.message());
             }
         }
 
-        //context.profiler->collect(true, true);
+        context.profiler->collect(true, true);
     }
     return failed;
 }

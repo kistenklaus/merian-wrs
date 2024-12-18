@@ -82,7 +82,7 @@ namespace wrs::reference {
             splits[k - 1] = split<T, I>(heavyPrefix, lightPrefix, mean, n);
         }
         splits.back() =
-                wrs::Split(static_cast<I>(lightPrefix.size()), static_cast<I>(heavyPrefix.size()), T{0});
+                wrs::Split(static_cast<I>(lightPrefix.size()), static_cast<I>(heavyPrefix.size() - 1), T{0});
         return splits;
     }
 

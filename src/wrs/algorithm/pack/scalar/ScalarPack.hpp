@@ -89,17 +89,11 @@ struct ScalarPackBuffers {
 
 template <typename T> class ScalarPack {
     static_assert(std::same_as<T, float>, "Other weights are currently not supported");
-
-  private:
-#ifdef NDEBUG
-    static constexpr bool CHECK_PARAMETERS = false;
-#else
-    static constexpr bool CHECK_PARAMETERS = true;
-#endif
   public:
     using weight_t = T;
 
-    ScalarPack(const merian::ContextHandle& context) {
+    explicit ScalarPack(const merian::ContextHandle& context, const glsl::uint splitSize = 32) :
+        m_splitSize(splitSize){
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -123,6 +117,7 @@ template <typename T> class ScalarPack {
                 .build_pipeline_layout();
 
         merian::SpecializationInfoBuilder specInfoBuilder;
+        specInfoBuilder.add_entry<glsl::uint>(m_splitSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
@@ -147,7 +142,10 @@ template <typename T> class ScalarPack {
 
     }
 
-    void run(vk::CommandBuffer cmd, wrs::glsl::uint N, wrs::glsl::uint K, ScalarPackBuffers& buffers) {
+    void run(const vk::CommandBuffer cmd, const glsl::uint N,
+             const glsl::uint K,
+             const ScalarPackBuffers& buffers) {
+        assert(N / K == 32); // each split has the size of 32
 
         m_pipeline->bind(cmd);
 
@@ -169,6 +167,7 @@ template <typename T> class ScalarPack {
 
   private:
     merian::PipelineHandle m_pipeline;
+    glsl::uint m_splitSize;
     std::vector<vk::WriteDescriptorSet> m_writes;
 };
 
