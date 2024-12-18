@@ -14,6 +14,7 @@ vk::DeviceSize sizeOfWeight(const WeightType ty);
 
 struct TestCase {
     WeightType weightType;
+    uint32_t workgroupSize;
     uint32_t weightCount; // N
     Distribution distribution;
     uint32_t splitCount;  // K

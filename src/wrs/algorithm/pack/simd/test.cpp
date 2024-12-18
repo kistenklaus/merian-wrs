@@ -22,6 +22,8 @@
 #include <spdlog/spdlog.h>
 #include "src/renderdoc.hpp"
 
+#define MERIAN_PROFILER_ENABLE
+
 using namespace wrs::test::simd_pack;
 using namespace wrs::test;
 
@@ -237,19 +239,19 @@ static bool runTestCase(const TestContext& context,
             SPDLOG_DEBUG("Downloading results from stage...");
             aliasTable = downloadAliasTableFromStage<weight_t>(N, stage, resource);
         }
-        /* fmt::println("SPLITS"); */
-        /* { */
-        /*   for (size_t i = 0; i < splits.size(); ++i) { */
-        /*     fmt::println("({},{},{})", splits[i].i, splits[i].j, splits[i].spill); */
-        /*   } */
-        /* } */
-        /* fmt::println("TABLE"); */
-        /* { */
-        /*   // Print table */
-        /*   for (size_t i = 0; i < aliasTable.size(); ++i) { */
-        /*     fmt::println("{} = ({},{})", i, aliasTable[i].p, aliasTable[i].a); */
-        /*   } */
-        /* } */
+         fmt::println("SPLITS"); 
+         { 
+           /*for (size_t i = 0; i < splits.size(); ++i) { */
+           /*  fmt::println("({},{},{})", splits[i].i, splits[i].j, splits[i].spill); */
+           /*} */
+         } 
+         fmt::println("TABLE"); 
+         { 
+           // Print table 
+           /*for (int64_t i = aliasTable.size() - 1; i >= 0; --i) { */
+           /*  fmt::println("{} = ({},{})", i, aliasTable[i].p, aliasTable[i].a); */
+           /*} */
+         } 
         // 8. Test pack invariants
         {
 

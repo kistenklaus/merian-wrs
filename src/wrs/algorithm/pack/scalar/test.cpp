@@ -123,7 +123,7 @@ static bool runTestCase(const TestContext& context,
     SPDLOG_INFO("Running test case:{}", testName);
 
     SPDLOG_DEBUG("Creating ScalarPack instance");
-    wrs::ScalarPack<weight_t> kernel{context.context};
+    wrs::ScalarPack<weight_t> kernel{context.context, testCase.workgroupSize};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {

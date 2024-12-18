@@ -89,11 +89,17 @@ struct ScalarPackBuffers {
 
 template <typename T> class ScalarPack {
     static_assert(std::same_as<T, float>, "Other weights are currently not supported");
+
+    struct PushConstant {
+      glsl::uint N;
+      glsl::uint K;
+    };
   public:
     using weight_t = T;
 
-    explicit ScalarPack(const merian::ContextHandle& context, const glsl::uint splitSize = 32) :
-        m_splitSize(splitSize){
+    explicit ScalarPack(const merian::ContextHandle& context, glsl::uint workgroupSize = 1) :
+      m_workgroupSize(workgroupSize)
+        {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -113,11 +119,11 @@ template <typename T> class ScalarPack {
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
                 .add_descriptor_set_layout(descriptorSet0Layout)
-                .add_push_constant<uint32_t>()
+                .add_push_constant<PushConstant>()
                 .build_pipeline_layout();
 
         merian::SpecializationInfoBuilder specInfoBuilder;
-        specInfoBuilder.add_entry<glsl::uint>(m_splitSize);
+        specInfoBuilder.add_entry<glsl::uint>(m_workgroupSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
@@ -161,13 +167,16 @@ template <typename T> class ScalarPack {
         m_writes[4].setBufferInfo(aliasTableDesc);
         m_pipeline->push_descriptor_set(cmd, m_writes);
 
-        m_pipeline->push_constant<wrs::glsl::uint>(cmd, N);
-        cmd.dispatch(K, 1, 1);
+
+        m_pipeline->push_constant<PushConstant>(cmd, PushConstant{.N=N,.K=K});
+
+        uint32_t workgroupCount = (K + m_workgroupSize - 1) / m_workgroupSize;
+        cmd.dispatch(workgroupCount, 1, 1);
     }
 
   private:
     merian::PipelineHandle m_pipeline;
-    glsl::uint m_splitSize;
+    glsl::uint m_workgroupSize;
     std::vector<vk::WriteDescriptorSet> m_writes;
 };
 

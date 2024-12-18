@@ -176,7 +176,9 @@ template <typename T> class SimdPack {
         m_pipeline->push_descriptor_set(cmd, m_writes);
 
         m_pipeline->push_constant<PushConstant>(cmd, PushConstant{.N = N, .K = K});
-        const uint32_t workgroupCount = (K + m_workgroupSize - 1) / m_workgroupSize;
+        const uint32_t splitsHandled = 128;
+        const uint32_t workgroupCount = (K + splitsHandled - 1) / splitsHandled;
+        fmt::println("DISPATCH : {}", workgroupCount);
         cmd.dispatch(workgroupCount, 1, 1);
     }
 

@@ -1,4 +1,8 @@
 #include "merian/vk/context.hpp"
+
+#include "src/wrs/algorithm/split/scalar/test.hpp"
+#include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
+#include "src/wrs/algorithm/pack/scalar/test.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_core.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
@@ -45,7 +49,7 @@ int main() {
     //wrs::test::testTests();
     /* wrs::test::decoupled_mean::test(context); */
     //wrs::test::decoupled_prefix_partition::test(context);
-     //wrs::test::scalar_split::test(context);
+    //wrs::test::scalar_split::test(context);
     //wrs::test::scalar_pack::test(context);
     wrs::test::simd_pack::test(context);
     //wrs::test::scalar_psa::test(context);
