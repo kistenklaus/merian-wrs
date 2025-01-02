@@ -415,3 +415,4 @@ void wrs::test::testTests() {
 
     SPDLOG_INFO("Tested tests and references successfully!");
 }
+

@@ -10,7 +10,7 @@ constexpr TestCase TEST_CASES[] = {
         .weightCount = static_cast<uint32_t>(1024 * 2048),
         .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
         .splitCount = static_cast<uint32_t>(1024 * 2048) / 32,
-        .workgroupSize = 128,
+        .workgroupSize = 32,
         .iterations = 1,
     },
 };

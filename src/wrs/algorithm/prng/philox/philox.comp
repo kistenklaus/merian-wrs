@@ -1,0 +1,50 @@
+#version 460
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) buffer OutSamples {
+    float samples[];
+};
+
+// Constants for Philox2x32-10
+const uint PHILOX_M2x32 = 0xD256D193u;  // Multiplication constant
+const uint PHILOX_W32 = 0x9E3779B9u;   // Weyl constant
+const uint PHILOX_ROUNDS = 10;
+
+// Function to perform a single Philox round
+void philoxRound(inout uint x0, inout uint x1, uint k) {
+    uint hi = (x0 * PHILOX_M2x32) >> 32; // High 32 bits of multiplication
+    uint lo = x0 * PHILOX_M2x32;         // Low 32 bits of multiplication
+
+    x0 = hi ^ x1 ^ k;
+    x1 = lo;
+}
+
+// Philox2x32-10 implementation
+void philox2x32_10(inout uint x0, inout uint x1, uint key) {
+    uint k = key;
+    for (int i = 0; i < PHILOX_ROUNDS; i++) {
+        philoxRound(x0, x1, k);
+        k += PHILOX_W32; // Update the key with the Weyl constant
+    }
+}
+
+// Generate a random number using Philox2x32-10
+vec2 philoxRandom(uvec2 counter, uint key) {
+    uint x0 = counter.x;
+    uint x1 = counter.y;
+
+    // Apply 10 rounds of Philox
+    philox2x32_10(x0, x1, key);
+
+    // Return a single random number normalized to [0, 1)
+    return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
+}
+
+void main() {
+    const uint gid = gl_GlobalInvocationID.x;
+    const uvec2 counter = uvec2(gid, 0);
+    const uint key = 12345u; // Example seed key
+
+    samples[gid] = philoxRandom(counter, key).x;
+}

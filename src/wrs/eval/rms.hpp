@@ -48,7 +48,7 @@ E rmse(std::span<const E> weights,
 template <std::floating_point E,
           std::integral I,
           std::ranges::input_range Scale,
-          wrs::generic_allocator Allocator = std::allocator<void>>
+          wrs::generic_allocator Allocator = std::allocator<E>>
     requires std::same_as<std::ranges::range_value_t<Scale>, I>
 std::vector<std::tuple<I, E>,
             typename std::allocator_traits<Allocator>::template rebind_alloc<std::tuple<I, E>>>

@@ -139,6 +139,7 @@ template <typename T> class SimdPack {
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
 
+
         m_writes.resize(5);
 
         vk::WriteDescriptorSet& partitionIndices = m_writes[0];
@@ -176,7 +177,7 @@ template <typename T> class SimdPack {
         m_pipeline->push_descriptor_set(cmd, m_writes);
 
         m_pipeline->push_constant<PushConstant>(cmd, PushConstant{.N = N, .K = K});
-        const uint32_t splitsHandled = 128;
+        const uint32_t splitsHandled = 32;
         const uint32_t workgroupCount = (K + splitsHandled - 1) / splitsHandled;
         fmt::println("DISPATCH : {}", workgroupCount);
         cmd.dispatch(workgroupCount, 1, 1);

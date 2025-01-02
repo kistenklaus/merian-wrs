@@ -11,7 +11,6 @@ struct TestContext {
     merian::QueueHandle queue;
     merian::CommandPoolHandle cmdPool;
     merian::ProfilerHandle profiler;
-    /* merian::QueryPoolHandle<vk::QueryType::eTimestamp> __profilerQueryPool; */
 };
 
 TestContext setupTestContext(const merian::ContextHandle& context);
@@ -19,3 +18,5 @@ TestContext setupTestContext(const merian::ContextHandle& context);
 void testTests();
 
 }; // namespace wrs::test
+
+

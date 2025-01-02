@@ -22,8 +22,6 @@
 #include <spdlog/spdlog.h>
 #include "src/renderdoc.hpp"
 
-#define MERIAN_PROFILER_ENABLE
-
 using namespace wrs::test::simd_pack;
 using namespace wrs::test;
 

@@ -1,5 +1,4 @@
 #version 460
-#pragma optimize (off)
 
 #extension GL_KHR_shader_subgroup_arithmetic : enable
 #extension GL_KHR_memory_scope_semantics : enable
@@ -8,22 +7,16 @@
 // #extension GL_KHR_shader_subgroup_ballot : enable
 #pragma use_vulkan_memory_model
 
-#define monoid float
-
-// layout(constant_id = 1) const uint SPLIT_SIZE = 1;
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
-
-const uint SplitSize = 32;
-const uint ActiveWorkers = 128;
 
 struct Split {
     uint i;
     uint j;
-    monoid spill;
+    float spill;
 };
 
 struct AliasTableEntry {
-    monoid p;
+    float p;
     uint a;
 };
 
@@ -33,11 +26,11 @@ layout(set = 0, binding = 0) readonly buffer in_partitions {
 };
 
 layout(set = 0, binding = 1) readonly buffer in_weights {
-    monoid weights[];
+    float weights[];
 };
 
 layout(set = 0, binding = 2) readonly buffer in_mean {
-    monoid mean;
+    float mean;
 };
 
 layout(set = 0, binding = 3) readonly buffer in_splits {
@@ -49,130 +42,163 @@ layout(set = 0, binding = 4) writeonly buffer out_aliastable {
 };
 
 layout(push_constant) uniform PushConstant {
-    uint N;
+    uint size;
     uint K;
 } pc;
 
-// includes one additional heavy element
-// Only required due to numerical instabilities if the last heavy element if packed before the
-// last light element!
-const uint SharedIndicesSize = SplitSize * ActiveWorkers + 1;
-shared uint heavyLightSharedIndices[SharedIndicesSize];
-shared uint i0Shared;
-shared uint i1Shared;
-shared uint j0Shared;
-shared uint j1Shared;
+
+// struct CyclicBufferElement {
+// };
+//
+// const uint CyclicBufferMask = 0x1F; // 0x1F == 31 <= 31 + 1 == 32 is power of 2
+// const uint CyclicBufferSize = 33;
+// struct CyclicBuffer {
+//   uint start;
+//   uint end;
+//   uint size;
+// };
+//
+// void cyclicBuffer_init(out CyclicBuffer self) {
+//   self.start = 0;
+//   self.end = 0;
+// }
+//
+// bool cyclicBuffer_empty(in CyclicBuffer self) {
+//   return self.start == self.end;
+// }
+//
+// uint cyclicBuffer_front(in CyclicBuffer self) {
+//   return self.start;
+// }
+//
+// uint cyclicBuffer_back(in CyclicBuffer self) {
+//   return self.end;
+// }
+//
+// uint cyclicBuffer_count(in CyclicBuffer self) {
+//   return self.start + CyclicBufferSize - self.end;
+// }
+//
+// void cyclicBuffer_pushFront(in CyclicBuffer self, out uint idx) {
+//   idx = self.start;
+//   self.start = (self.start + 1) & CyclicBufferMask;
+// }
+//
+// void cyclicBuffer_popBack(in CyclicBuffer self) {
+//   self.end = (self.end + 1) & CyclicBufferMask;
+// }
+//
+// struct ChunkElement {
+//   uint index;
+// };
+//
+// const uint ChunkSize = CyclicBufferSize;
+// struct Chunk {
+//   ChunkElement elements[ChunkSize];
+//   CyclicBuffer cyclicIndexBuffer;
+// };
+//
+// void chunk_init(out Chunk self) {
+//   cyclicBuffer_init(self);
+// }
+//
+// void chunk_empty(in Chunk self) {
+//   return cyclicBuffer_empty(self.cyclicIndexBuffer);
+// }
+//
+// void chunk_peek(in Chunk self, out ChunkElement element) {
+//   element = elements[cyclicBuffer_back()];
+// }
+//
+// void chunk_next(in Chunk self) {
+//   cyclicBuffer_popBack();
+// }
+//
+// void chunk_restockFromHeavy(in Chunk self, in uint j, uint j1) {
+//   uint size = cyclicBuffer_count(self.cyclicIndexBuffer);
+//   uint emptySpace = CyclicBufferSize - size;
+//
+//   uint jx = j;
+//   while (jx <= j1 && emptySpace != 0) {
+//     float fetch = heavyLightIndices[jx++];
+//     cyclicBuffer_pushFronts(self.cyclicIndexBuffer, fetch);
+//     emptySpace--;
+//   }
+// }
+
+
 
 void main(void) {
-    uint k = gl_WorkGroupID.x * ActiveWorkers + gl_LocalInvocationID.x;
-    float w;
-    uint i0, j0;
-    uint i1, j1;
-    if (gl_LocalInvocationID.x < ActiveWorkers && k < pc.K) {
-        if (k == 0) {
-            i0 = 0;
-            j0 = 0;
-            w = 0;
-        } else {
-            i0 = splits[k - 1].i;
-            j0 = splits[k - 1].j;
-            w = splits[k - 1].spill;
-        }
-        i1 = splits[k].i;
-        j1 = splits[k].j;
-
-        if (gl_LocalInvocationID.x == 0) {
-          i0Shared = i0;
-          j0Shared = j0;
-        }else if (gl_LocalInvocationID.x == ActiveWorkers - 1 || k == pc.K - 1){
-          i1Shared = i1;
-          j1Shared = j1;
-        }
-    }
-    const uint firstLightIndex = pc.N - 1;
-
-    barrier();
-
-    const uint iMin = i0Shared;
-    const uint iCount = i1Shared - iMin; // amount of light elements
-    const uint jMin = j0Shared;
-    const uint jCount = j1Shared - j0Shared; // amount of heavy elements
-
-    for (uint x = gl_LocalInvocationID.x; x <= jCount; x += gl_WorkGroupSize.x) {
-        heavyLightSharedIndices[x] = heavyLightIndices[jMin + x];
-    }
-    const uint ix0 = jCount + 1;
-    const uint firstSharedLightIndex = firstLightIndex - iMin;
-    for (uint x = gl_LocalInvocationID.x; x < iCount; x += gl_WorkGroupSize.x) {
-        heavyLightSharedIndices[x + ix0] = heavyLightIndices[firstSharedLightIndex - x];
-    }
-
-    barrier();
-    if (k >= pc.K || gl_LocalInvocationID.x >= ActiveWorkers) {
+    uint k = gl_GlobalInvocationID.x;
+    if (k >= pc.K) {
         return;
     }
+    float spill;
+    uint i0, j0;
+    if (k == 0) {
+        i0 = 0;
+        j0 = 0;
+        spill = 0;
+    } else {
+        i0 = splits[k - 1].i;
+        j0 = splits[k - 1].j;
+        spill = splits[k - 1].spill;
+    }
+    uint i1 = splits[k].i;
+    uint j1 = splits[k].j;
+    float averageWeight = mean;
+    const uint N = pc.size;
+    const uint heavyCount = heavyCount;
+    const uint lightCount = N - heavyCount;
+    const uint lastLightIndex = N - 1;
 
+    uint i = i0;
+    uint j = j0;
+
+    float w = spill;
     if (w == 0.0f) {
-        uint h = heavyLightIndices[j0];
+        uint h = heavyLightIndices[j];
         w = weights[h];
     }
 
-    const uint heavyCount = heavyCount;
-    const float averageWeight = mean;
-    const float invAverageWeight = 1.0f / averageWeight;
-
-    uint jx = j0 - jMin;
-    const uint jx1 = j1 - jMin;
-    uint ix = ix0 + (i0 - iMin);
-    const uint ix1 = ix0 + (i1 - iMin);
-
-    // table[k * 8].a = j0Shared;
-    // table[k * 8 +1].a = j1Shared;
-    // table[k * 8 + 2].a = i0Shared;
-    // table[k * 8 + 3].a = i1Shared;
-    // return;
-
-    while (ix != ix1 || jx != jx1) {
+    while (i != i1 || j != j1) {
         bool packHeavy;
-        if (jx == jx1) {
+        // Checking bounds before the numerical comparision avoids
+        // Floating point inaccuracies while comparing!
+        if (j == j1) {
             // Only light buckets left.
             packHeavy = false;
-        } else if (ix == ix1) {
+        } else if (i == i1) {
             // Only heavy buckets left.
             packHeavy = true;
         } else {
             packHeavy = w <= averageWeight;
         }
-        uint h = heavyLightSharedIndices[jx];
-        uint indicesIndex;
+        uint h = heavyLightIndices[j];
+        uint weightIdx;
         if (packHeavy) {
-            indicesIndex = jx + 1;
+            weightIdx = heavyLightIndices[j + 1];
         } else {
-            indicesIndex = ix;
+            weightIdx = heavyLightIndices[lastLightIndex - i];
         }
-        barrier();
-        uint weightIdx = heavyLightSharedIndices[indicesIndex];
         float weight = weights[weightIdx];
-        barrier();
         float p;
         uint idx, a;
         if (packHeavy) {
             // Pack heavy bucket!
-            p = w * invAverageWeight;
+            p = w / averageWeight;
             a = weightIdx;
             idx = h;
-            jx += 1;
+            j += 1;
         } else {
             // Pack light bucket
-            p = weight * invAverageWeight;
+            p = weight / averageWeight;
             a = h;
             idx = weightIdx;
-            ix += 1;
+            i += 1;
         }
-        barrier();
         table[idx].p = p;
         table[idx].a = a;
-        barrier();
         w = (w + weight) - averageWeight;
     }
     if (j1 == heavyCount - 1) {
@@ -182,7 +208,7 @@ void main(void) {
         // last element which should always be zero, but numerical instabilities would be
         // reassigned to the last light element, both are probably fine, but here we choose to
         // redirect to not have the last heavy element redirect to anything makes it easier to debug!
-        uint h = heavyLightIndices[j1];
+        uint h = heavyLightIndices[j];
         table[h].p = 1.0f;
         table[h].a = h;
     }
