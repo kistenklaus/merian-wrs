@@ -12,7 +12,6 @@
 #include "src/wrs/layout/StaticString.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
 #include <cstddef>
