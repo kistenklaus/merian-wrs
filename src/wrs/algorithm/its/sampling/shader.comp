@@ -1,11 +1,11 @@
 #version 460
 
 #extension GL_KHR_shader_subgroup_arithmetic : enable
-#extension GL_KHR_memory_scope_semantics : enable
-// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
 #extension GL_KHR_shader_subgroup_vote : enable
-// #extension GL_KHR_shader_subgroup_ballot : enable
 #pragma use_vulkan_memory_model
+
+const uint SamplePartitionSize = 4096; // Minimum range size for cooperative search
 
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
 
@@ -22,16 +22,15 @@ layout(push_constant) uniform PushConstant {
     uint S; // sample count
 } pc;
 
-
 // Constants for Philox2x32-10
-const uint PHILOX_M2x32 = 0xD256D193u;  // Multiplication constant
-const uint PHILOX_W32 = 0x9E3779B9u;   // Weyl constant
+const uint PHILOX_M2x32 = 0xD256D193u; // Multiplication constant
+const uint PHILOX_W32 = 0x9E3779B9u; // Weyl constant
 const uint PHILOX_ROUNDS = 10;
 
 // Function to perform a single Philox round
 void philoxRound(inout uint x0, inout uint x1, uint k) {
     uint hi = (x0 * PHILOX_M2x32) >> 32; // High 32 bits of multiplication
-    uint lo = x0 * PHILOX_M2x32;         // Low 32 bits of multiplication
+    uint lo = x0 * PHILOX_M2x32; // Low 32 bits of multiplication
 
     x0 = hi ^ x1 ^ k;
     x1 = lo;
@@ -58,35 +57,56 @@ vec2 philoxRandom(uvec2 counter, uint key) {
     return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
 }
 
-
-
 void main(void) {
     const uint gid = gl_GlobalInvocationID.x;
-    const uint invocID = gl_LocalInvocationID.x;
 
-    const uvec2 counter = uvec2(gid, 0);
-    const uint key = 12345u; // Example seed key
     const uint N = pc.N;
     const uint S = pc.S;
-    if (gid >= S) {
-      return;
-    }
-    
+    if (gid >= S) return;
+
     const float total = cmf[N - 1];
 
-    const float U = philoxRandom(counter, key).x * total;
+    // Step 1: Generate shared random number for the subgroup
+    float u1;
+    if (subgroupElect()) {
+        uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, 0); // Use subgroup ID for random sample
+        uint key = 12345u;
+        u1 = philoxRandom(counter, key).x * total;
+    }
+    u1 = subgroupBroadcastFirst(u1); // Broadcast u1 to all threads in the subgroup
 
-    // Binary search to find the index corresponding to the random sample
+    // Step 2: Subgroup-Based Cooperative Binary Search with Dynamic Termination
     uint low = 0;
     uint high = N - 1;
-    uint mid;
+    while ((high - low + 1) > SamplePartitionSize) {
+        uint range = high - low + 1;
+        uint basePartitionSize = range / gl_SubgroupSize;
+
+        uint partitionSize = basePartitionSize;
+        uint start = low + gl_SubgroupInvocationID * partitionSize;
+        uint end = min(start + partitionSize - 1, high); // Ensure `end` stays within bounds
+
+        // Check if u1 is in this partition
+        bool targetIsLowerThanEnd = u1 < cmf[end];
+        uvec4 ballot = subgroupBallot(targetIsLowerThanEnd);
+        uint partitionId = subgroupBallotFindLSB(ballot);
+        low = subgroupBroadcast(start, partitionId);
+        high = subgroupBroadcast(end, partitionId);
+    }
+
+    // Step 3: Continue Binary Search Independently
+    uvec2 counter = uvec2(gl_GlobalInvocationID.x, 0); // Independent counter for each thread
+    uint key = 67890u; // Independent key for each thread
+    float u2 = cmf[low] + philoxRandom(counter, key).x * (cmf[high] - cmf[low]);
+
     while (low < high) {
-        mid = (low + high) / 2;
-        if (U > cmf[mid]) {
+        uint mid = (low + high) / 2;
+        if (u2 > cmf[mid]) {
             low = mid + 1;
         } else {
             high = mid;
         }
     }
-    samples[gid] = low;
+
+    samples[gid] = low; // Store the final sample
 }

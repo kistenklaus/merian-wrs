@@ -219,14 +219,4 @@ void main(void) {
         cmonoid inclusive = exclusive + partitionAggregate;
         mean = inclusive / N;
     }
-    // ================= Reset partitions ================
-    // if (partID == partitionCount - 1) {
-    //     atomicStore(decoupledPartitionCounter, 0u, gl_ScopeQueueFamily,
-    //         gl_StorageSemanticsBuffer, gl_SemanticsRelease);
-    //
-    //     for (uint pid = invocID; pid < partitionCount; pid += gl_WorkGroupSize.x) {
-    //       partitions[pid].prefix = 0;
-    //       partitions[pid].aggregate = 0;
-    //     }
-    // }
 }

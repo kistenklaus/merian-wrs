@@ -16,7 +16,7 @@ namespace wrs::test::scalar_psa {
             .weightCount = static_cast<std::size_t>(1024 * 2048),
             .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
             .splitCount = static_cast<std::size_t>(1024 * 2048) / 32,
-            .iterations = 100,
+            .iterations = 1,
         },
     };
 

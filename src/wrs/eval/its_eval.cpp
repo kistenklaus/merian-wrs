@@ -16,9 +16,9 @@ void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
 
     std::size_t N = 1024 * 2048;
-    std::size_t S = 10e7;
+    std::size_t S = 1e9;
 
-    std::vector<float> weights = wrs::generate_weights(Distribution::SEEDED_RANDOM_UNIFORM, N);
+    std::vector<float> weights = wrs::generate_weights(Distribution::SEEDED_RANDOM_EXPONENTIAL, N);
     std::vector<float> cmf = wrs::reference::prefix_sum<float>(weights);
 
     wrs::InverseTransformSampling itsKernel{context, 512};

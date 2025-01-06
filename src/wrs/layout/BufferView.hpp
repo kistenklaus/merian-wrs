@@ -289,46 +289,4 @@ class BufferView {
     view_state::BufferViewBarrierStateHandle m_barrierState;
 };
 
-struct Value {
-    float x;
-    float y;
-    static constexpr glsl::StorageQualifier storage_qualifier = glsl::StorageQualifier::std430;
-    static constexpr std::size_t size(glsl::StorageQualifier) {
-      return sizeof(Value);
-    }
-    static constexpr std::size_t alignment(glsl::StorageQualifier) {
-      return alignof(Value);
-    }
-};
-
-static void foo() {
-    
-    merian::BufferHandle handle;
-
-    using XLayout = PrimitiveLayout<float, glsl::StorageQualifier::std430>;
-    using Inner =
-        StructLayout<glsl::StorageQualifier::std430, Attribute<float, "x">, Attribute<float, "y">>;
-    using Layout = ArrayLayout<Inner, glsl::StorageQualifier::std430>;
-    using Layout2 = ArrayLayout<int, glsl::StorageQualifier::std430>;
-    static_assert(wrs::layout::traits::IsSizedStructLayout<Inner>);
-    static_assert(wrs::layout::traits::IsStorageCompatibleStruct<Value, Inner>);
-    static_assert(wrs::layout::traits::IsStructLayout<Inner>);
-
-    static_assert(!wrs::layout::traits::IsPrimitiveArrayLayout<Inner>);
-
-    BufferView<Inner> innerBuffer{handle};
-    BufferView<Layout> buffer{handle, 10};
-    BufferView<Layout2> buffer2{handle, 10};
-
-    BufferView<XLayout> x = innerBuffer.attribute<"x">();
-    x.upload<float>(1.0f);
-    /**/
-    /*Value v = innerBuffer.download<Value>();*/
-    /**/
-    /*std::pmr::vector<int> x = buffer2.download<wrs::pmr_alloc<int>>(2);*/
-    /**/
-    /*std::pmr::vector<Value> v = buffer.download<Value, wrs::pmr_alloc<Value>>(2);*/
-    
-}
-
 } // namespace wrs::layout

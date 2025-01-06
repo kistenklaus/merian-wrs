@@ -1,5 +1,8 @@
 #include "merian/vk/context.hpp"
 
+
+#include "src/wrs/algorithm/prefix_sum/decoupled/test.hpp"
+#include "src/wrs/algorithm/psa/sampling/test.hpp"
 #include "src/wrs/algorithm/its/sampling/test.hpp"
 #include "src/wrs/algorithm/prng/philox/test.hpp"
 #include "src/wrs/algorithm/split/scalar/test.hpp"
@@ -12,6 +15,7 @@
 #include "src/renderdoc.hpp"
 #include "src/wrs/eval/its_eval.hpp"
 #include "wrs/algorithm/pack/simd/test.hpp"
+#include "wrs/algorithm/psa/scalar/test.hpp"
 
 #include <dlfcn.h>
 #include <fmt/base.h>
@@ -57,8 +61,11 @@ int main() {
     //wrs::test::scalar_pack::test(context);
     /* wrs::test::simd_pack::test(context); */
     /* wrs::test::philox::test(context); */
-    wrs::test::its::test(context);
-    //wrs::test::scalar_psa::test(context);
+    /* wrs::test::its::test(context); */
+    /* wrs::test::scalar_psa::test(context); */
+    /* wrs::test::sample_alias::test(context); */
+
+    wrs::test::decoupled_prefix_sum::test(context);
 
 
 }
