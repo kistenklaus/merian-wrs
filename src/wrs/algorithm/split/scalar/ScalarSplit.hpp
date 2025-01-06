@@ -125,7 +125,7 @@ template <typename T = float> class ScalarSplit {
   public:
     using weight_t = T;
 
-    ScalarSplit(const merian::ContextHandle& context) {
+    ScalarSplit(const merian::ContextHandle& context, glsl::uint workgroupSize = 512) : m_workgroupSize(workgroupSize) {
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
                 .add_binding_storage_buffer() // partition prefix sums
@@ -144,6 +144,7 @@ template <typename T = float> class ScalarSplit {
                 .build_pipeline_layout();
 
         merian::SpecializationInfoBuilder specInfoBuilder;
+        specInfoBuilder.add_entry(m_workgroupSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
@@ -174,12 +175,16 @@ template <typename T = float> class ScalarSplit {
         // NOTE: tuples are stored in reverse order by entries (makes it a bit weird when mapping)
         m_pipeline->push_constant<std::tuple<uint32_t, uint32_t>>(cmd, std::make_tuple(N, K));
         fmt::print("RUNNING-SPLIT with {}", K - 1);
-        cmd.dispatch(K - 1, 1, 1);
+        
+        glsl::uint workgroupCount = (K - 1 + m_workgroupSize - 1) / m_workgroupSize;
+
+        cmd.dispatch(workgroupCount, 1, 1);
     }
 
   private:
     merian::PipelineHandle m_pipeline;
     std::vector<vk::WriteDescriptorSet> m_writes;
+    glsl::uint m_workgroupSize;
 };
 
 } // namespace wrs

@@ -57,7 +57,7 @@ int main() {
     //wrs::test::testTests();
     //wrs::test::decoupled_mean::test(context); 
     //wrs::test::decoupled_prefix_partition::test(context);
-    //wrs::test::scalar_split::test(context);
+    wrs::test::scalar_split::test(context);
     //wrs::test::scalar_pack::test(context);
     /* wrs::test::simd_pack::test(context); */
     /* wrs::test::philox::test(context); */
@@ -65,7 +65,7 @@ int main() {
     /* wrs::test::scalar_psa::test(context); */
     /* wrs::test::sample_alias::test(context); */
 
-    wrs::test::decoupled_prefix_sum::test(context);
+    /* wrs::test::decoupled_prefix_sum::test(context); */
 
 
 }

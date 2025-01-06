@@ -149,7 +149,10 @@ assert_is_split(std::span<wrs::Split<T, I>> splits,
         if (i >= lightPrefix.size()) {
             type |= IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND;
         }
-        if (j + 1 >= heavyPrefix.size()) {
+        if (j == heavyPrefix.size()) {
+            continue;
+        }
+        if (j >= heavyPrefix.size()) {
             type |= IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND;
         }
         const std::uintmax_t temp = N * k;

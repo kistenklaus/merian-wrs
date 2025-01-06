@@ -14,6 +14,7 @@ vk::DeviceSize sizeOfWeightType(WeightType type);
 
 struct TestCase {
     WeightType weightType;
+    glsl::uint workgroupSize;
     uint32_t weightCount;
     Distribution distribution;
     uint32_t splitCount;

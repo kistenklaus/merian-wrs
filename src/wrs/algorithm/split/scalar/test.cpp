@@ -96,16 +96,17 @@ static void runTestCase(const wrs::test::TestContext& context,
     using Split = Buffers::Split<weight_t>;
 
     SPDLOG_INFO(fmt::format("Running test case for ScalarSplit:\n"
+                            "\t-workgroupSize={}\n"
                             "\t-weightCount = {}\n"
                             "\t-splitCount = {}\n"
                             "\t-distribution = {}\n"
                             "\t-iterations = {}\n", //
-                            testCase.weightCount, testCase.splitCount,
+                            testCase.workgroupSize, testCase.weightCount, testCase.splitCount,
                             wrs::distribution_to_pretty_string(testCase.distribution),
                             testCase.iterations));
 
     SPDLOG_DEBUG("Creating ScalarSplit instance");
-    wrs::ScalarSplit<weight_t> algo{context.context};
+    wrs::ScalarSplit<weight_t> algo{context.context, testCase.workgroupSize};
 
     for (size_t i = 0; i < testCase.iterations; ++i) {
 
@@ -121,8 +122,8 @@ static void runTestCase(const wrs::test::TestContext& context,
 
         MERIAN_PROFILE_SCOPE(
             context.profiler,
-            fmt::format("TestCase: [weightCount={},splitCount={},distribution={}]",
-                        testCase.weightCount, testCase.splitCount,
+            fmt::format("TestCase: [workgroupSize={},weightCount={},splitCount={},distribution={}]",
+                        testCase.workgroupSize, testCase.weightCount, testCase.splitCount,
                         wrs::distribution_to_pretty_string(testCase.distribution)));
 
         // ===== Generate input data ======
@@ -196,8 +197,8 @@ static void runTestCase(const wrs::test::TestContext& context,
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
 
         std::string recordingLabel =
-            fmt::format("Recoding: [weightCount={},splitCount= {}"
-                        "distribution={},it={}]",
+            fmt::format("Recoding: [workgroupSize={},weightCount={},splitCount= {}"
+                        "distribution={},it={}]",testCase.workgroupSize,
                         testCase.weightCount, testCase.splitCount,
                         wrs::distribution_to_pretty_string(testCase.distribution), i + 1);
         context.profiler->start(recordingLabel);
@@ -248,6 +249,14 @@ static void runTestCase(const wrs::test::TestContext& context,
                 splits, K, heavyPrefixSum, lightPrefixSum, averageWeight, 0.01, resource);
             if (err) {
                 SPDLOG_ERROR(fmt::format("Invalid split!\n{}", err.message()));
+            }
+
+            if (testCase.weightCount < 1024) {
+              fmt::println("");
+              for (std::size_t i = 0; i < splits.size(); ++i) {
+                fmt::println("({},{},{})", splits[i].i, splits[i].j, splits[i].spill);
+              }
+              fmt::println("");
             }
         }
         context.profiler->collect(true,true);

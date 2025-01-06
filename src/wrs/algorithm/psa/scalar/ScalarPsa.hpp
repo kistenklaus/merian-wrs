@@ -125,7 +125,7 @@ namespace wrs {
 
         explicit ScalarPsa(const merian::ContextHandle &context) : m_mean(context, DEFAULT_WORKGROUP_SIZE, DEFAULT_ROWS, false),
                                                                    m_prefixPartition(context, DEFAULT_WORKGROUP_SIZE, DEFAULT_ROWS, true, true),
-                                                                   m_split(context),
+                                                                   m_split(context, 512),
                                                                    m_pack(context) {
         }
 

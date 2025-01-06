@@ -68,8 +68,27 @@ uint ceilMulDiv(uint a, uint b, uint c) {
   return safe_part + rem_part;
 }
 
-void computeSplit(uint k, uint N, uint K, monoid mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {
+void main(void) {
+    const uint N = pc.N;
+    const uint K = pc.K;
+    const monoid mean = meta.mean;
+    heavyCount = partitionPrefix.heavyCount;
+    lightCount = N - heavyCount;
+    lightPrefixFirst = N - 1;
+
+    const uint k = gl_GlobalInvocationID.x + 1;
+
+    if (k >= K) {
+      return;
+    }
+
     const uint n = ceilMulDiv(N, k, K);
+
+    if (gl_GlobalInvocationID.x == 0) {
+        splits[K - 1].i = lightCount;
+        splits[K - 1].j = heavyCount;
+        splits[K - 1].spill = 0;
+    }
 
     uint a = 0;
     uint b = min(n, heavyCount);
@@ -82,7 +101,6 @@ void computeSplit(uint k, uint N, uint K, monoid mean, uint heavyCount, uint lig
         j = (a + b) / 2;
         i = min(n - j, lightCount);
 
-
         if (a > b) {
             sigma2 = partitionPrefix.heavyLight[lightPrefixFirst - i]
                     + partitionPrefix.heavyLight[j + 1];
@@ -91,7 +109,6 @@ void computeSplit(uint k, uint N, uint K, monoid mean, uint heavyCount, uint lig
 
         const monoid heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
         const monoid light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
-
         const monoid sigma = light + heavy;
 
         if (sigma <= target) {
@@ -106,30 +123,7 @@ void computeSplit(uint k, uint N, uint K, monoid mean, uint heavyCount, uint lig
             b = j - 1;
         }
     }
-    splits[k - 1].i = i;
-    splits[k - 1].j = j;
-    splits[k - 1].spill = sigma2 - target;
-}
-
-void main(void) {
-    const uint N = pc.N;
-    const uint K = pc.K;
-    const monoid mean = meta.mean;
-    heavyCount = partitionPrefix.heavyCount;
-    lightCount = N - heavyCount;
-    lightPrefixFirst = N - 1;
-
-    const uint k = gl_GlobalInvocationID.x + 1;
-
-    if (k >= K) {
-        return; // Ensure k does not exceed or equal the number of splits (K)
-    }
-
-    if (gl_GlobalInvocationID.x == 0) {
-        splits[K - 1].i = lightCount;
-        splits[K - 1].j = heavyCount;
-        splits[K - 1].spill = 0;
-    }
-
-    computeSplit(k, N, K, mean, heavyCount, lightCount, lightPrefixFirst);
+    splits[gl_GlobalInvocationID.x].i = i;
+    splits[gl_GlobalInvocationID.x].j = j;
+    splits[gl_GlobalInvocationID.x].spill = sigma2 - target;
 }

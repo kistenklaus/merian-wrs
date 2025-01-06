@@ -82,7 +82,6 @@ void computeSplit(uint k, uint N, uint K, monoid mean, uint heavyCount, uint lig
         j = (a + b) / 2;
         i = min(n - j, lightCount);
 
-
         if (a > b) {
             sigma2 = partitionPrefix.heavyLight[lightPrefixFirst - i]
                     + partitionPrefix.heavyLight[j + 1];
@@ -91,7 +90,6 @@ void computeSplit(uint k, uint N, uint K, monoid mean, uint heavyCount, uint lig
 
         const monoid heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
         const monoid light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
-
         const monoid sigma = light + heavy;
 
         if (sigma <= target) {
@@ -121,8 +119,8 @@ void main(void) {
 
     const uint k = gl_GlobalInvocationID.x + 1;
 
-    if (k >= K) {
-        return; // Ensure k does not exceed or equal the number of splits (K)
+    if (k > K) {
+        return; // Ensure k does not exceed the number of splits (K)
     }
 
     if (gl_GlobalInvocationID.x == 0) {
