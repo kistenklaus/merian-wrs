@@ -99,6 +99,10 @@ class DecoupledPrefixSum {
         cmd.dispatch(workgroupCount, 1, 1);
     }
 
+    inline glsl::uint getPartitionSize() const {
+      return m_partitionSize;
+    }
+
   private:
     merian::PipelineHandle m_pipeline;
     glsl::uint m_partitionSize;

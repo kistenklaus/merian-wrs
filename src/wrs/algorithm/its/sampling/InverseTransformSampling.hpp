@@ -8,11 +8,8 @@
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
-#include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
-#include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <memory>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
@@ -67,7 +64,7 @@ class InverseTransformSampling {
     using Buffers = InverseTransformSamplingBuffers;
 
     explicit InverseTransformSampling(const merian::ContextHandle& context,
-        glsl::uint workgroupSize) : m_workgroupSize(workgroupSize) {
+        glsl::uint workgroupSize, glsl::uint cooperativeSamplingSize = 4096) : m_workgroupSize(workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -89,6 +86,7 @@ class InverseTransformSampling {
 
         merian::SpecializationInfoBuilder specInfoBuilder;
         specInfoBuilder.add_entry(m_workgroupSize);
+        specInfoBuilder.add_entry(cooperativeSamplingSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);

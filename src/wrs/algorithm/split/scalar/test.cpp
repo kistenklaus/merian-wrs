@@ -34,7 +34,8 @@ vk::DeviceSize wrs::test::scalar_split::sizeOfWeightType(WeightType type) {
     throw std::runtime_error("sizeOfWeightType is not implemented properly");
 }
 
-template <typename weight_t>
+using weight_t = float;
+
 static void uploadTestCase(vk::CommandBuffer cmd,
                            const std::span<weight_t>& heavyPrefix,
                            const std::span<weight_t>& reverseLightPrefix,
@@ -68,7 +69,6 @@ static void uploadTestCase(vk::CommandBuffer cmd,
     }
 }
 
-template <typename weight_t>
 void downloadResultsToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, uint32_t K) {
     Buffers::SplitsView stageView{stage.splits, K};
     Buffers::SplitsView localView{buffers.splits, K};
@@ -77,7 +77,6 @@ void downloadResultsToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& st
     stageView.expectHostRead(cmd);
 }
 
-template <typename weight_t>
 std::pmr::vector<Buffers::Split<weight_t>>
 downloadResultsFromStage(Buffers& stage, uint32_t K, std::pmr::memory_resource* resource) {
 
@@ -87,7 +86,6 @@ downloadResultsFromStage(Buffers& stage, uint32_t K, std::pmr::memory_resource* 
     return stageView.template download<Buffers::Split<weight_t>, wrs::pmr_alloc<Buffers::Split<weight_t>>>(resource);
 }
 
-template <typename weight_t>
 static void runTestCase(const wrs::test::TestContext& context,
                         const TestCase& testCase,
                         Buffers& buffers,
@@ -106,7 +104,7 @@ static void runTestCase(const wrs::test::TestContext& context,
                             testCase.iterations));
 
     SPDLOG_DEBUG("Creating ScalarSplit instance");
-    wrs::ScalarSplit<weight_t> algo{context.context, testCase.workgroupSize};
+    wrs::ScalarSplit algo{context.context, testCase.workgroupSize};
 
     for (size_t i = 0; i < testCase.iterations; ++i) {
 
@@ -208,7 +206,7 @@ static void runTestCase(const wrs::test::TestContext& context,
         {
             SPDLOG_DEBUG("Uploading input");
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload partition prefix & average");
-            uploadTestCase<weight_t>(cmd, heavyPrefixSum, reverseLightPrefixSum, averageWeight,
+            uploadTestCase(cmd, heavyPrefixSum, reverseLightPrefixSum, averageWeight,
                                      buffers, stage, resource);
         }
 
@@ -222,7 +220,7 @@ static void runTestCase(const wrs::test::TestContext& context,
         {
             SPDLOG_DEBUG("Downloading results to stage");
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download result to stage");
-            downloadResultsToStage<weight_t>(cmd, buffers, stage, K);
+            downloadResultsToStage(cmd, buffers, stage, K);
         }
 
         // =============== Submit to queue ============
@@ -239,7 +237,7 @@ static void runTestCase(const wrs::test::TestContext& context,
         {
             SPDLOG_DEBUG("Download results from stage");
             MERIAN_PROFILE_SCOPE(context.profiler, "Download results from stage");
-            splits = downloadResultsFromStage<weight_t>(stage, K, resource);
+            splits = downloadResultsFromStage(stage, K, resource);
         }
 
         // ========= Compare results against reference ==========
@@ -276,13 +274,7 @@ void wrs::test::scalar_split::test(const merian::ContextHandle& context) {
     std::pmr::memory_resource* resource = &safeResource;
 
     for (const auto& testCase : TEST_CASES) {
-        switch (testCase.weightType) {
-        case WEIGHT_TYPE_FLOAT:
-            runTestCase<float>(testContext, testCase, buffers, stage, resource);
-            break;
-        default:
-            throw std::runtime_error("FATAL");
-        }
+        runTestCase(testContext, testCase, buffers, stage, resource);
     }
 
     testContext.profiler->collect(true,true);

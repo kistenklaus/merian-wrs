@@ -18,8 +18,8 @@
 
 namespace wrs {
 
-struct AlgorithmBuffers {
-    using Self = AlgorithmBuffers;
+struct ITSBuffers {
+    using Self = ITSBuffers;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
@@ -39,7 +39,7 @@ class Algorithm {
         glsl::uint X;
     };
   public:
-    using Buffers = AlgorithmBuffers;
+    using Buffers = ITSBuffers;
 
     explicit Algorithm(const merian::ContextHandle& context, glsl::uint workgroupSize) : m_workgroupSize(workgroupSize){
 

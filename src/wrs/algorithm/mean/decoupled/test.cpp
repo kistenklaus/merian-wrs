@@ -1,7 +1,7 @@
 #include "./test.hpp"
 
 #include "merian/vk/utils/profiler.hpp"
-#include "src/wrs/algorithm/mean/decoupled/DecoupledMean.h"
+#include "src/wrs/algorithm/mean/decoupled/DecoupledMean.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test/test_cases.hpp"
 #include "src/wrs/common_vulkan.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test/test_setup.hpp"
@@ -28,7 +28,8 @@ vk::DeviceSize wrs::test::decoupled_mean::sizeOfElement(const ElementType wt) {
     throw std::runtime_error("NOT IMPLEMENTED");
 }
 
-template <typename elem_t>
+
+using elem_t = float;
 void uploadTestCase(vk::CommandBuffer cmd,
                     std::pmr::vector<elem_t> elements,
                     uint32_t workgroupSize,
@@ -54,7 +55,6 @@ void uploadTestCase(vk::CommandBuffer cmd,
     }
 }
 
-template <typename elem_t>
 void downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage) {
   Buffers::MeanView stageView {stage.mean};
   Buffers::MeanView localView {buffers.mean};
@@ -62,12 +62,11 @@ void downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage) {
   stageView.expectHostRead(cmd);
 }
 
-template <typename elem_t> elem_t downloadFromStage(Buffers& stage) {
+elem_t downloadFromStage(Buffers& stage) {
   Buffers::MeanView stageView {stage.mean};
   return stageView.template download<elem_t>();
 }
 
-template <typename elem_t>
 bool runTestCase(const TestContext& context,
                  const TestCase& testCase,
                  Buffers& buffers,
@@ -84,7 +83,7 @@ bool runTestCase(const TestContext& context,
                             wrs::distribution_to_pretty_string(testCase.distribution),
                             testCase.stable, testCase.iterations));
     SPDLOG_DEBUG("Creating DecoupledMean algorithm instance");
-    wrs::DecoupledMean<elem_t> kernel(context.context, testCase.workgroupSize, testCase.rows,
+    wrs::DecoupledMean kernel(context.context, testCase.workgroupSize, testCase.rows,
                                       testCase.stable);
 
     bool failed = false;
@@ -112,8 +111,8 @@ bool runTestCase(const TestContext& context,
             SPDLOG_DEBUG(fmt::format("Generating {} weights with {}", testCase.elementCount,
                                      wrs::distribution_to_pretty_string(testCase.distribution)));
             MERIAN_PROFILE_SCOPE(context.profiler, "Generate weights");
-            elements = std::move(wrs::pmr::generate_weights<elem_t>(
-                testCase.distribution, testCase.elementCount, resource));
+            elements = wrs::pmr::generate_weights<elem_t>(
+                testCase.distribution, testCase.elementCount, resource);
         }
 
         // Begin recording
@@ -144,7 +143,7 @@ bool runTestCase(const TestContext& context,
         // Download results to stage
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download result to stage");
-            downloadToStage<elem_t>(cmd, buffers, stage);
+            downloadToStage(cmd, buffers, stage);
         }
 
         // Submit to queue
@@ -160,7 +159,7 @@ bool runTestCase(const TestContext& context,
         // Download results from stage
         elem_t mean;
         {
-            mean = downloadFromStage<elem_t>(stage);
+            mean = downloadFromStage(stage);
         }
 
         // Compute reference
@@ -194,11 +193,7 @@ void wrs::test::decoupled_mean::test(const merian::ContextHandle& context) {
     std::pmr::memory_resource* resource = &safeResource;
 
     for (const auto& testCase : TEST_CASES) {
-        switch (testCase.elemType) {
-        case WEIGHT_TYPE_FLOAT:
-            runTestCase<float>(testContext, testCase, buffers, stage, resource);
-            break;
-        }
+        runTestCase(testContext, testCase, buffers, stage, resource);
         stackResource.reset();
     }
 

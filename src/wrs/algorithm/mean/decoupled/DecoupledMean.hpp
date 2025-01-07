@@ -68,27 +68,7 @@ struct DecoupledMeanBuffers {
     static DecoupledMeanBuffers allocate(merian::ResourceAllocatorHandle alloc,
                                          std::size_t elementCount,
                                          std::size_t partitionSize,
-                                         merian::MemoryMappingType memoryMapping) {
-      std::size_t workgroupCount = (elementCount + partitionSize - 1) / partitionSize;
-        DecoupledMeanBuffers buffers;
-        if (memoryMapping == merian::MemoryMappingType::NONE) {
-            buffers.elements =
-                alloc->createBuffer(ElementsLayout::size(elementCount),
-                                    ELEMENT_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.mean = alloc->createBuffer(MeanLayout::size(),
-                MEAN_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.decoupledStates = alloc->createBuffer(DecoupledStatesLayout::size(workgroupCount),
-                MEAN_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-        } else {
-            buffers.elements = alloc->createBuffer(ElementsLayout::size(elementCount),
-                                                   vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.mean = alloc->createBuffer(MeanLayout::size(),
-                vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.decoupledStates = alloc->createBuffer(DecoupledStatesLayout::size(workgroupCount),
-                {}, memoryMapping);
-        }
-        return buffers;
-    }
+                                         merian::MemoryMappingType memoryMapping);
 
     static DecoupledMeanBuffers allocate(merian::ResourceAllocatorHandle alloc,
                                          std::size_t elementCount,
@@ -99,17 +79,10 @@ struct DecoupledMeanBuffers {
     }
 };
 
-template <typename T = float> class DecoupledMean {
-    static_assert(std::same_as<T, float>);
+class DecoupledMean {
 
-  private:
-#ifdef NDEBUG
-    static constexpr bool CHECK_PARAMETERS = false;
-#else
-    static constexpr bool CHECK_PARAMETERS = true;
-#endif
   public:
-    using elem_t = T;
+    using elem_t = float;
     using Buffers = DecoupledMeanBuffers;
     static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 512;
     static constexpr uint32_t DEFAULT_ROWS = 4;
@@ -164,29 +137,7 @@ template <typename T = float> class DecoupledMean {
     void run(vk::CommandBuffer cmd, const DecoupledMeanBuffers& buffers, uint32_t N) {
 
         uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
-        if constexpr (CHECK_PARAMETERS) {
-            // CHECK NULL POINTERS
-            if (cmd == VK_NULL_HANDLE) {
-                throw std::runtime_error("cmd is VK_NULL_HANDLE");
-            }
-            if (buffers.elements->get_buffer() == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.elements is VK_NULL_HANDLE");
-            }
-            if (buffers.mean->get_buffer() == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.mean is VK_NULL_HANDLE");
-            }
-            if (buffers.decoupledStates->get_buffer() == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.decoupledStates is VK_NULL_HANDLE");
-            }
-            // CHECK BUFFER SIZES
-            if (buffers.elements->get_size() < sizeof(elem_t) * N) {
-                throw std::runtime_error("buffers.elements is to small!");
-            }
-            if (buffers.mean->get_size() < sizeof(elem_t)) {
-                throw std::runtime_error("buffers.mean is to small!");
-            }
-        }
-        m_pipeline->bind(cmd);
+                m_pipeline->bind(cmd);
         vk::DescriptorBufferInfo elementsDesc = buffers.elements->get_descriptor_info();
         m_writes[0].setBufferInfo(elementsDesc);
         vk::DescriptorBufferInfo meanDesc = buffers.mean->get_descriptor_info();
@@ -198,6 +149,10 @@ template <typename T = float> class DecoupledMean {
         m_pipeline->push_constant(cmd, N);
 
         cmd.dispatch(workgroupCount, 1, 1);
+    }
+
+    inline uint32_t getPartitionSize() const {
+      return m_partitionSize;
     }
 
   private:

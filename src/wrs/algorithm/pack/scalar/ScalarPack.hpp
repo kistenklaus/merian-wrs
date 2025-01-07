@@ -52,50 +52,20 @@ struct ScalarPackBuffers {
     using AliasTableLayout = layout::ArrayLayout<AliasTableEntryLayout, storageQualifier>;
     using AliasTableView = layout::BufferView<AliasTableLayout>;
 
-
     static ScalarPackBuffers allocate(merian::ResourceAllocatorHandle alloc,
                                          std::size_t weightCount,
                                          std::size_t splitCount,
-                                         merian::MemoryMappingType memoryMapping) {
-        ScalarPackBuffers buffers;
-        if (memoryMapping == merian::MemoryMappingType::NONE) {
-            buffers.partitionIndices =
-                alloc->createBuffer(PartitionIndicesLayout::size(weightCount),
-                                    vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.weights = alloc->createBuffer(WeightsLayout::size(weightCount),
-                vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.mean = alloc->createBuffer(MeanLayout::size(),
-                vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.splits = alloc->createBuffer(SplitsLayout::size(splitCount),
-                vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.aliasTable = alloc->createBuffer(AliasTableLayout::size(weightCount),
-                vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-        } else {
-            buffers.partitionIndices =
-                alloc->createBuffer(PartitionIndicesLayout::size(weightCount),
-                                    vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.weights = alloc->createBuffer(WeightsLayout::size(weightCount),
-                vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.mean = alloc->createBuffer(MeanLayout::size(),
-                vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.splits = alloc->createBuffer(SplitsLayout::size(splitCount),
-                vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.aliasTable = alloc->createBuffer(AliasTableLayout::size(weightCount),
-                vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-        }
-        return buffers;
-    }
+                                         merian::MemoryMappingType memoryMapping);
 };
 
-template <typename T> class ScalarPack {
-    static_assert(std::same_as<T, float>, "Other weights are currently not supported");
+class ScalarPack {
 
     struct PushConstant {
       glsl::uint N;
       glsl::uint K;
     };
   public:
-    using weight_t = T;
+    using weight_t = float;
 
     explicit ScalarPack(const merian::ContextHandle& context, glsl::uint workgroupSize = 1) :
       m_workgroupSize(workgroupSize)

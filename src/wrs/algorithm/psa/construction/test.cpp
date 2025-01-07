@@ -1,4 +1,4 @@
-#include "src/wrs/algorithm/psa/scalar/test.hpp"
+#include "./test.hpp"
 
 #include <src/wrs/memory/FallbackResource.hpp>
 #include <src/wrs/memory/SafeResource.hpp>
@@ -8,14 +8,35 @@
 #include <src/wrs/test/test.hpp>
 #include <src/wrs/types/alias_table.hpp>
 #include <src/wrs/types/partition.hpp>
+#include "src/wrs/gen/weight_generator.h"
 
-#include "ScalarPsa.hpp"
-#include "./test_cases.hpp"
+#include "./PSAC.hpp"
 
-using Buffers = wrs::ScalarPsa::Buffers;
-using weight_type = wrs::ScalarPsa::weight_t;
+using Buffers = wrs::PSAC::Buffers;
+using weight_type = wrs::PSAC::weight_t;
 
-using namespace wrs::test::scalar_psa;
+namespace wrs::test::psac {
+
+
+struct TestCase {
+    std::size_t weightCount;
+    Distribution distribution;
+    std::size_t splitCount;
+
+    PSACConfig config;
+
+    std::size_t iterations;
+};
+
+constexpr TestCase TEST_CASES[] = {
+    TestCase {
+        .weightCount = static_cast<std::size_t>(1024 * 2048),
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+        .splitCount = static_cast<std::size_t>(1024 * 2048) / 32,
+        .config = {},
+        .iterations = 1,
+    },
+};
 
 static void uploadWeights(vk::CommandBuffer cmd, const Buffers &buffers,
                           const Buffers &stage, const std::span<const weight_type> weights) {
@@ -47,13 +68,8 @@ static void downloadAliasTableToStage(vk::CommandBuffer cmd, const Buffers &buff
     stageView.expectHostRead(cmd);
 }
 
-static wrs::pmr::AliasTable<weight_type, wrs::glsl::uint> downloadAliasTableFromStage(
-    const Buffers &stage, const std::size_t weightCount, std::pmr::memory_resource *resource) {
-    Buffers::AliasTableView stageView{stage.aliasTable, weightCount};
-
-    using Entry = wrs::AliasTableEntry<weight_type, wrs::glsl::uint>;
-    return stageView.download<Entry, wrs::pmr_alloc<Entry> >(resource);
-}
+wrs::pmr::AliasTable<weight_type, wrs::glsl::uint> downloadAliasTableFromStage(
+    const Buffers &stage, const std::size_t weightCount, std::pmr::memory_resource *resource);
 
 static bool runTestCase(const wrs::test::TestContext &context,
                         const Buffers &buffers, const Buffers &stage, std::pmr::memory_resource *resource,
@@ -64,7 +80,7 @@ static bool runTestCase(const wrs::test::TestContext &context,
     SPDLOG_INFO("Running test case:{}", testName);
 
     SPDLOG_DEBUG("Creating ScalarPsa instance");
-    wrs::ScalarPsa psa{context.context};
+    wrs::PSAC psac{context.context};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -89,10 +105,6 @@ static bool runTestCase(const wrs::test::TestContext &context,
             weights = wrs::pmr::generate_weights<weight_type>(testCase.distribution, N, resource);
         }
 
-        // 1.1 Compute reference input
-        {
-        }
-
         // 2. Begin recoding
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
@@ -114,7 +126,7 @@ static bool runTestCase(const wrs::test::TestContext &context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            psa.run(cmd, buffers, N, K, context.profiler);
+            psac.run(cmd, buffers, N, K, context.profiler);
         }
 
         // 5. Download results to stage
@@ -157,21 +169,25 @@ static bool runTestCase(const wrs::test::TestContext &context,
     return failed;
 }
 
-void wrs::test::scalar_psa::test(const merian::ContextHandle &context) {
-    SPDLOG_INFO("Testing decoupled prefix partition algorithm");
+void test(const merian::ContextHandle &context) {
+    SPDLOG_INFO("Testing parallel split alias table construction algorithm");
 
     TestContext c = setupTestContext(context);
 
     std::size_t maxWeightCount = 0;
     std::size_t maxSplitCount = 0;
+    glsl::uint maxPrefixPartitionSize = 0;
+    glsl::uint maxMeanPartitionSize = 0;
     for (const auto &testCase: TEST_CASES) {
         maxWeightCount = std::max(maxWeightCount, testCase.weightCount);
         maxSplitCount = std::max(maxSplitCount, testCase.splitCount);
+        maxPrefixPartitionSize = std::max(maxPrefixPartitionSize, testCase.config.prefixSumWorkgroupSize * testCase.config.prefixSumRows);
+        maxMeanPartitionSize = std::max(maxMeanPartitionSize, testCase.config.meanWorkgroupSize * testCase.config.meanRows);
     }
 
-    auto buffers = Buffers::allocate(c.alloc, maxWeightCount,
+    auto buffers = Buffers::allocate(c.alloc, maxWeightCount, maxMeanPartitionSize, maxPrefixPartitionSize,
                                      maxSplitCount, merian::MemoryMappingType::NONE);
-    auto stage = Buffers::allocate(c.alloc, maxWeightCount,
+    auto stage = Buffers::allocate(c.alloc, maxWeightCount, maxMeanPartitionSize, maxPrefixPartitionSize,
                                    maxSplitCount, merian::MemoryMappingType::HOST_ACCESS_RANDOM);
 
     memory::StackResource stackResource{buffers.weights->get_size() * 10};
@@ -192,9 +208,11 @@ void wrs::test::scalar_psa::test(const merian::ContextHandle &context) {
         merian::Profiler::get_report_str(c.profiler->get_report())));
 
     if (failCount == 0) {
-        SPDLOG_INFO("decoupled prefix partition algorithm passed all tests");
+        SPDLOG_INFO("parallel split alias table construction passed all tests");
     } else {
-        SPDLOG_ERROR(fmt::format("decoupled prefix partition algorithm failed {} out of {} tests",
+        SPDLOG_ERROR(fmt::format("parallel split alias table construction algorithm failed {} out of {} tests",
             failCount, sizeof(TEST_CASES) / sizeof(TestCase)));
     }
+}
+
 }

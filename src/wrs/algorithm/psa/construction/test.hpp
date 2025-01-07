@@ -2,7 +2,7 @@
 
 #include "merian/vk/context.hpp"
 
-namespace wrs::test::scalar_psa {
+namespace wrs::test::psac {
 
 void test(const merian::ContextHandle& context);
 

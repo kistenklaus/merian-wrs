@@ -33,6 +33,8 @@ vk::DeviceSize wrs::test::scalar_pack::sizeOfWeight(const wrs::test::scalar_pack
     throw std::runtime_error("NOT IMPLEMENTED");
 }
 
+using weight_t = float;
+
 static void uploadPartitionIndices(const vk::CommandBuffer cmd,
                                    const std::span<const wrs::glsl::uint> heavyIndices,
                                    const std::span<const wrs::glsl::uint> reverseLightIndices,
@@ -56,7 +58,6 @@ static void uploadPartitionIndices(const vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-template <wrs::arithmetic weight_t>
 static void uploadWeights(vk::CommandBuffer cmd,
                           std::span<const weight_t> weights,
                           Buffers& buffers,
@@ -68,7 +69,6 @@ static void uploadWeights(vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-template <wrs::arithmetic weight_t>
 static void uploadSplits(const vk::CommandBuffer cmd,
                          std::span<const wrs::Split<weight_t, wrs::glsl::uint>> splits,
                          Buffers& buffers,
@@ -80,7 +80,6 @@ static void uploadSplits(const vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-template <wrs::arithmetic weight_t>
 static void
 uploadMean(vk::CommandBuffer cmd, weight_t averageWeight, Buffers& buffers, Buffers& stage) {
     Buffers::MeanView stageView{stage.mean};
@@ -102,7 +101,6 @@ downloadAliasTableToStage(const vk::CommandBuffer cmd,
     stageView.expectHostRead(cmd);
 }
 
-template <wrs::arithmetic weight_t>
 static wrs::pmr::AliasTable<weight_t, wrs::glsl::uint>
 downloadAliasTableFromStage(std::size_t N, Buffers& stage, std::pmr::memory_resource* resource) {
     Buffers::AliasTableView stageView{stage.aliasTable, N};
@@ -111,7 +109,6 @@ downloadAliasTableFromStage(std::size_t N, Buffers& stage, std::pmr::memory_reso
     return stageView.download<Entry, wrs::pmr_alloc<Entry>>(resource);
 }
 
-template <wrs::arithmetic weight_t>
 static bool runTestCase(const TestContext& context,
                         const TestCase& testCase,
                         Buffers& buffers,
@@ -123,7 +120,7 @@ static bool runTestCase(const TestContext& context,
     SPDLOG_INFO("Running test case:{}", testName);
 
     SPDLOG_DEBUG("Creating ScalarPack instance");
-    wrs::ScalarPack<weight_t> kernel{context.context, testCase.workgroupSize};
+    wrs::ScalarPack kernel{context.context, testCase.workgroupSize};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -199,17 +196,17 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload splits");
             SPDLOG_DEBUG("Uploading splits...");
-            uploadSplits<weight_t>(cmd, splits, buffers, stage);
+            uploadSplits(cmd, splits, buffers, stage);
         }
         { // 3.2 Upload mean
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload mean");
             SPDLOG_DEBUG("Uploading mean...");
-            uploadMean<weight_t>(cmd, averageWeight, buffers, stage);
+            uploadMean(cmd, averageWeight, buffers, stage);
         }
         { // 3.3
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload weights");
             SPDLOG_DEBUG("Uploading weights...");
-            uploadWeights<weight_t>(cmd, weights, buffers, stage);
+            uploadWeights(cmd, weights, buffers, stage);
         }
 
         // 4. Run test case
@@ -237,7 +234,7 @@ static bool runTestCase(const TestContext& context,
         wrs::pmr::AliasTable<weight_t, wrs::glsl::uint> aliasTable{resource};
         {
             SPDLOG_DEBUG("Downloading results from stage...");
-            aliasTable = downloadAliasTableFromStage<weight_t>(N, stage, resource);
+            aliasTable = downloadAliasTableFromStage(N, stage, resource);
         }
         /* fmt::println("SPLITS"); */
         /* { */
@@ -284,13 +281,9 @@ void wrs::test::scalar_pack::test(const merian::ContextHandle& context) {
 
     uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        switch (testCase.weightType) {
-        case WEIGHT_TYPE_FLOAT:
-            bool failed = runTestCase<float>(testContext, testCase, buffers, stage, resource);
-            if (failed) {
-                failCount += 1;
-            }
-            break;
+        bool failed = runTestCase(testContext, testCase, buffers, stage, resource);
+        if (failed) {
+            failCount += 1;
         }
         stackResource.reset();
     }

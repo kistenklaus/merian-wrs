@@ -2,7 +2,7 @@
 
 #include "./test/test_setup.h"
 #include "merian/vk/utils/profiler.hpp"
-#include "src/wrs/algorithm/prefix_partition/decoupled/DecoupledPrefixPartitionKernel.hpp"
+#include "src/wrs/algorithm/prefix_partition/decoupled/DecoupledPrefixPartition.hpp"
 #include "src/wrs/algorithm/prefix_partition/decoupled/test/test_types.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
@@ -37,7 +37,8 @@ vk::DeviceSize wrs::test::decoupled_prefix_partition::sizeOfWeight(WeightT ty) {
     throw std::runtime_error("OH NO");
 }
 
-template <typename weight_t>
+using weight_t = float;
+
 static void uploadTestCase(vk::CommandBuffer cmd,
                            std::span<const weight_t> elements,
                            std::size_t partitionSize,
@@ -65,7 +66,6 @@ static void uploadTestCase(vk::CommandBuffer cmd,
     }
 }
 
-template <typename weight_t>
 static void downloadResultsToStage(vk::CommandBuffer cmd,
                                    Buffers& buffers,
                                    Buffers& stage,
@@ -89,7 +89,6 @@ static void downloadResultsToStage(vk::CommandBuffer cmd,
     }
 }
 
-template <typename weight_t>
 static wrs::Partition<weight_t, std::pmr::vector<weight_t>>
 downloadPrefixFromStage(Buffers& stage,
                         uint32_t elementCount,
@@ -107,7 +106,6 @@ downloadPrefixFromStage(Buffers& stage,
     return heavyLightPrefix;
 }
 
-template <typename weight_t>
 static wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>>
 downloadPartitionFromStage(Buffers& stage,
                            uint32_t elementCount,
@@ -125,7 +123,6 @@ downloadPartitionFromStage(Buffers& stage,
     return heavyLightPartition;
 }
 
-template <typename weight_t>
 bool runTestCase(const wrs::test::TestContext& context,
                  Buffers& buffers,
                  Buffers& stage,
@@ -140,7 +137,7 @@ bool runTestCase(const wrs::test::TestContext& context,
     // 0. Create algorithm instance
     // NOTE: Allocators are not supported currently.
     SPDLOG_DEBUG("Creating DecoupledPrefixPartitionKernel");
-    wrs::DecoupledPrefixPartition<weight_t> kernel(context.context, testCase.workgroupSize,
+    wrs::DecoupledPrefixPartition kernel(context.context, testCase.workgroupSize,
                                                    testCase.rows, testCase.writePartition,
                                                    testCase.stable);
     bool failed = false;
@@ -193,7 +190,7 @@ bool runTestCase(const wrs::test::TestContext& context,
             SPDLOG_DEBUG("Uploading weights & pivot");
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Uploading weights");
             std::size_t partitionSize = Buffers::partitionSize(testCase.workgroupSize, testCase.rows);
-            uploadTestCase<weight_t>(cmd, elements, partitionSize, pivot, buffers, stage);
+            uploadTestCase(cmd, elements, partitionSize, pivot, buffers, stage);
         }
 
         // 4. Run test case
@@ -207,7 +204,7 @@ bool runTestCase(const wrs::test::TestContext& context,
         {
             SPDLOG_DEBUG("Downloading results to staging buffers");
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download result to stage");
-            downloadResultsToStage<weight_t>(cmd, buffers, stage, testCase.writePartition,
+            downloadResultsToStage(cmd, buffers, stage, testCase.writePartition,
                                              testCase.elementCount);
         }
 
@@ -234,7 +231,7 @@ bool runTestCase(const wrs::test::TestContext& context,
 
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Downloading prefix from staging buffers");
-            heavyLightPrefix = downloadPrefixFromStage<weight_t>(stage, testCase.elementCount, resource);
+            heavyLightPrefix = downloadPrefixFromStage(stage, testCase.elementCount, resource);
         }
         const auto heavyPrefix = heavyLightPrefix.heavy();
         const auto lightPrefix = heavyLightPrefix.light();
@@ -242,7 +239,7 @@ bool runTestCase(const wrs::test::TestContext& context,
         wrs::Partition<uint32_t, std::pmr::vector<uint32_t>> heavyLightIndices;
         if (testCase.writePartition) {
             MERIAN_PROFILE_SCOPE(context.profiler, "Downloading partition from staging buffers");
-            heavyLightIndices = downloadPartitionFromStage<weight_t>(stage, testCase.elementCount,
+            heavyLightIndices = downloadPartitionFromStage(stage, testCase.elementCount,
                                                                       resource);
         } else {
             MERIAN_PROFILE_SCOPE(context.profiler, "Compute reference stable partition");
@@ -316,12 +313,8 @@ void wrs::test::decoupled_prefix_partition::test(const merian::ContextHandle& co
 
     uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        switch (testCase.weight_type) {
-        case WEIGHT_T_FLOAT:
-            if (runTestCase<float>(c, buffers, stage, resource, testCase)) {
-                failCount += 1;
-            }
-            break;
+        if (runTestCase(c, buffers, stage, resource, testCase)) {
+            failCount += 1;
         }
         stackResource.reset();
     }

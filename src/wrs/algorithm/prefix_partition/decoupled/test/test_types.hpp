@@ -1,6 +1,6 @@
 #pragma once
 
-#include "src/wrs/algorithm/prefix_partition/decoupled/DecoupledPrefixPartitionKernel.hpp"
+#include "src/wrs/algorithm/prefix_partition/decoupled/DecoupledPrefixPartition.hpp"
 #include "src/wrs/gen/weight_generator.h"
 namespace wrs::test::decoupled_prefix_partition {
 

@@ -1,94 +1,84 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
-#include "src/wrs/algorithm/its/sampling/InverseTransformSampling.hpp"
+#include "src/renderdoc.hpp"
+#include "src/wrs/algorithm/pack/simd/SimdPack.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
+#include "src/wrs/reference/partition.hpp"
 #include "src/wrs/reference/prefix_sum.hpp"
+#include "src/wrs/reference/reduce.hpp"
+#include "src/wrs/reference/split.hpp"
+#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/test.hpp"
+#include "src/wrs/types/alias_table.hpp"
+#include <algorithm>
 #include <cstring>
-#include <fmt/base.h>
 #include <fmt/format.h>
+#include <ranges>
 #include <spdlog/spdlog.h>
 #include <tuple>
-#include <vector>
-#include "src/renderdoc.hpp"
+
+#include "./PSA.hpp"
+
+namespace wrs::test::psa {
 
 using namespace wrs;
 using namespace wrs::test;
 
-using Algorithm = InverseTransformSampling;
+using Algorithm = PSA;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
-    glsl::uint workgroupSize;
-    glsl::uint weightCount;
-    wrs::Distribution distribution;
-    glsl::uint sampleCount;
+    glsl::uint N;
+    glsl::uint S;
+
+    PSAConfig config;
+
     uint32_t iterations;
 };
 
 static constexpr TestCase TEST_CASES[] = {
     //
-      TestCase{
-        .workgroupSize = 512,
-        .weightCount = 1024 * 2048,
-        .distribution = wrs::Distribution::SEEDED_RANDOM_EXPONENTIAL,
-        .sampleCount = 1024 * 2048,
-        .iterations = 16,
-      },
+    TestCase{
+        .N = 1024 * 2048,
+        .S = 1024 * 2048 / 32,
+        .config = {},
+        .iterations = 1,
+    },
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
-  glsl::uint maxSampleCount = 0;
-  glsl::uint maxWeightCount = 0;
-  for (auto testCase : TEST_CASES) {
-    maxSampleCount = std::max(maxSampleCount, testCase.sampleCount);
-    maxWeightCount = std::max(maxWeightCount, testCase.weightCount);
-  }
 
-  Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
-      maxWeightCount, maxSampleCount);
-  Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE,
-      maxWeightCount, maxSampleCount);
+    glsl::uint maxWeightCount = 0;
+    glsl::uint maxMeanPartitionSize = 0;
+    glsl::uint maxPrefixPartitionSize = 0;
+    glsl::uint maxSplitCount = 0;
+    glsl::uint maxSampleCount = 0;
 
-  return std::make_tuple(local, stage);
+    Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
+                                      maxWeightCount, maxMeanPartitionSize, maxPrefixPartitionSize,
+                                      maxSplitCount, maxSampleCount);
+    Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE,
+                                      maxWeightCount, maxMeanPartitionSize, maxPrefixPartitionSize,
+                                      maxSplitCount, maxSampleCount);
 
+    return std::make_tuple(local, stage);
 }
 
 static void uploadTestCase(const vk::CommandBuffer cmd,
-                                   const Buffers& buffers,
-                                   const Buffers& stage,
-                                   std::span<const float> cmf) {
-  Buffers::CMFView stageView{stage.cmf, cmf.size()};
-  Buffers::CMFView localView{buffers.cmf, cmf.size()};
-  stageView.upload<float>(cmf);
-  stageView.copyTo(cmd, localView);
-  localView.expectComputeRead(cmd);
-}
+                           const Buffers& buffers,
+                           const Buffers& stage,
+                           std::pmr::memory_resource* resource) {}
 
-static void downloadToStage(vk::CommandBuffer cmd,
-                          Buffers& buffers,
-                          Buffers& stage,
-                          std::size_t sampleCount) {
-  Buffers::SamplesView stageView{stage.samples, sampleCount};
-  Buffers::SamplesView localView{buffers.samples, sampleCount};
-  localView.copyTo(cmd, stageView);
-  stageView.expectHostRead(cmd);
-}
-    // TODO
+static void downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage) {}
 
 struct Results {
-  std::pmr::vector<glsl::uint> samples;
+    // TODO
 };
-
-static Results downloadFromStage(Buffers& stage, std::pmr::memory_resource* resource, std::size_t sampleCount) {
-  Buffers::SamplesView stageView{stage.samples, sampleCount};
-  std::pmr::vector<glsl::uint> samples = stageView.download<glsl::uint, std::pmr::polymorphic_allocator<glsl::uint>>(resource);
-	return Results {
-    .samples = std::move(samples),
-  };
+static Results downloadFromStage(Buffers& stage, std::pmr::memory_resource* resource) {
+    return Results{};
 };
 
 static bool runTestCase(const TestContext& context,
@@ -97,19 +87,17 @@ static bool runTestCase(const TestContext& context,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
     std::string testName =
-        fmt::format("{{workgroupSize={},weightCount={},distribution={},sampleCount={}}}", testCase.workgroupSize,
-            testCase.weightCount, distribution_to_pretty_string(testCase.distribution),
-            testCase.sampleCount);
+        fmt::format("{{workgroupSize={},N={}}}", 0, testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
-   	Algorithm kernel{context.context, testCase.workgroupSize};
+    Algorithm kernel{context.context};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
         MERIAN_PROFILE_SCOPE(context.profiler, testName);
         context.queue->wait_idle();
         if (testCase.iterations > 1) {
-            if (testCase.sampleCount > 1e6) {
+            if (testCase.N > 1e6) {
                 SPDLOG_INFO(
                     fmt::format("Testing iterations {} out of {}", it + 1, testCase.iterations));
             } else {
@@ -120,8 +108,6 @@ static bool runTestCase(const TestContext& context,
 
         // 1. Generate input
         context.profiler->start("Generate test input");
-        std::pmr::vector<float> weights = wrs::pmr::generate_weights<float>(testCase.distribution, testCase.weightCount, resource);
-        std::pmr::vector<float> cmf = wrs::reference::pmr::prefix_sum<float>(weights, resource);
         // TODO
         context.profiler->end();
 
@@ -135,21 +121,21 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
             SPDLOG_DEBUG("Uploading test case...");
-            uploadTestCase(cmd, buffers, stage, cmf);
+            uploadTestCase(cmd, buffers, stage, resource);
         }
 
         // 4. Run test case
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.weightCount, testCase.sampleCount);
+            kernel.run(cmd, buffers, testCase.N, testCase.S);
         }
 
         // 5. Download results to stage
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
             SPDLOG_DEBUG("Downloading results to stage...");
-            downloadToStage(cmd, buffers, stage, testCase.sampleCount);
+            downloadToStage(cmd, buffers, stage);
         }
 
         // 6. Submit to device
@@ -162,17 +148,13 @@ static bool runTestCase(const TestContext& context,
         // 7. Download from stage
         context.profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        Results results = downloadFromStage(stage, resource, testCase.sampleCount);
+        Results results = downloadFromStage(stage, resource);
         context.profiler->end();
 
         // 7. Test results
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
-
-            for (glsl::uint s : results.samples) {
-              //fmt::println("Sample: {}", s);
-            }
             // TODO
         }
         context.profiler->collect(true, true);
@@ -180,8 +162,8 @@ static bool runTestCase(const TestContext& context,
     return failed;
 }
 
-void wrs::test::its_sampling::test(const merian::ContextHandle& context) {
-    SPDLOG_INFO("Testing Inverse Transform Sampling (ITS) algorithm");
+void test(const merian::ContextHandle& context) {
+    SPDLOG_INFO("Testing TODO algorithm");
 
     const TestContext testContext = setupTestContext(context);
 
@@ -213,3 +195,5 @@ void wrs::test::its_sampling::test(const merian::ContextHandle& context) {
                                  sizeof(TEST_CASES) / sizeof(TestCase)));
     }
 }
+
+} // namespace wrs::test::psa

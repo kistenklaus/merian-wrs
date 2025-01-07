@@ -166,51 +166,14 @@ struct DecoupledPrefixPartitionBuffers {
     static DecoupledPrefixPartitionBuffers allocate(merian::ResourceAllocatorHandle alloc,
                                          std::size_t elementCount,
                                          std::size_t partitionSize,
-                                         merian::MemoryMappingType memoryMapping) {
-        std::size_t workgroupCount = (elementCount + partitionSize - 1) / partitionSize;
-        DecoupledPrefixPartitionBuffers buffers;
-        if (memoryMapping == merian::MemoryMappingType::NONE) {
-            buffers.elements =
-                alloc->createBuffer(ElementsLayout::size(elementCount),
-                                    ELEMENT_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.pivot = alloc->createBuffer(PivotLayout::size(),
-                PIVOT_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.batchDescriptors = alloc->createBuffer(BatchDescriptorsLayout::size(workgroupCount),
-                BATCH_DESCRIPTOR_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.partitionPrefix = alloc->createBuffer(PartitionPrefixLayout::size(elementCount),
-                PREFIX_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.partition = alloc->createBuffer(PartitionLayout::size(elementCount),
-                PARTITION_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-        } else {
-            buffers.elements =
-                alloc->createBuffer(ElementsLayout::size(elementCount),
-                                    vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.pivot = alloc->createBuffer(PivotLayout::size(),
-                vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.batchDescriptors = alloc->createBuffer(BatchDescriptorsLayout::size(workgroupCount),
-                vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.partitionPrefix = alloc->createBuffer(PartitionPrefixLayout::size(elementCount),
-                vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-            buffers.partition = alloc->createBuffer(PartitionLayout::size(elementCount),
-                vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
-        }
-        return buffers;
-    }
+                                         merian::MemoryMappingType memoryMapping);
 
 
 };
 
-template <typename T = float> class DecoupledPrefixPartition {
-    /* static_assert(std::is_same<T, float>(), "Currently only floats as weights are supported"); */
-
-#ifdef NDEBUG
-    static constexpr bool CHECK_PARAMETERS = false;
-#else
-    static constexpr bool CHECK_PARAMETERS = true;
-#endif
-
+class DecoupledPrefixPartition {
   public:
-    using weight_t = T;
+    using weight_t = float;
     static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 512;
     static constexpr uint32_t DEFAULT_ROWS = 4;
 
@@ -283,50 +246,6 @@ template <typename T = float> class DecoupledPrefixPartition {
         }
     }
     void run(vk::CommandBuffer cmd, const DecoupledPrefixPartitionBuffers& buffers, uint32_t N) {
-        if constexpr (CHECK_PARAMETERS) {
-            // CHECK for VK_NULL_HANDLE
-            if (cmd == VK_NULL_HANDLE) {
-                throw std::runtime_error("cmd is VK_NULL_HANDLE");
-            }
-            if (buffers.elements->get_buffer() == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.elements is VK_NULL_HANDLE");
-            }
-            if (buffers.pivot->get_buffer() == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.pivot is VK_NULL_HANDLE");
-            }
-            if (buffers.batchDescriptors->get_buffer() == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.batchDescriptors is VK_NULL_HANDLE");
-            }
-            if (buffers.partitionPrefix->get_buffer() == VK_NULL_HANDLE) {
-                throw std::runtime_error("buffers.partitionPrefix is VK_NULL_HANDLE");
-            }
-            if (m_writePartition) {
-                if (!buffers.partition.has_value()) {
-                    throw std::runtime_error("buffers.partition is std::nullopt");
-                }
-                if (buffers.partition.value()->get_buffer() == VK_NULL_HANDLE) {
-                    throw std::runtime_error("buffers.partition is VK_NULL_HANDLE");
-                }
-            }
-            // CHECK buffer sizes
-            if (buffers.elements->get_size() < sizeof(weight_t) * N) {
-                throw std::runtime_error("buffers.elements is to small!");
-            }
-            if (buffers.pivot->get_size() < sizeof(weight_t)) {
-                throw std::runtime_error("buffers.pivot is to small!");
-            }
-            /* if (buffers.batchDescriptors->get_size() < minBufferDescriptorSize(N)) { */
-            /*     throw std::runtime_error("buffers.batchDescriptors is to small!"); */
-            /* } */
-            /* if (buffers.partitionPrefix->get_size() < sizeof(weight_t) + sizeof(weight_t) * N) { */
-            /*     throw std::runtime_error("buffers.partitionPrefix is to small"); */
-            /* } */
-            /* if (m_writePartition) { */
-            /*     if (buffers.partition.value()->get_size() < sizeof(weight_t) * N) { */
-            /*         throw std::runtime_error("buffers.partition is to small"); */
-            /*     } */
-            /* } */
-        }
         m_pipeline->bind(cmd);
         vk::DescriptorBufferInfo elementDesc = buffers.elements->get_descriptor_info();
         m_writes[0].setBufferInfo(elementDesc);
@@ -353,6 +272,11 @@ template <typename T = float> class DecoupledPrefixPartition {
                                                                        sizeof(weight_t));
     }
 
+
+    inline glsl::uint getPartitionSize() const {
+      return m_partitionSize;
+    }
+  
   private:
     const uint32_t m_partitionSize;
     const bool m_writePartition;
@@ -360,13 +284,5 @@ template <typename T = float> class DecoupledPrefixPartition {
     merian::PipelineHandle m_pipeline;
     std::vector<vk::WriteDescriptorSet> m_writes;
 };
-
-/* namespace pmr { */
-
-/* template <typename T> */
-/* using DecoupledPrefixPartitionKernel = */
-/*     wrs::DecoupledPrefixPartitionKernel<T,
- * std::pmr::polymorphic_allocator<vk::WriteDescriptorSet>>; */
-/* } */
 
 } // namespace wrs

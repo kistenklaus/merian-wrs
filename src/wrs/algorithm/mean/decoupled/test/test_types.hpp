@@ -1,6 +1,6 @@
 #pragma once
 
-#include "src/wrs/algorithm/mean/decoupled/DecoupledMean.h"
+#include "src/wrs/algorithm/mean/decoupled/DecoupledMean.hpp"
 #include "src/wrs/gen/weight_generator.h"
 namespace wrs::test::decoupled_mean {
 

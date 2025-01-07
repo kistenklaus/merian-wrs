@@ -5,9 +5,10 @@
 #extension GL_KHR_shader_subgroup_vote : enable
 #pragma use_vulkan_memory_model
 
-const uint SamplePartitionSize = 4096; // Minimum range size for cooperative search
 
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 1) const uint SamplePartitionSize = 4096;
 
 layout(set = 0, binding = 0) readonly buffer in_cmf {
     float cmf[];
