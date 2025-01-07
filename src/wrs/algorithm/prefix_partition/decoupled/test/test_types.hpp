@@ -17,6 +17,7 @@ vk::DeviceSize sizeOfWeight(WeightT ty);
 struct TestCase {
     uint32_t workgroupSize;
     uint32_t rows;
+    glsl::uint lookbackDepth;
     uint32_t elementCount;
     wrs::Distribution distribution;
     bool stable;

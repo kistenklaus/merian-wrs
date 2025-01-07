@@ -4,328 +4,351 @@
 #extension GL_KHR_memory_scope_semantics : enable
 // #extension GL_EXT_shader_atomic_float : enable
 #extension GL_KHR_shader_subgroup_vote : enable
-// #extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
 #pragma use_vulkan_memory_model
 
-
-// #define STABLE
-#define WRITE_PARTITION
-
-#define monoid float
-#define state_t uint
-#define lbstate_t uint
-
-layout(constant_id = 0) const uint GROUP_SIZE = 1;
-layout(constant_id = 1) const uint SUBGROUP_SIZE = 1;
-layout(constant_id = 2) const uint ROWS = 1;
-const uint PARTITION_SIZE = GROUP_SIZE * ROWS;
-const uint SUBGROUP_COUNT = (GROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
 
-#define STATE_NO_AGGREGATE 0u
-#define STATE_AGGREGATE 1u
-#define STATE_PREFIX 2u
-#define STATE_DONT_CARE 3u
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 1;
+layout(constant_id = 1) const uint SUBGROUP_SIZE = 32;
+layout(constant_id = 2) const uint ROWS = 1;
+layout(constant_id = 3) const uint PARALLEL_LOOKBACK_DEPTH = 32;
 
-struct BatchDescriptor {
-    uint heavyCount;
-    uint heavyCountInclusivePrefix;
-    monoid heavySum;
-    monoid heavyInclusivePrefix;
-    monoid lightSum;
-    monoid lightInclusivePrefix;
-    state_t state;
-};
+const uint PARTITION_SIZE = WORKGROUP_SIZE * ROWS;
+const uint SUBPARTITION_SIZE = SUBGROUP_SIZE * ROWS;
+const uint MAX_NUMBER_OF_SUBGROUPS = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
 
-layout(set = 0, binding = 0) readonly buffer in_values {
-    monoid weights[];
-};
+layout(set = 0, binding = 0) readonly buffer inElements {
+    float weights[];
+} g_weights;
 
 layout(set = 0, binding = 1) readonly buffer in_pivot {
-    monoid pivot;
-};
-
-layout(set = 0, binding = 2) volatile buffer batch_descriptors {
-    uint atomicBatchCounter;
-    BatchDescriptor batchInfo[];
-};
+    float pivot;
+} g_pivot;
 
 layout(set = 0, binding = 3) writeonly buffer out_prefix {
     uint heavyCount;
-    monoid heavyLightPrefix[];
-};
+    float heavyLight[];
+} g_prefix;
 
 layout(set = 0, binding = 4) writeonly buffer out_partition {
-    uint heavyCountIndices;
-    uint heavyLightPartitionIndices[];
+    uint heavyCount;
+    uint heavyLight[];
+} g_partition;
+
+#define state_t uint
+#define STATE_NOT_READY 0u
+#define STATE_AGGREGATE_PUBLISHED 1u
+#define STATE_PREFIX_PUBLISHED 2u
+
+struct DecoupledState {
+    uint heavyCount;
+    uint heavyCountInclusivePrefix;
+    float heavyAggregate;
+    float lightAggregate;
+    float heavyPrefix;
+    float lightPrefix;
+    state_t state;
 };
 
+layout(set = 0, binding = 2) volatile buffer DecoupledStates {
+    uint counter;
+    DecoupledState partitions[];
+} g_states;
+
 layout(push_constant) uniform PushConstant {
-    uint size;
+    uint N;
 } pc;
 
-#define LOOK_BACK_STATE_SPIN 1u
-#define LOOK_BACK_STATE_DONE 0u
+#define lbstate_t uint
+#define LOOKBACK_STATE_SPIN 1u
+#define LOOKBACK_STATE_DONE 0u
 
 shared uint sh_lookBackState;
-shared uint sh_groupID;
+shared uint sh_partID;
 
-shared uint sh_batchHeavyCountPrefix;
-shared uint sh_heavyCountScratch[GROUP_SIZE + 1];
+shared vec2 sh_subgroupPrefix[MAX_NUMBER_OF_SUBGROUPS];
+shared uint sh_subgroupHeavyCount[MAX_NUMBER_OF_SUBGROUPS];
 
-shared monoid sh_batchHeavyPrefix;
-shared monoid sh_batchLightPrefix;
-shared monoid sh_heavyScratch[GROUP_SIZE];
-shared monoid sh_lightScratch[GROUP_SIZE];
+shared vec2 sh_exclusive;
+shared uint sh_exclusiveCount;
 
-#define ATOMIC_LOOK_BACK_STATE
-#define ATOMIC_PARTITION_STATE
+float pivot;
+uint N;
 
-bool partitionPredicate(in monoid v, in monoid pivot) {
-    // return true;
-    return v > pivot;
+float localWeights[ROWS];
+vec2 localPrefix[ROWS];
+uint localExclusiveHeavyCount[ROWS];
+
+struct WorkgroupAggregate {
+    vec2 weightAgg;
+    uint heavyCount;
+};
+
+WorkgroupAggregate computeLocalPrefixSum(in uint base, in uint N) {
+    for (uint i = 0; i < ROWS; ++i) {
+        uint index = base + i * SUBGROUP_SIZE;
+        if (index < N) {
+            localWeights[i] = g_weights.weights[index];
+        } else {
+            localWeights[i] = 0;
+        }
+    }
+
+    uvec4 ballot = subgroupBallot(base < N);
+    uint lastInvoc = subgroupBallotFindMSB(ballot);
+
+    uint localHeavyCount = 0;
+    for (uint i = 0; i < ROWS; ++i) {
+        const float w = localWeights[i];
+        const bool b = w > pivot;
+        vec2 v;
+        if (b) {
+            v = vec2(w, 0);
+        } else {
+            v = vec2(0, w);
+        }
+        localPrefix[i] = subgroupInclusiveAdd(v);
+
+        uvec4 isHeavyBallot = subgroupBallot(b);
+        localExclusiveHeavyCount[i] = subgroupBallotExclusiveBitCount(isHeavyBallot) + localHeavyCount;
+        localHeavyCount += subgroupBallotBitCount(isHeavyBallot);
+    }
+
+    for (uint i = 1; i < ROWS; ++i) {
+        localPrefix[i] += subgroupBroadcast(localPrefix[i - 1], lastInvoc);
+    }
+
+    if (gl_SubgroupInvocationID.x == lastInvoc) {
+        sh_subgroupPrefix[gl_SubgroupID] = localPrefix[ROWS - 1];
+        sh_subgroupHeavyCount[gl_SubgroupID] = localHeavyCount;
+    }
+
+    vec2 exclusivePrefix;
+    vec2 weightAgg = vec2(0, 0);
+    uint exclusiveHeavyCount;
+    uint heavyCount = 0;
+
+    if (SUBGROUP_SIZE < MAX_NUMBER_OF_SUBGROUPS) {
+        // for (uint shift = 1; shift <= MAX_NUMBER_OF_SUBGROUPS; shift <<= 1) {
+        //     barrier();
+        //     if (gl_LocalInvocationID.x >= shift) {
+        //         const uint ix = gl_LocalInvocationID.x - shift;
+        //         sh_subgroupPrefix[gl_LocalInvocationID.x] +=
+        //             sh_subgroupPrefix[ix];
+        //         sh_subgroupHeavyCount[gl_LocalInvocationID.x] +=
+        //             sh_subgroupHeavyCount[ix];
+        //     }
+        // }
+        // barrier();
+        // exclusivePrefix = (gl_SubgroupID > 0) ? sh_subgroupPrefix[gl_SubgroupID - 1] : vec2(0.0f, 0.0f);
+        // exclusiveHeavyCount = (gl_SubgroupID > 0) ? sh_subgroupHeavyCount[gl_SubgroupID - 1] : 0;
+        // weightAgg = sh_subgroupPrefix[MAX_NUMBER_OF_SUBGROUPS - 1];
+        // heavyCount = sh_subgroupHeavyCount[MAX_NUMBER_OF_SUBGROUPS - 1];
+    } else {
+        barrier();
+        if (gl_SubgroupID == 0) {
+            if (gl_SubgroupInvocationID < MAX_NUMBER_OF_SUBGROUPS) {
+                uint ix = gl_SubgroupInvocationID;
+                vec2 groupSum = sh_subgroupPrefix[ix];
+                uint groupHeavyCount = sh_subgroupHeavyCount[ix];
+                vec2 groupInclusivePrefix = subgroupInclusiveAdd(groupSum);
+                uint groupInclusiveHeavyCount = subgroupInclusiveAdd(groupHeavyCount);
+                sh_subgroupPrefix[ix] = groupInclusivePrefix;
+                sh_subgroupHeavyCount[ix] = groupInclusiveHeavyCount;
+            }
+            subgroupBarrier();
+        }
+        barrier();
+        if (gl_SubgroupID > 0) {
+            exclusivePrefix = sh_subgroupPrefix[gl_SubgroupID - 1];
+            exclusiveHeavyCount = sh_subgroupHeavyCount[gl_SubgroupID - 1];
+        } else {
+            exclusivePrefix = vec2(0, 0);
+            exclusiveHeavyCount = 0;
+        }
+
+        weightAgg = sh_subgroupPrefix[MAX_NUMBER_OF_SUBGROUPS - 1];
+        heavyCount = sh_subgroupHeavyCount[MAX_NUMBER_OF_SUBGROUPS - 1];
+    }
+
+    for (uint i = 0; i < ROWS; ++i) {
+        localPrefix[i] += exclusivePrefix;
+        localExclusiveHeavyCount[i] += exclusiveHeavyCount;
+    }
+
+    WorkgroupAggregate agg;
+    agg.weightAgg = weightAgg;
+    agg.heavyCount = heavyCount;
+
+    return agg;
 }
 
-uint partitionPredicateU(in monoid v, in monoid pivot) {
-    return partitionPredicate(v, pivot) ? 1 : 0;
+bool ballotIsZero(in uvec4 ballot) {
+    return (ballot.x | ballot.y | ballot.z | ballot.w) == 0;
+}
+
+// see https://research.nvihttps://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-backdia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back for the
+// original paper by NVIDIA.
+struct ExclusivePrefix {
+    vec2 prefix;
+    uint heavyCount;
+};
+
+ExclusivePrefix decoupledLookback(in uint partID, in WorkgroupAggregate aggregate) {
+    // ================ Publish aggregate & state =====================
+    if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+        // Non atomic write to coherent values.
+        g_states.partitions[partID].heavyAggregate = aggregate.weightAgg.x;
+        g_states.partitions[partID].lightAggregate = aggregate.weightAgg.y;
+        g_states.partitions[partID].heavyCount = aggregate.heavyCount;
+        state_t state = STATE_AGGREGATE_PUBLISHED;
+        if (partID == 0) {
+            g_states.partitions[partID].heavyPrefix = aggregate.weightAgg.x;
+            g_states.partitions[partID].lightPrefix = aggregate.weightAgg.y;
+            g_states.partitions[partID].heavyCountInclusivePrefix = aggregate.heavyCount;
+            state = STATE_PREFIX_PUBLISHED;
+        }
+        // This atomicStore creates a *happens-before* relationship
+        // with following atomicLoads, further the atomic release semantics
+        // ensures that all coherent writes before the release operation are visible
+        // after a atomic acquire operation of that value.
+        // NOTE: gl_SemanticsMakeAvailable is only required if aggregate and prefix
+        // are stored in a seperate storage buffer.
+        atomicStore(g_states.partitions[partID].state, state, gl_ScopeQueueFamily,
+            gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+    }
+    // ================ Decoupled lookback ==================
+    vec2 exclusive = vec2(0, 0);
+    uint exclusiveCount = 0;
+    if (partID != 0) {
+        if (gl_SubgroupID == 0) {
+            uint lookBackBase = partID - 1;
+
+            while (true) {
+                bool invocActive = gl_SubgroupInvocationID <= lookBackBase && gl_SubgroupInvocationID < PARALLEL_LOOKBACK_DEPTH;
+
+                state_t predecessorState;
+                bool done = false;
+                if (invocActive) {
+                    uint lookBackIdx = lookBackBase - gl_SubgroupInvocationID;
+                    predecessorState = atomicLoad(g_states.partitions[lookBackIdx].state,
+                            gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+
+                    const bool notReady = predecessorState == STATE_NOT_READY;
+                    const uvec4 notReadyBallot = subgroupBallot(notReady);
+                    uint steps;
+                    if (ballotIsZero(notReadyBallot)) {
+                        done = predecessorState == STATE_PREFIX_PUBLISHED;
+                        const uvec4 doneBallot = subgroupBallot(done);
+                        if (ballotIsZero(doneBallot)) {
+                            steps = min(PARALLEL_LOOKBACK_DEPTH, lookBackBase);
+                        } else {
+                            const uint stepsUntilPrefix = subgroupBallotFindLSB(doneBallot) + 1;
+                            steps = stepsUntilPrefix;
+                        }
+                    } else {
+                        done = false;
+                        const uint stepsUntilNotReady = subgroupBallotFindLSB(notReadyBallot) + 1;
+                        steps = stepsUntilNotReady - 1;
+                    }
+                    if (gl_SubgroupInvocationID.x < steps) {
+                        vec2 acc;
+                        uint accCount;
+                        if (done) {
+                            acc = vec2(g_states.partitions[lookBackIdx].heavyPrefix, g_states.partitions[lookBackIdx].lightPrefix);
+                            accCount = g_states.partitions[lookBackIdx].heavyCountInclusivePrefix;
+                        } else {
+                            acc = vec2(g_states.partitions[lookBackIdx].heavyAggregate, g_states.partitions[lookBackIdx].lightAggregate);
+                            accCount = g_states.partitions[lookBackIdx].heavyCount;
+                        }
+                        acc = subgroupAdd(acc);
+                        accCount = subgroupAdd(accCount);
+                        if (subgroupElect()) {
+                            lookBackBase -= steps;
+                            exclusive += acc;
+                            exclusiveCount += accCount;
+                        }
+                    }
+                }
+                if (subgroupAny(done)) {
+                    break;
+                }
+                lookBackBase = subgroupBroadcastFirst(lookBackBase);
+            }
+            if (subgroupElect()) {
+                vec2 inclusive = exclusive + aggregate.weightAgg;
+                uint inclusiveCount = exclusiveCount + aggregate.heavyCount;
+                g_states.partitions[partID].heavyPrefix = inclusive.x;
+                g_states.partitions[partID].lightPrefix = inclusive.y;
+                g_states.partitions[partID].heavyCountInclusivePrefix = inclusiveCount;
+                sh_exclusive = exclusive;
+                sh_exclusiveCount = exclusiveCount;
+                atomicStore(g_states.partitions[partID].state, STATE_PREFIX_PUBLISHED,
+                    gl_ScopeQueueFamily, gl_StorageSemanticsBuffer,
+                    gl_SemanticsRelease | gl_SemanticsMakeAvailable);
+            }
+            subgroupBarrier();
+        }
+        // WTF NVIDIA Driver?
+        subgroupBarrier();
+        controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
+
+        exclusive = sh_exclusive;
+        exclusiveCount = sh_exclusiveCount;
+    }
+    ExclusivePrefix ret;
+    ret.prefix = exclusive;
+    ret.heavyCount = exclusiveCount;
+    return ret;
 }
 
 void main(void) {
-    monoid localWeights[ROWS];
-    monoid localHeavyPrefix[ROWS];
-    monoid localLightPrefix[ROWS];
-    bool localIsHeavy[ROWS];
-    uint localHeavyCountExclusivePrefix[ROWS];
-
-    const monoid pivot = pivot;
-    const uint size = pc.size;
-
-    const uint invocID = gl_LocalInvocationID.x;
-
-    barrier();
-
-    if (invocID == 0) {
-        sh_groupID = atomicAdd(atomicBatchCounter, 1);
-    }
-
-    barrier();
-
-    uint batchID = sh_groupID;
-    const uint ix = batchID * PARTITION_SIZE + invocID * ROWS;
-
-    for (uint i = 0; i < ROWS; ++i) {
-        localWeights[i] = weights[ix + i];
-        localIsHeavy[i] = partitionPredicate(localWeights[i], pivot);
-    }
-
-    localHeavyPrefix[0] = 0.0f;
-    localLightPrefix[0] = 0.0f;
-    if (localIsHeavy[0]) {
-        localHeavyPrefix[0] = localWeights[0];
-        localLightPrefix[0] = 0.0f;
-    } else {
-        localHeavyPrefix[0] = 0.0f;
-        localLightPrefix[0] = localWeights[0];
-    }
-    for (uint i = 1; i < ROWS; ++i) {
-        monoid h = localHeavyPrefix[i - 1];
-        monoid l = localLightPrefix[i - 1];
-        if (localIsHeavy[i]) {
-            h += localWeights[i];
-        } else {
-            l += localWeights[i];
-        }
-        localHeavyPrefix[i] = h;
-        localLightPrefix[i] = l;
-    }
-    const monoid localHeavySum = localHeavyPrefix[ROWS - 1];
-    const monoid localLightSum = localLightPrefix[ROWS - 1];
-
-    sh_heavyScratch[invocID] = localHeavySum;
-    sh_lightScratch[invocID] = localLightSum;
-
-    monoid batchHeavySum = localHeavySum;
-    monoid batchLightSum = localLightSum;
-
-    // 1. Step calculate local index exclusive prefix
-    localHeavyCountExclusivePrefix[0] = 0;
-    for (uint i = 0; i < ROWS - 1; ++i) {
-        localHeavyCountExclusivePrefix[i + 1] = localHeavyCountExclusivePrefix[i] + (localIsHeavy[i] ? 1 : 0);
-    }
-    const uint localHeavyCount = localHeavyCountExclusivePrefix[ROWS - 1] + (localIsHeavy[ROWS - 1] ? 1 : 0);
-
-    sh_heavyCountScratch[invocID + 1] = localHeavyCount;
-    if (invocID == 0) {
-        sh_heavyCountScratch[0] = 0;
-    }
-
-    uint batchHeavyCount = localHeavyCount;
-
-    // 1.1 Workgroup exclusive prefix sum over rows
-    // NOTE: We should definitly try the work efficient prefix sum algorithm here.
-
-    for (uint shift = 1; shift <= gl_WorkGroupSize.x; shift <<= 1) {
-        barrier();
-        if (invocID >= shift) {
-            uint otherHeavyCount = sh_heavyCountScratch[invocID - shift + 1];
-            batchHeavyCount += otherHeavyCount;
-
-            monoid otherHeavySum = sh_heavyScratch[invocID - shift];
-            batchHeavySum += otherHeavySum;
-
-            monoid otherLightSum = sh_lightScratch[invocID - shift];
-            batchLightSum += otherLightSum;
-        }
-        barrier();
-        sh_heavyCountScratch[invocID + 1] = batchHeavyCount;
-        sh_heavyScratch[invocID] = batchHeavySum;
-        sh_lightScratch[invocID] = batchLightSum;
-    }
-
-    // 2. Publish Aggregate and state
-    // 2.1 Publish aggregate
-    if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
-        batchInfo[batchID].heavyCount = batchHeavyCount;
-        batchInfo[batchID].heavySum = batchHeavySum;
-        batchInfo[batchID].lightSum = batchLightSum;
-        if (batchID == 0) {
-            batchInfo[batchID].heavyCountInclusivePrefix = batchHeavyCount;
-            batchInfo[batchID].heavyInclusivePrefix = batchHeavySum;
-            batchInfo[batchID].lightInclusivePrefix = batchLightSum;
-        }
-    }
-
-    // memoryBarrierBuffer();
+    N = pc.N;
+    pivot = g_pivot.pivot;
 
     if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
-        state_t state = STATE_AGGREGATE;
-        if (batchID == 0) {
-            state = STATE_PREFIX;
-        }
-        atomicStore(batchInfo[batchID].state, state, gl_ScopeQueueFamily,
-            gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+        sh_partID = atomicAdd(g_states.counter, 1);
     }
+    controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
+    uint partID = sh_partID;
 
-    uint batchHeavyCountPrefix = 0;
-    monoid batchHeavySumExclusivePrefix = 0;
-    monoid batchLightSumExclusivePrefix = 0;
-    if (batchID != 0) {
-        lbstate_t lookBackIndex = batchID - 1;
-        sh_lookBackState = LOOK_BACK_STATE_SPIN;
-        while (true) {
-            state_t lookBatchState;
-            if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
-                lookBatchState = atomicLoad(batchInfo[lookBackIndex].state, gl_ScopeQueueFamily,
-                        gl_StorageSemanticsBuffer, gl_SemanticsAcquire | gl_SemanticsMakeVisible);
-                if (lookBatchState == STATE_AGGREGATE) {
-                    batchHeavyCountPrefix += batchInfo[lookBackIndex].heavyCount;
-#ifndef STABLE
-                    batchHeavySumExclusivePrefix += batchInfo[lookBackIndex].heavySum;
-                    batchLightSumExclusivePrefix += batchInfo[lookBackIndex].lightSum;
-#endif
-                    lookBackIndex--;
-                    sh_lookBackState = LOOK_BACK_STATE_SPIN;
-                } else if (lookBatchState == STATE_PREFIX) {
-                    batchHeavyCountPrefix += batchInfo[lookBackIndex].heavyCountInclusivePrefix;
-                    batchHeavySumExclusivePrefix += batchInfo[lookBackIndex].heavyInclusivePrefix;
-                    batchLightSumExclusivePrefix += batchInfo[lookBackIndex].lightInclusivePrefix;
-#ifdef STABLE
-                    for (uint i = lookBackIndex + 1; i < batchID; ++i) {
-                        batchLightSumExclusivePrefix += batchInfo[i].lightSum;
-                        batchHeavySumExclusivePrefix += batchInfo[i].heavySum;
-                    }
-#endif
+    const uint base = partID * PARTITION_SIZE + gl_SubgroupID.x * SUBPARTITION_SIZE + gl_SubgroupInvocationID.x;
+    //
+    WorkgroupAggregate workgroupAggregate = computeLocalPrefixSum(base, N);
 
-                    sh_lookBackState = LOOK_BACK_STATE_DONE;
-                } else if (lookBatchState == STATE_NO_AGGREGATE) {
-                    sh_lookBackState = LOOK_BACK_STATE_SPIN;
-                }
-            }
-            barrier();
-            lookBatchState = sh_lookBackState;
-            if (lookBatchState == LOOK_BACK_STATE_DONE) {
-                break;
-            }
-        }
+    ExclusivePrefix prefix = decoupledLookback(partID, workgroupAggregate);
 
-        if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
-            sh_batchHeavyCountPrefix = batchHeavyCountPrefix;
-            sh_batchHeavyPrefix = batchHeavySumExclusivePrefix;
-            sh_batchLightPrefix = batchLightSumExclusivePrefix;
-            batchInfo[batchID].heavyCountInclusivePrefix = batchHeavyCountPrefix + batchHeavyCount;
-            batchInfo[batchID].heavyInclusivePrefix = batchHeavySumExclusivePrefix + batchHeavySum;
-            batchInfo[batchID].lightInclusivePrefix = batchLightSumExclusivePrefix + batchLightSum;
-        }
-
-        controlBarrier(gl_ScopeWorkgroup, gl_ScopeQueueFamily, gl_StorageSemanticsBuffer | gl_StorageSemanticsShared,
-            gl_SemanticsAcquireRelease);
-
-        if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
-            atomicStore(batchInfo[batchID].state, STATE_PREFIX,
-                gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsRelease | gl_SemanticsMakeAvailable);
-        } else {
-            batchHeavyCountPrefix = sh_batchHeavyCountPrefix;
-            batchHeavySumExclusivePrefix = sh_batchHeavyPrefix;
-            batchLightSumExclusivePrefix = sh_batchLightPrefix;
-        }
-    }
-    barrier();
-
-    uint rowHeavyCountExclusivePrefix = batchHeavyCountPrefix;
-#ifdef STABLE
-    monoid rowHeavyExclusivePrefixSum = 0;
-    monoid rowLightExclusivePrefixSum = 0;
-#else
-    monoid rowHeavyExclusivePrefixSum = batchHeavySumExclusivePrefix;
-    monoid rowLightExclusivePrefixSum = batchLightSumExclusivePrefix;
-#endif
-
-    // memoryBarrierBuffer(); // trying to ensure numerical stability.
-    if (invocID > 0) {
-        rowHeavyCountExclusivePrefix += sh_heavyCountScratch[invocID];
-        rowHeavyExclusivePrefixSum += sh_heavyScratch[invocID - 1];
-        // rowLightExclusivePrefixSum += sh_lightScratch[invocID - 1];
-
-        monoid x = rowLightExclusivePrefixSum + sh_lightScratch[invocID - 1];
-        // monoid y = rowLightExclusivePrefixSum + sh_lightScratch[invocID];
-        // monoid m = min(x, y);
-        rowLightExclusivePrefixSum = x;
-    }
     for (uint i = 0; i < ROWS; ++i) {
-        if (ix + i < size) {
-            uint h = rowHeavyCountExclusivePrefix + localHeavyCountExclusivePrefix[i]; //flagged element prefix
-            uint index = h;
-            if (!localIsHeavy[i]) {
-                uint l = (ix + i) - h; // unflagged element prefix
-                index = (size - 1) - l;
-            }
-#ifdef WRITE_PARTITION
-            heavyLightPartitionIndices[index] = ix + i;
-#endif
+        localExclusiveHeavyCount[i] += prefix.heavyCount;
+        localPrefix[i] += prefix.prefix;
+    }
 
-            if (localIsHeavy[i]) {
-                monoid heavyPrefix = rowHeavyExclusivePrefixSum + localHeavyPrefix[i];
-#ifdef STABLE
-                heavyPrefix += batchHeavySumExclusivePrefix;
-#endif
-                heavyLightPrefix[index] = heavyPrefix;
-            } else {
-                monoid lightPrefix = rowLightExclusivePrefixSum + localLightPrefix[i];
-#ifdef STABLE
-                lightPrefix += batchLightSumExclusivePrefix;
-#endif
-                heavyLightPrefix[index] = lightPrefix;
+    for (uint i = 0; i < ROWS; ++i) {
+        const uint index = base + i * SUBGROUP_SIZE;
+        if (index < N) {
+            const float w = localWeights[i];
+            const bool isHeavy = w > pivot;
+            uint ix = localExclusiveHeavyCount[i];
+            float p;
+            if (isHeavy) {
+              p = localPrefix[i].x;
+            }else {
+              p = localPrefix[i].y;
+              ix = (N - 1) - (index - ix);
             }
-            // NOTE: Does not have to be in the loop only has the performed for the last batch
-            if (ix + i == size - 1) {
-                if (localIsHeavy[i]) {
-                    heavyCount = h + 1;
-                    heavyCountIndices = h + 1;
-                } else {
-                    heavyCount = h;
-                    heavyCountIndices = h;
-                }
+            g_prefix.heavyLight[ix] = p;
+            g_partition.heavyLight[ix] = index;
+            
+            if (index == N - 1) {
+              uint heavyCount = localExclusiveHeavyCount[i];
+              if (isHeavy) {
+                heavyCount += 1;
+              }
+              g_prefix.heavyCount = heavyCount;
+              g_partition.heavyCount = heavyCount;
             }
         }
     }
+
 }

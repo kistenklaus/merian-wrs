@@ -146,7 +146,6 @@ class ScalarSplit {
 
         // NOTE: tuples are stored in reverse order by entries (makes it a bit weird when mapping)
         m_pipeline->push_constant<std::tuple<uint32_t, uint32_t>>(cmd, std::make_tuple(N, K));
-        fmt::print("RUNNING-SPLIT with {}", K - 1);
         
         glsl::uint workgroupCount = (K - 1 + m_workgroupSize - 1) / m_workgroupSize;
 

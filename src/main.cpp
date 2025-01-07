@@ -2,11 +2,14 @@
 
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_core.hpp"
+#include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
 #include "src/wrs/algorithm/psa/construction/test.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
 #include "src/renderdoc.hpp"
+#include "src/wrs/algorithm/psa/test.hpp"
 #include "src/wrs/bench/its.hpp"
+#include "src/wrs/bench/psa.hpp"
 
 #include <dlfcn.h>
 #include <fmt/base.h>
@@ -38,8 +41,11 @@ int main() {
     renderdoc::init();
 
     /* wrs::bench::its::write_bench_results(context); */
+    wrs::bench::psa::write_bench_results(context);
 
-    wrs::test::psac::test(context);
+    /* wrs::test::psac::test(context); */
+
+    /* wrs::test::psa::test(context); */
 
     /* wrs::test::psa::test(context); */
 
@@ -52,7 +58,9 @@ int main() {
     /* wrs::eval::write_psa_rmse_curves(); */
     //wrs::test::testTests();
     //wrs::test::decoupled_mean::test(context); 
-    //wrs::test::decoupled_prefix_partition::test(context);
+    //
+    wrs::test::decoupled_prefix_partition::test(context);
+
     /* wrs::test::scalar_split::test(context); */
     //wrs::test::scalar_pack::test(context);
     /* wrs::test::simd_pack::test(context); */

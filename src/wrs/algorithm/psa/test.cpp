@@ -21,6 +21,7 @@
 #include <tuple>
 
 #include "./PSA.hpp"
+#include "src/wrs/why.hpp"
 
 namespace wrs::test::psa {
 
@@ -32,6 +33,7 @@ using Buffers = Algorithm::Buffers;
 
 struct TestCase {
     glsl::uint N;
+    Distribution distribution;
     glsl::uint S;
 
     PSAConfig config;
@@ -43,8 +45,9 @@ static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
         .N = 1024 * 2048,
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
         .S = 1024 * 2048 / 32,
-        .config = {},
+        .config = PSAConfig::defaultV(),
         .iterations = 1,
     },
 };
@@ -56,6 +59,20 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
     glsl::uint maxPrefixPartitionSize = 0;
     glsl::uint maxSplitCount = 0;
     glsl::uint maxSampleCount = 0;
+
+    for (const auto& testCase : TEST_CASES) {
+        maxWeightCount = std::max(maxWeightCount, testCase.N);
+        maxMeanPartitionSize =
+            std::max(maxMeanPartitionSize,
+                     testCase.config.psac.meanWorkgroupSize * testCase.config.psac.meanRows);
+        maxPrefixPartitionSize =
+            std::max(maxPrefixPartitionSize, testCase.config.psac.prefixSumWorkgroupSize *
+                                                 testCase.config.psac.prefixSumRows);
+        std::size_t splitSize = testCase.config.psac.splitSize;
+        glsl::uint splitCount = (testCase.N + splitSize - 1) / splitSize;
+        maxSplitCount = std::max(maxSplitCount, splitCount);
+        maxSampleCount = std::max(maxSampleCount, testCase.S);
+    }
 
     Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
                                       maxWeightCount, maxMeanPartitionSize, maxPrefixPartitionSize,
@@ -70,15 +87,32 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
 static void uploadTestCase(const vk::CommandBuffer cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
-                           std::pmr::memory_resource* resource) {}
+                           std::span<const float> weights) {
+    Buffers::WeightsView stageView{stage.weights, weights.size()};
+    Buffers::WeightsView localView{buffers.weights, weights.size()};
+    stageView.upload(weights);
+    stageView.copyTo(cmd, localView);
+    localView.expectComputeRead(cmd);
+}
 
-static void downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage) {}
+static void
+downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t S) {
+    Buffers::SamplesView stageView{stage.samples, S};
+    Buffers::SamplesView localView{buffers.samples, S};
+    localView.copyTo(cmd, stageView);
+    stageView.expectHostRead(cmd);
+}
 
 struct Results {
-    // TODO
+    std::pmr::vector<glsl::uint> samples;
 };
-static Results downloadFromStage(Buffers& stage, std::pmr::memory_resource* resource) {
-    return Results{};
+static Results
+downloadFromStage(Buffers& stage, std::size_t S, std::pmr::memory_resource* resource) {
+    Buffers::SamplesView stageView{stage.samples, S};
+    auto samples = stageView.download<glsl::uint, wrs::pmr_alloc<glsl::uint>>(resource);
+    return Results{
+        .samples = std::move(samples),
+    };
 };
 
 static bool runTestCase(const TestContext& context,
@@ -87,7 +121,8 @@ static bool runTestCase(const TestContext& context,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
     std::string testName =
-        fmt::format("{{workgroupSize={},N={}}}", 0, testCase.N);
+        fmt::format("{{N={},Dist={},S={}}}", testCase.N,
+                    distribution_to_pretty_string(testCase.distribution), testCase.S);
     SPDLOG_INFO("Running test case:{}", testName);
 
     Algorithm kernel{context.context};
@@ -108,7 +143,8 @@ static bool runTestCase(const TestContext& context,
 
         // 1. Generate input
         context.profiler->start("Generate test input");
-        // TODO
+        const auto weights =
+            wrs::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
         context.profiler->end();
 
         // 2. Begin recoding
@@ -121,21 +157,21 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
             SPDLOG_DEBUG("Uploading test case...");
-            uploadTestCase(cmd, buffers, stage, resource);
+            uploadTestCase(cmd, buffers, stage, weights);
         }
 
         // 4. Run test case
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.N, testCase.S);
+            kernel.run(cmd, buffers, testCase.N, testCase.S, context.profiler);
         }
 
         // 5. Download results to stage
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
             SPDLOG_DEBUG("Downloading results to stage...");
-            downloadToStage(cmd, buffers, stage);
+            downloadToStage(cmd, buffers, stage, testCase.S);
         }
 
         // 6. Submit to device
@@ -148,7 +184,7 @@ static bool runTestCase(const TestContext& context,
         // 7. Download from stage
         context.profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        Results results = downloadFromStage(stage, resource);
+        Results results = downloadFromStage(stage, testCase.S, resource);
         context.profiler->end();
 
         // 7. Test results

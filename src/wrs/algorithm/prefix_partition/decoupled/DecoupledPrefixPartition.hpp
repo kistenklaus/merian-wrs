@@ -174,12 +174,11 @@ struct DecoupledPrefixPartitionBuffers {
 class DecoupledPrefixPartition {
   public:
     using weight_t = float;
-    static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 512;
-    static constexpr uint32_t DEFAULT_ROWS = 4;
 
     explicit DecoupledPrefixPartition(const merian::ContextHandle& context,
-                                      uint32_t workgroupSize = DEFAULT_WORKGROUP_SIZE,
-                                      uint32_t rows = DEFAULT_ROWS,
+                                      glsl::uint workgroupSize = 512,
+                                      glsl::uint rows = 8,
+                                      glsl::uint lookbackDepth = 32,
                                       bool writePartition = false,
                                       bool stable = false)
         : m_partitionSize(workgroupSize * rows), m_writePartition(writePartition), m_stable(stable) {
@@ -222,7 +221,8 @@ class DecoupledPrefixPartition {
         merian::SpecializationInfoBuilder specInfoBuilder;
         specInfoBuilder.add_entry(
             workgroupSize,
-            context->physical_device.physical_device_subgroup_properties.subgroupSize, rows);
+            context->physical_device.physical_device_subgroup_properties.subgroupSize, rows,
+            lookbackDepth);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);

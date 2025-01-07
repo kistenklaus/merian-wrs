@@ -21,7 +21,6 @@ namespace wrs::test::psac {
 struct TestCase {
     std::size_t weightCount;
     Distribution distribution;
-    std::size_t splitCount;
 
     PSACConfig config;
 
@@ -32,8 +31,7 @@ constexpr TestCase TEST_CASES[] = {
     TestCase {
         .weightCount = static_cast<std::size_t>(1024 * 2048),
         .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-        .splitCount = static_cast<std::size_t>(1024 * 2048) / 32,
-        .config = {},
+        .config = PSACConfig::defaultV(),
         .iterations = 1,
     },
 };
@@ -48,13 +46,15 @@ static void uploadWeights(vk::CommandBuffer cmd, const Buffers &buffers,
 }
 
 static void zeroDecoupledStates(const vk::CommandBuffer cmd,
-                                const Buffers &buffers, const std::size_t weightCount) {
-    constexpr std::size_t partitionSize = Buffers::DEFAULT_WORKGROUP_SIZE * Buffers::DEFAULT_ROWS;
-    const std::size_t workgroupCount = (weightCount + partitionSize - 1) / partitionSize;
-    Buffers::MeanDecoupledStateView meanStateView{buffers.meanDecoupledStates, workgroupCount};
+                                const Buffers &buffers, const std::size_t weightCount,
+                                std::size_t meanPartitionSize,
+                                std::size_t prefixPartitionSize) {
+    const std::size_t meanWorkgroupCount = (weightCount + meanPartitionSize - 1) / meanPartitionSize;
+    const std::size_t prefixWorkgroupCount = (weightCount + prefixPartitionSize - 1) / prefixPartitionSize;
+    Buffers::MeanDecoupledStateView meanStateView{buffers.meanDecoupledStates, meanWorkgroupCount};
     meanStateView.zero(cmd);
     meanStateView.expectComputeRead(cmd);
-    Buffers::PartitionDecoupledStateView partitionStateView{buffers.partitionDecoupledState, workgroupCount};
+    Buffers::PartitionDecoupledStateView partitionStateView{buffers.partitionDecoupledState, prefixWorkgroupCount};
     partitionStateView.zero(cmd);
     partitionStateView.expectComputeRead(cmd);
 }
@@ -75,8 +75,8 @@ static bool runTestCase(const wrs::test::TestContext &context,
                         const Buffers &buffers, const Buffers &stage, std::pmr::memory_resource *resource,
                         const TestCase &testCase) {
     std::string testName =
-            fmt::format("{{weightCount={},dist={}splitCount={}}}", testCase.weightCount,
-                        wrs::distribution_to_pretty_string(testCase.distribution), testCase.splitCount);
+            fmt::format("{{weightCount={},dist={},splitSize={}}}", testCase.weightCount,
+                        wrs::distribution_to_pretty_string(testCase.distribution), testCase.config.splitSize);
     SPDLOG_INFO("Running test case:{}", testName);
 
     SPDLOG_DEBUG("Creating ScalarPsa instance");
@@ -96,7 +96,6 @@ static bool runTestCase(const wrs::test::TestContext &context,
             }
         }
         const std::size_t N = testCase.weightCount;
-        const std::size_t K = testCase.splitCount;
 
         // 1. Generate weights
         std::pmr::vector<weight_type> weights{resource}; {
@@ -119,14 +118,17 @@ static bool runTestCase(const wrs::test::TestContext &context,
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload weights indices");
             SPDLOG_DEBUG("Uploading weights...");
             uploadWeights(cmd, buffers, stage, weights);
-            zeroDecoupledStates(cmd, buffers, N);
+
+            const std::size_t meanPartitionSize = psac.getMeanPartitionSize();
+            const std::size_t prefixPartitionSize = psac.getPrefixPartitionSize();
+            zeroDecoupledStates(cmd, buffers, N, meanPartitionSize, prefixPartitionSize);
         }
 
         // 4. Run test case
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            psac.run(cmd, buffers, N, K, context.profiler);
+            psac.run(cmd, buffers, N, context.profiler);
         }
 
         // 5. Download results to stage
@@ -180,7 +182,10 @@ void test(const merian::ContextHandle &context) {
     glsl::uint maxMeanPartitionSize = 0;
     for (const auto &testCase: TEST_CASES) {
         maxWeightCount = std::max(maxWeightCount, testCase.weightCount);
-        maxSplitCount = std::max(maxSplitCount, testCase.splitCount);
+        
+        std::size_t splitSize = testCase.config.splitSize;
+        std::size_t splitCount = (testCase.weightCount + splitSize - 1) / splitSize;
+        maxSplitCount = std::max(maxSplitCount, splitCount);
         maxPrefixPartitionSize = std::max(maxPrefixPartitionSize, testCase.config.prefixSumWorkgroupSize * testCase.config.prefixSumRows);
         maxMeanPartitionSize = std::max(maxMeanPartitionSize, testCase.config.meanWorkgroupSize * testCase.config.meanRows);
     }

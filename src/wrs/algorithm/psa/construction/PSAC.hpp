@@ -13,9 +13,6 @@
 
 namespace wrs {
 struct PSACBuffers {
-
-    static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 512;
-    static constexpr uint32_t DEFAULT_ROWS = 4;
     using weight_type = glsl::float_t;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
@@ -64,12 +61,24 @@ struct PSACConfig {
     glsl::uint meanRows;
     glsl::uint prefixSumWorkgroupSize;
     glsl::uint prefixSumRows;
+    glsl::uint prefixSumLookbackDepth;
     glsl::uint splitWorkgroupSize;
     glsl::uint packWorkgroupSize;
 
-    constexpr PSACConfig()
-        : meanWorkgroupSize(512), meanRows(4), prefixSumWorkgroupSize(512), prefixSumRows(4),
-          splitWorkgroupSize(512), packWorkgroupSize(512) {}
+    glsl::uint splitSize;
+
+    constexpr static PSACConfig defaultV() {
+        return PSACConfig{
+            .meanWorkgroupSize = 512,
+            .meanRows = 4,
+            .prefixSumWorkgroupSize = 512,
+            .prefixSumRows = 8,
+            .prefixSumLookbackDepth = 32,
+            .splitWorkgroupSize = 512,
+            .packWorkgroupSize = 1,
+            .splitSize = 32,
+        };
+    }
 };
 
 class PSAC {
@@ -77,19 +86,24 @@ class PSAC {
   public:
     using Buffers = PSACBuffers;
     using weight_t = glsl::float_t;
-    static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = Buffers::DEFAULT_WORKGROUP_SIZE;
-    static constexpr uint32_t DEFAULT_ROWS = Buffers::DEFAULT_ROWS;
 
-    explicit PSAC(const merian::ContextHandle& context, PSACConfig config = {})
+    explicit PSAC(const merian::ContextHandle& context, PSACConfig config = PSACConfig::defaultV())
         : m_mean(context, config.meanWorkgroupSize, config.meanRows, false),
-          m_prefixPartition(context, config.prefixSumWorkgroupSize, config.prefixSumRows, true, true),
-          m_split(context, config.splitWorkgroupSize), m_pack(context, config.packWorkgroupSize) {}
+          m_prefixPartition(context,
+                            config.prefixSumWorkgroupSize,
+                            config.prefixSumRows,
+                            config.prefixSumLookbackDepth,
+                            true,
+                            false),
+          m_split(context, config.splitWorkgroupSize), m_pack(context, config.packWorkgroupSize),
+          m_splitSize(config.splitSize) {}
 
     void run(const vk::CommandBuffer cmd,
              const Buffers& buffers,
              const std::size_t weightCount,
-             const std::size_t splitCount,
              std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
+
+        std::size_t splitCount = (weightCount + m_splitSize - 1) / m_splitSize;
 
         DecoupledMeanBuffers meanBuffers;
         meanBuffers.elements = buffers.weights;
@@ -105,29 +119,30 @@ class PSAC {
 
         std::size_t meanPartitionSize = m_mean.getPartitionSize();
         std::size_t meanWorkgroupCount = (weightCount + meanPartitionSize - 1) / meanPartitionSize;
-        DecoupledMeanBuffers::DecoupledStatesView meanStates{meanBuffers.decoupledStates, meanWorkgroupCount};
+        DecoupledMeanBuffers::DecoupledStatesView meanStates{meanBuffers.decoupledStates,
+                                                             meanWorkgroupCount};
 
         std::size_t prefixPartitionSize = m_prefixPartition.getPartitionSize();
-        std::size_t prefixWorkgroupCount = (weightCount + prefixPartitionSize - 1) / prefixPartitionSize;
-        DecoupledPrefixPartitionBuffers::BatchDescriptorsView prefixStates{partitionBuffers.batchDescriptors, prefixWorkgroupCount};
-
+        std::size_t prefixWorkgroupCount =
+            (weightCount + prefixPartitionSize - 1) / prefixPartitionSize;
+        DecoupledPrefixPartitionBuffers::BatchDescriptorsView prefixStates{
+            partitionBuffers.batchDescriptors, prefixWorkgroupCount};
 
         if (profiler.has_value()) {
-          profiler.value()->start("Prepare");
-          profiler.value()->cmd_start(cmd, "Prepare");
+            profiler.value()->start("Prepare");
+            profiler.value()->cmd_start(cmd, "Prepare");
         }
 
         meanStates.zero(cmd);
         prefixStates.zero(cmd);
 
         if (profiler.has_value()) {
-          profiler.value()->end();
-          profiler.value()->cmd_end(cmd);
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
         }
-      
+
         meanStates.expectComputeRead(cmd);
         prefixStates.expectComputeRead(cmd);
-
 
         if (profiler.has_value()) {
             MERIAN_PROFILE_SCOPE_GPU(*profiler, cmd, "Mean");
@@ -137,7 +152,6 @@ class PSAC {
         }
 
         common_vulkan::pipelineBarrierComputeReadAfterComputeWrite(cmd, buffers.mean);
-
 
         if (profiler.has_value()) {
             MERIAN_PROFILE_SCOPE_GPU(*profiler, cmd, "PrefixPartition");
@@ -178,10 +192,24 @@ class PSAC {
         }
     }
 
+    inline glsl::uint getPrefixPartitionSize() const {
+        return m_prefixPartition.getPartitionSize();
+    }
+
+    inline glsl::uint getMeanPartitionSize() const {
+        return m_mean.getPartitionSize();
+    }
+
+    inline glsl::uint getSplitSize() const {
+        return m_splitSize;
+    }
+
   private:
     DecoupledMean m_mean;
     DecoupledPrefixPartition m_prefixPartition;
     ScalarSplit m_split;
     ScalarPack m_pack;
+
+    glsl::uint m_splitSize;
 };
 } // namespace wrs

@@ -138,7 +138,7 @@ bool runTestCase(const wrs::test::TestContext& context,
     // NOTE: Allocators are not supported currently.
     SPDLOG_DEBUG("Creating DecoupledPrefixPartitionKernel");
     wrs::DecoupledPrefixPartition kernel(context.context, testCase.workgroupSize,
-                                                   testCase.rows, testCase.writePartition,
+                                                   testCase.rows, testCase.lookbackDepth, testCase.writePartition,
                                                    testCase.stable);
     bool failed = false;
     for (size_t i = 0; i < testCase.iterations; ++i) {
@@ -286,14 +286,19 @@ bool runTestCase(const wrs::test::TestContext& context,
                 SPDLOG_ERROR(fmt::format("Invalid light partition prefix!\n{}", err.message()));
                 failed = true;
             }
+
+            if (testCase.elementCount < 1024 ) {
+              /* std::size_t heavyCount = 0; */
+              /* for (std::size_t i = 0; i < heavyPrefix.size(); ++i) { */
+              /*   if (elements[i] > pivot) { */
+              /*     heavyCount += 1; */
+              /*   } */
+              /*   fmt::println("[{}] = {}   =>   {}    heavyCount={}", i, elements[i], heavyPrefix[i], heavyCount); */
+              /* } */
+            }
         }
 
         context.profiler->collect(true, true);
-
-        {
-            SPDLOG_DEBUG("Running experiment");
-            wrs::reference::pmr::splitK<weight_t, wrs::glsl::uint>(heavyPrefix, lightPrefix, pivot, elements.size(), elements.size() / 32, resource);
-        }
     }
     return failed;
 }

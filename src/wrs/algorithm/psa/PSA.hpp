@@ -14,61 +14,59 @@ struct PSABuffers {
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
     merian::BufferHandle weights;
-    using WeightsLayout = layout::ArrayLayout<float, storageQualifier>;
+    using WeightsLayout = PSACBuffers::WeightsLayout;
     using WeightsView = layout::BufferView<WeightsLayout>;
 
     merian::BufferHandle meanDecoupledStates;
-    using MeanDecoupledStatesLayout = DecoupledMeanBuffers::DecoupledStatesLayout;
+    using MeanDecoupledStatesLayout = PSACBuffers::MeanDecoupledStatesLayout;
     using MeanDecoupledStateView = layout::BufferView<MeanDecoupledStatesLayout>;
 
     merian::BufferHandle mean;
-    using MeanLayout = layout::PrimitiveLayout<float, storageQualifier>;
+    using MeanLayout = PSACBuffers::MeanLayout;
     using MeanView = layout::BufferView<MeanLayout>;
 
     merian::BufferHandle partitionIndices;
-    using PartitionIndicesLayout = DecoupledPrefixPartitionBuffers::PartitionLayout;
+    using PartitionIndicesLayout = PSACBuffers::PartitionIndicesLayout;
     using PartitionIndicesView = layout::BufferView<PartitionIndicesLayout>;
 
     merian::BufferHandle partitionPrefix;
-    using PartitionPrefixLayout = DecoupledPrefixPartitionBuffers::PartitionPrefixLayout;
+    using PartitionPrefixLayout = PSACBuffers::PartitionPrefixLayout;
     using PartitionPrefixView = layout::BufferView<PartitionPrefixLayout>;
 
     merian::BufferHandle partitionDecoupledState;
-    using PartitionDecoupledStateLayout = DecoupledPrefixPartitionBuffers::BatchDescriptorsLayout;
+    using PartitionDecoupledStateLayout = PSACBuffers::PartitionDecoupledStateLayout;
     using PartitionDecoupledStateView = layout::BufferView<PartitionDecoupledStateLayout>;
 
     merian::BufferHandle splits;
-    using SplitLayout = ScalarSplitBuffers::SplitsLayout;
+    using SplitLayout = PSACBuffers::SplitLayout;
     using SplitView = layout::BufferView<SplitLayout>;
 
     merian::BufferHandle aliasTable;
-    using AliasTableLayout = ScalarPackBuffers::AliasTableLayout;
+    using AliasTableLayout = PSACBuffers::AliasTableLayout;
     using AliasTableView = layout::BufferView<AliasTableLayout>;
 
     merian::BufferHandle samples;
     using SamplesLayout = layout::ArrayLayout<glsl::uint, storageQualifier>;
     using SamplesView = layout::BufferView<SamplesLayout>;
 
-   static Self allocate(const merian::ResourceAllocatorHandle& alloc,
-                                          merian::MemoryMappingType memoryMapping,
-                                          std::size_t N,
-                                          std::size_t meanPartitionSize,
-                                          std::size_t prefixPartitionSize,
-                                          std::size_t splitCount,
-                                          std::size_t S);
+    static Self allocate(const merian::ResourceAllocatorHandle& alloc,
+                         merian::MemoryMappingType memoryMapping,
+                         std::size_t N,
+                         std::size_t meanPartitionSize,
+                         std::size_t prefixPartitionSize,
+                         std::size_t splitCount,
+                         std::size_t S);
 };
 
 struct PSAConfig {
     PSACConfig psac;
     glsl::uint samplingWorkgroupSize;
-    glsl::uint splitSize;
 
     static constexpr PSAConfig defaultV() {
-      return PSAConfig {
-        .psac = {},
-        .samplingWorkgroupSize = 512,
-        .splitSize = 32,
-      };
+        return PSAConfig{
+            .psac = PSACConfig::defaultV(),
+            .samplingWorkgroupSize = 512,
+        };
     }
 };
 
@@ -77,25 +75,33 @@ class PSA {
     using Buffers = PSABuffers;
 
     explicit PSA(const merian::ContextHandle& context, PSAConfig config = PSAConfig::defaultV())
-        : m_psac(context, config.psac), m_sampleKernel(context, config.samplingWorkgroupSize),
-          m_splitSize(config.splitSize) {}
+        : m_psac(context, config.psac), m_sampleKernel(context, config.samplingWorkgroupSize) {}
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, std::size_t N, std::size_t S,
-        std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
-
-        std::size_t splitCount = N / m_splitSize;
+    void run(const vk::CommandBuffer cmd,
+             const Buffers& buffers,
+             std::size_t N,
+             std::size_t S,
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
 
         PSAC::Buffers psacBuffers;
+        psacBuffers.weights = buffers.weights;
+        psacBuffers.mean = buffers.mean;
+        psacBuffers.meanDecoupledStates = buffers.meanDecoupledStates;
+        psacBuffers.partitionPrefix = buffers.partitionPrefix;
+        psacBuffers.partitionIndices = buffers.partitionIndices;
+        psacBuffers.partitionDecoupledState = buffers.partitionDecoupledState;
+        psacBuffers.splits = buffers.splits;
+        psacBuffers.aliasTable = buffers.aliasTable;
 
         if (profiler.has_value()) {
-          profiler.value()->start("Construction");
-          profiler.value()->cmd_start(cmd, "Construction");
+            profiler.value()->start("Construction");
+            profiler.value()->cmd_start(cmd, "Construction");
         }
-        m_psac.run(cmd, psacBuffers, N, splitCount);
+        m_psac.run(cmd, psacBuffers, N, profiler);
 
         if (profiler.has_value()) {
-          profiler.value()->end();
-          profiler.value()->cmd_end(cmd);
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
         }
 
         cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
@@ -105,23 +111,37 @@ class PSA {
                             {});
 
         SampleAliasTable::Buffers samplingBuffers;
+        samplingBuffers.samples = buffers.samples;
+        samplingBuffers.aliasTable = buffers.aliasTable;
 
         if (profiler.has_value()) {
-          profiler.value()->start("Sampling");
-          profiler.value()->cmd_start(cmd,"Sampling");
+            profiler.value()->start("Sampling");
+            profiler.value()->cmd_start(cmd, "Sampling");
         }
+
         m_sampleKernel.run(cmd, samplingBuffers, N, S);
 
         if (profiler.has_value()) {
-          profiler.value()->end();
-          profiler.value()->cmd_end(cmd);
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
         }
+    }
+
+    Buffers allocate(const merian::ResourceAllocatorHandle& alloc,
+                     const merian::MemoryMappingType& memoryMapping,
+                     std::size_t N,
+                     std::size_t S) const {
+        std::size_t meanPartitionSize = m_psac.getMeanPartitionSize();
+        std::size_t prefixPartitionSize = m_psac.getPrefixPartitionSize();
+        std::size_t splitSize = m_psac.getSplitSize();
+        std::size_t splitCount = (N + splitSize - 1) / splitSize;
+        return Buffers::allocate(alloc, memoryMapping, N, meanPartitionSize, prefixPartitionSize,
+                                 splitCount, S);
     }
 
   private:
     PSAC m_psac;
     SampleAliasTable m_sampleKernel;
-    glsl::uint m_splitSize;
 };
 
 } // namespace wrs

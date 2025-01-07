@@ -30,9 +30,13 @@ src_files += files('wrs/algorithm/prefix_sum/decoupled/DecoupledPrefixSum.cpp')
 src_files += files('wrs/algorithm/prefix_sum/decoupled/test.cpp')
 src_files += files('wrs/algorithm/its/ITS.cpp')
 src_files += files('wrs/algorithm/its/test.cpp')
-src_files += files('wrs/bench/its.cpp')
 src_files += files('wrs/eval/psa_ref_eval.cpp')
 src_files += files('wrs/eval/std_eval.cpp')
 src_files += files('wrs/eval/its_eval.cpp')
 src_files += files('wrs/eval/sweeping_eval.cpp')
 src_files += files('wrs/test/test.cpp')
+
+
+src_files += files('wrs/bench/its.cpp')
+src_files += files('wrs/bench/psa.cpp')
+

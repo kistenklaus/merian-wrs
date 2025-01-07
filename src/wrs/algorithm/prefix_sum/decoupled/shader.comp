@@ -84,7 +84,7 @@ float computeLocalPrefixSum(in uint base, in uint N) {
     }
     // Perform tree-based reduction in shared memory
     if (SUBGROUP_SIZE < MAX_NUMBER_OF_SUBGROUPS) {
-        for (uint shift = 1; shift <= gl_WorkGroupSize.x; shift <<= 1) {
+        for (uint shift = 1; shift <= MAX_NUMBER_OF_SUBGROUPS; shift <<= 1) {
             barrier();
             if (gl_LocalInvocationID.x >= shift) {
                 const float other = sh_subgroupPrefixSums[gl_LocalInvocationID.x - shift];
@@ -171,11 +171,13 @@ float decoupledLookback(in uint partID, in float aggregate) {
                         if (ballotIsZero(doneBallot)) {
                             steps = PARALLEL_LOOKBACK_DEPTH;
                         } else {
+                            // TODO should be +1 to reflect the amount of steps
                             const uint stepsUntilPrefix = subgroupBallotFindLSB(doneBallot);
                             steps = stepsUntilPrefix;
                         }
                     } else {
                         done = false;
+                        // TODO should be +1 to reflect the amount of steps
                         const uint stepsUntilNotReady = subgroupBallotFindLSB(notReadyBallot);
                         steps = stepsUntilNotReady - 1;
                     }
