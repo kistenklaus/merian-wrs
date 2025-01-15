@@ -23,8 +23,8 @@ constexpr wrs::glsl::uint COOPERATIVE_SAMPLING_SIZE = 4096;
 constexpr wrs::glsl::uint WEIGHT_COUNT = 1024 * 2048;
 constexpr wrs::glsl::uint MIN_SAMPLES_COUNT = 1e3;
 constexpr wrs::glsl::uint MAX_SAMPLES_COUNT = 1e7;
-constexpr wrs::glsl::uint BENCHMARK_SAMPLES = 100;
-constexpr wrs::glsl::uint BENCHMARK_ITERATIONS = 100;
+constexpr wrs::glsl::uint BENCHMARK_SAMPLES = 500;
+constexpr wrs::glsl::uint BENCHMARK_ITERATIONS = 10;
 
 void wrs::bench::its::write_bench_results(const merian::ContextHandle& context) {
     auto resources = context->get_extension<merian::ExtensionResources>();
@@ -34,7 +34,7 @@ void wrs::bench::its::write_bench_results(const merian::ContextHandle& context) 
 
     merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context);
     merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
-        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context);
+        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context, 4096);
     query_pool->reset(); // LOL THIS WAS HARD TO FIND shared_ptr also defines a reset function =^).
     profiler->set_query_pool(query_pool);
 

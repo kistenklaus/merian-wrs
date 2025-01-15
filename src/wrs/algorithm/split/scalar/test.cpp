@@ -24,9 +24,9 @@
 #include <vector>
 #include <vulkan/vulkan_enums.hpp>
 
-using namespace wrs::test::scalar_split;
+namespace wrs::test::scalar_split {
 
-vk::DeviceSize wrs::test::scalar_split::sizeOfWeightType(WeightType type) {
+vk::DeviceSize sizeOfWeightType(WeightType type) {
     switch (type) {
     case WEIGHT_TYPE_FLOAT:
         return sizeof(float);
@@ -61,37 +61,30 @@ static void uploadTestCase(vk::CommandBuffer cmd,
         localView.expectComputeRead(cmd);
     }
     { // Upload mean
-        Buffers::MeanView stageView{stage.mean};
-        Buffers::MeanView localView{buffers.mean};
-        stageView.upload(mean);
-        stageView.copyTo(cmd, localView);
-        localView.expectComputeRead(cmd);
+         Buffers::MeanView stageView{stage.mean}; 
+         Buffers::MeanView localView{buffers.mean}; 
+         stageView.upload(mean); 
+         stageView.copyTo(cmd, localView); 
+         localView.expectComputeRead(cmd); 
     }
 }
 
 void downloadResultsToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, uint32_t K) {
-    Buffers::SplitsView stageView{stage.splits, K};
-    Buffers::SplitsView localView{buffers.splits, K};
-    localView.expectComputeWrite();
-    localView.copyTo(cmd, stageView);
-    stageView.expectHostRead(cmd);
+     Buffers::SplitsView stageView{stage.splits, K}; 
+     Buffers::SplitsView localView{buffers.splits, K}; 
+     localView.expectComputeWrite(); 
+     localView.copyTo(cmd, stageView); 
+     stageView.expectHostRead(cmd); 
 }
 
 std::pmr::vector<Buffers::Split<weight_t>>
-downloadResultsFromStage(Buffers& stage, uint32_t K, std::pmr::memory_resource* resource) {
-
-    Buffers::SplitsView stageView{stage.splits, K};
-    static_assert(wrs::layout::traits::IsStorageCompatibleStruct<Buffers::Split<weight_t>, typename Buffers::SplitsLayout::base_type>);
-    static_assert(wrs::layout::traits::IsComplexArrayLayout<Buffers::SplitsLayout>);
-    return stageView.template download<Buffers::Split<weight_t>, wrs::pmr_alloc<Buffers::Split<weight_t>>>(resource);
-}
+downloadResultsFromStage(Buffers& stage, uint32_t K, std::pmr::memory_resource* resource);
 
 static void runTestCase(const wrs::test::TestContext& context,
                         const TestCase& testCase,
                         Buffers& buffers,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
-    using Split = Buffers::Split<weight_t>;
 
     SPDLOG_INFO(fmt::format("Running test case for ScalarSplit:\n"
                             "\t-workgroupSize={}\n"
@@ -104,6 +97,7 @@ static void runTestCase(const wrs::test::TestContext& context,
                             testCase.iterations));
 
     SPDLOG_DEBUG("Creating ScalarSplit instance");
+
     wrs::ScalarSplit algo{context.context, testCase.workgroupSize};
 
     for (size_t i = 0; i < testCase.iterations; ++i) {
@@ -134,8 +128,8 @@ static void runTestCase(const wrs::test::TestContext& context,
             SPDLOG_DEBUG(fmt::format("Generating {} weights with {}", testCase.weightCount,
                                      wrs::distribution_to_pretty_string(testCase.distribution)));
             MERIAN_PROFILE_SCOPE(context.profiler, "Generate weights");
-            weights = std::move(wrs::pmr::generate_weights<weight_t>(
-                testCase.distribution, testCase.weightCount, resource));
+            weights = wrs::pmr::generate_weights<weight_t>(
+                testCase.distribution, testCase.weightCount, resource);
         }
         // 2. Compute average
         weight_t averageWeight;
@@ -169,9 +163,9 @@ static void runTestCase(const wrs::test::TestContext& context,
             SPDLOG_DEBUG("Compute partition prefix sums");
             MERIAN_PROFILE_SCOPE(context.profiler, "Compute partition prefix sums");
             heavyPrefixSum =
-                wrs::reference::pmr::prefix_sum<weight_t>(heavyPartition, resource);
+                wrs::reference::pmr::imperfect_prefix_sum<weight_t>(heavyPartition, 0, resource);
             lightPrefixSum =
-                wrs::reference::pmr::prefix_sum<weight_t>(lightPartition, resource);
+                wrs::reference::pmr::imperfect_prefix_sum<weight_t>(lightPartition, 0, resource);
             reverseLightPrefixSum = lightPrefixSum;
             std::reverse(reverseLightPrefixSum.begin(),
                          reverseLightPrefixSum.end()); // required by the layout!
@@ -261,7 +255,7 @@ static void runTestCase(const wrs::test::TestContext& context,
     }
 }
 
-void wrs::test::scalar_split::test(const merian::ContextHandle& context) {
+void test(const merian::ContextHandle& context) {
 
     wrs::test::TestContext testContext = wrs::test::setupTestContext(context);
 
@@ -280,4 +274,6 @@ void wrs::test::scalar_split::test(const merian::ContextHandle& context) {
     testContext.profiler->collect(true,true);
     SPDLOG_INFO(fmt::format("Profiler results: \n{}",
                             merian::Profiler::get_report_str(testContext.profiler->get_report())));
+}
+
 }

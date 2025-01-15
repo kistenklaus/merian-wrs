@@ -6,25 +6,21 @@
 #extension GL_KHR_shader_subgroup_vote : enable
 #pragma use_vulkan_memory_model
 
-// For some reason precise is required to avoid numerical instabilities
-// against the reference for testing.
-#define monoid float
-
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
 
 struct Split {
     uint i;
     uint j;
-    monoid spill;
+    float spill;
 };
 
 layout(set = 0, binding = 0, std430) readonly buffer in_partitionPrefixSums {
     uint heavyCount;
-    monoid heavyLight[];
+    float heavyLight[];
 } partitionPrefix;
 
 layout(set = 0, binding = 1, std430) readonly buffer in_weightAverage {
-    monoid mean;
+    float mean;
 } meta;
 
 layout(set = 0, binding = 2, std430) writeonly buffer out_splits {
@@ -40,7 +36,7 @@ uint heavyCount;
 uint lightCount;
 uint lightPrefixFirst;
 
-bool heavyPrefixAt(uint i, out monoid heavyPrefix) {
+bool heavyPrefixAt(uint i, out float heavyPrefix) {
     if (i < heavyCount) {
         heavyPrefix = partitionPrefix.heavyLight[i];
         return true;
@@ -49,7 +45,7 @@ bool heavyPrefixAt(uint i, out monoid heavyPrefix) {
     }
 }
 
-bool lightPrefixAt(uint i, out monoid lightPrefix) {
+bool lightPrefixAt(uint i, out float lightPrefix) {
     if (i < lightCount) {
         lightPrefix = partitionPrefix.heavyLight[lightPrefixFirst - i];
         return true;
@@ -68,15 +64,15 @@ uint ceilMulDiv(uint a, uint b, uint c) {
   return safe_part + rem_part;
 }
 
-void computeSplit(uint k, uint N, uint K, monoid mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {
+void computeSplit(uint k, uint N, uint K, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {
     const uint n = ceilMulDiv(N, k, K);
 
     uint a = 0;
     uint b = min(n, heavyCount);
-    const monoid target = mean * n;
+    const float target = mean * n;
 
     uint j = 0, i = 0;
-    monoid sigma2 = 0;
+    float sigma2 = 0;
 
     while (true) {
         j = (a + b) / 2;
@@ -89,13 +85,13 @@ void computeSplit(uint k, uint N, uint K, monoid mean, uint heavyCount, uint lig
             break;
         }
 
-        const monoid heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
-        const monoid light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
+        const float heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
+        const float light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
 
-        const monoid sigma = light + heavy;
+        const float sigma = light + heavy;
 
         if (sigma <= target) {
-            monoid heavy2 = partitionPrefix.heavyLight[j];
+            float heavy2 = partitionPrefix.heavyLight[j];
             sigma2 = light + heavy2;
             if (sigma2 > target) {
                 break;
@@ -114,7 +110,7 @@ void computeSplit(uint k, uint N, uint K, monoid mean, uint heavyCount, uint lig
 void main(void) {
     const uint N = pc.N;
     const uint K = pc.K;
-    const monoid mean = meta.mean;
+    const float mean = meta.mean;
     heavyCount = partitionPrefix.heavyCount;
     lightCount = N - heavyCount;
     lightPrefixFirst = N - 1;

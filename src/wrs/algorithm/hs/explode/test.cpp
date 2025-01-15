@@ -1,68 +1,87 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
+#include "src/wrs/algorithm/pack/simd/SimdPack.hpp"
+#include "src/wrs/eval/histogram.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
+#include "src/wrs/reference/partition.hpp"
+#include "src/wrs/reference/prefix_sum.hpp"
+#include "src/wrs/reference/reduce.hpp"
+#include "src/wrs/reference/sample_alias_table.hpp"
+#include "src/wrs/reference/split.hpp"
+#include "src/wrs/reference/sweeping_alias_table.hpp"
+#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/test.hpp"
+#include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
 #include <cstring>
+#include <fmt/base.h>
 #include <fmt/format.h>
+#include <ranges>
 #include <spdlog/spdlog.h>
 #include <tuple>
+#include <vulkan/vulkan_structs.hpp>
 
-#include "./ITS.hpp"
+#include "./Explode.hpp"
+#include "src/wrs/why.hpp"
 
 using namespace wrs;
 using namespace wrs::test;
 
-using Algorithm = ITS;
+using Algorithm = Explode;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
+    glsl::uint workgroupSize;
+    glsl::uint rows;
+    glsl::uint lookbackDepth;
     glsl::uint N;
     Distribution distribution;
     glsl::uint S;
-
-    glsl::uint prefixSumWorkgroupSize;
-    glsl::uint prefixSumRows;
-    glsl::uint prefixSumLookbackDepth;
-    glsl::uint samplingWorkgroupSize;
-    glsl::uint cooperativeSamplingSize;
     uint32_t iterations;
 };
 
 static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
+        .workgroupSize = 512,
+        .rows = 4,
+        .lookbackDepth = 32,
         .N = 1024 * 2048,
-        .distribution = wrs::Distribution::SEEDED_RANDOM_UNIFORM,
+        .distribution = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
         .S = 1024 * 2048 / 64,
-        .prefixSumWorkgroupSize = 512,
-        .prefixSumRows = 8,
-        .prefixSumLookbackDepth = 32,
-        .samplingWorkgroupSize = 512,
-        .cooperativeSamplingSize = 4096,
+        .iterations = 1,
+    },
+
+    TestCase{
+        .workgroupSize = 32,
+        .rows = 2,
+        .lookbackDepth = 32,
+        .N = 128,
+        .distribution = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .S = 32,
         .iterations = 1,
     },
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
-    glsl::uint maxWeightCount;
-    glsl::uint maxSamplesCount;
-    glsl::uint maxPartitionSize;
+
+    glsl::uint maxN = 0;
+    glsl::uint maxS = 0;
+    glsl::uint maxPartitionSize = 0;
     for (const auto& testCase : TEST_CASES) {
-        maxWeightCount = std::max(maxWeightCount, testCase.N);
-        maxSamplesCount = std::max(maxSamplesCount, testCase.S);
-        maxPartitionSize =
-            std::max(maxPartitionSize, testCase.prefixSumWorkgroupSize * testCase.prefixSumRows);
+        maxN = std::max(maxN, testCase.N);
+        maxS = std::max(maxS, testCase.S);
+        maxPartitionSize = std::max(maxPartitionSize, testCase.workgroupSize * testCase.rows);
     }
 
     Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
-                                      maxWeightCount, maxSamplesCount, maxPartitionSize);
-    Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE,
-                                      maxWeightCount, maxSamplesCount, maxPartitionSize);
+                                      maxN, maxS, maxPartitionSize);
+    Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE, maxN, maxS,
+                                      maxPartitionSize);
 
     return std::make_tuple(local, stage);
 }
@@ -70,18 +89,31 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
 static void uploadTestCase(const vk::CommandBuffer cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
-                           std::span<const float> weights) {
-    Buffers::WeightsView stageView{stage.weights, weights.size()};
-    Buffers::WeightsView localView{buffers.weights, weights.size()};
-    stageView.upload(weights);
-    stageView.copyTo(cmd, localView);
-    localView.expectComputeRead(cmd);
+                           std::span<const glsl::uint> outputSensitiveSamples,
+                           std::size_t partitionSize) {
+    {
+        Buffers::OutputSensitiveView stageView{stage.outputSensitive,
+                                               outputSensitiveSamples.size()};
+        Buffers::OutputSensitiveView localView{buffers.outputSensitive,
+                                               outputSensitiveSamples.size()};
+        stageView.upload(outputSensitiveSamples);
+        stageView.copyTo(cmd, localView);
+        localView.expectComputeRead(cmd);
+    }
+    {
+        std::size_t N = outputSensitiveSamples.size();
+        std::size_t workgroupCount = (N + partitionSize - 1) / partitionSize;
+        Buffers::DecoupledStatesView localView{buffers.decoupledState, workgroupCount};
+        localView.zero(cmd);
+        localView.expectComputeRead(cmd);
+    }
 }
 
 static void
 downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t S) {
     Buffers::SamplesView stageView{stage.samples, S};
     Buffers::SamplesView localView{buffers.samples, S};
+    localView.expectComputeWrite();
     localView.copyTo(cmd, stageView);
     stageView.expectHostRead(cmd);
 }
@@ -103,19 +135,12 @@ static bool runTestCase(const TestContext& context,
                         Buffers& buffers,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
-    std::string testName = fmt::format(
-        "{{N={},S={},Dist={},PWG={},PR={},PD={},SWG={},CSS={}}}", testCase.N, testCase.S,
-        distribution_to_pretty_string(testCase.distribution), testCase.prefixSumWorkgroupSize,
-        testCase.prefixSumRows, testCase.prefixSumLookbackDepth, testCase.samplingWorkgroupSize,
-        testCase.cooperativeSamplingSize);
+    std::string testName = fmt::format("{{workgroupSize={},N={},S={}}}", testCase.workgroupSize,
+                                       testCase.N, testCase.S);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context,
-                     testCase.prefixSumWorkgroupSize,
-                     testCase.prefixSumRows,
-                     testCase.prefixSumLookbackDepth,
-                     testCase.samplingWorkgroupSize,
-                     testCase.cooperativeSamplingSize};
+    Algorithm kernel{context.context, testCase.workgroupSize, testCase.rows,
+                     testCase.lookbackDepth};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -133,8 +158,20 @@ static bool runTestCase(const TestContext& context,
 
         // 1. Generate input
         context.profiler->start("Generate test input");
-        auto weights = wrs::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
-        // TODO
+        SPDLOG_DEBUG("Generating input");
+        std::pmr::vector<float> weights =
+            wrs::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
+        float totalWeight = wrs::reference::kahan_reduction<float>(weights);
+        wrs::pmr::AliasTable<float, glsl::uint> aliasTable =
+            wrs::reference::pmr::sweeping_alias_table<float, float, glsl::uint>(
+                weights, totalWeight, resource);
+
+        auto referenceSamples = wrs::reference::pmr::sample_alias_table<float, glsl::uint>(
+            aliasTable, testCase.S, resource);
+        std::pmr::vector<glsl::uint> outputSensitive =
+            wrs::eval::histogram<glsl::uint, wrs::pmr_alloc<glsl::uint>>(referenceSamples,
+                                                                         testCase.S, resource);
+
         context.profiler->end();
 
         // 2. Begin recoding
@@ -147,14 +184,15 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
             SPDLOG_DEBUG("Uploading test case...");
-            uploadTestCase(cmd, buffers, stage, weights);
+            uploadTestCase(cmd, buffers, stage, outputSensitive,
+                           testCase.workgroupSize * testCase.rows);
         }
 
         // 4. Run test case
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.N, testCase.S, context.profiler);
+            kernel.run(cmd, buffers, testCase.N);
         }
 
         // 5. Download results to stage
@@ -181,15 +219,20 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
-            // TODO
+
+            if (testCase.S < 1024) {
+                for (std::size_t i = 0; i < results.samples.size(); ++i) {
+                    fmt::println("[{}]: {}", i, results.samples[i]);
+                }
+            }
         }
         context.profiler->collect(true, true);
     }
     return failed;
 }
 
-void wrs::test::its::test(const merian::ContextHandle& context) {
-    SPDLOG_INFO("Testing full inverse transform sampling algorithm");
+void wrs::test::hs_explode::test(const merian::ContextHandle& context) {
+    SPDLOG_INFO("Testing TODO algorithm");
 
     const TestContext testContext = setupTestContext(context);
 

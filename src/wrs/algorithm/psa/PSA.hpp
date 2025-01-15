@@ -38,8 +38,8 @@ struct PSABuffers {
     using PartitionDecoupledStateView = layout::BufferView<PartitionDecoupledStateLayout>;
 
     merian::BufferHandle splits;
-    using SplitLayout = PSACBuffers::SplitLayout;
-    using SplitView = layout::BufferView<SplitLayout>;
+    using SplitsLayout = PSACBuffers::SplitsLayout;
+    using SplitsView = layout::BufferView<SplitsLayout>;
 
     merian::BufferHandle aliasTable;
     using AliasTableLayout = PSACBuffers::AliasTableLayout;

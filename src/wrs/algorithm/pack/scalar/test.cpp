@@ -1,5 +1,6 @@
 #include "./test.hpp"
 #include "./test/test_cases.hpp"
+#include "src/wrs/test/is_split.hpp"
 #include "./test/test_setup.hpp"
 #include "./test/test_types.hpp"
 #include "merian/vk/utils/profiler.hpp"
@@ -17,15 +18,17 @@
 #include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
 #include <cstring>
+#include <fmt/base.h>
 #include <fmt/format.h>
 #include <ranges>
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_structs.hpp>
 
-using namespace wrs::test::scalar_pack;
 using namespace wrs::test;
 
-vk::DeviceSize wrs::test::scalar_pack::sizeOfWeight(const wrs::test::scalar_pack::WeightType ty) {
+namespace wrs::test::scalar_pack {
+
+vk::DeviceSize sizeOfWeight(const wrs::test::scalar_pack::WeightType ty) {
     switch (ty) {
     case WEIGHT_TYPE_FLOAT:
         return sizeof(float);
@@ -40,7 +43,7 @@ static void uploadPartitionIndices(const vk::CommandBuffer cmd,
                                    const std::span<const wrs::glsl::uint> reverseLightIndices,
                                    const Buffers& buffers,
                                    const Buffers& stage,
-                                    std::pmr::memory_resource* resource) {
+                                   std::pmr::memory_resource* resource) {
     const std::size_t N = heavyIndices.size() + reverseLightIndices.size();
     wrs::Partition<wrs::glsl::uint, std::pmr::vector<wrs::glsl::uint>> partition{
         std::pmr::vector<wrs::glsl::uint>{N, resource},
@@ -69,16 +72,10 @@ static void uploadWeights(vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-static void uploadSplits(const vk::CommandBuffer cmd,
-                         std::span<const wrs::Split<weight_t, wrs::glsl::uint>> splits,
-                         Buffers& buffers,
-                         Buffers& stage) {
-    Buffers::SplitsView stageView{stage.splits, splits.size()};
-    Buffers::SplitsView localView{buffers.splits, splits.size()};
-    stageView.upload<wrs::Split<weight_t, wrs::glsl::uint>>(splits);
-    stageView.copyTo(cmd, localView);
-    localView.expectComputeRead(cmd);
-}
+void uploadSplits(const vk::CommandBuffer cmd,
+                  std::span<const wrs::Split<weight_t, wrs::glsl::uint>> splits,
+                  Buffers& buffers,
+                  Buffers& stage);
 
 static void
 uploadMean(vk::CommandBuffer cmd, weight_t averageWeight, Buffers& buffers, Buffers& stage) {
@@ -89,8 +86,7 @@ uploadMean(vk::CommandBuffer cmd, weight_t averageWeight, Buffers& buffers, Buff
     localView.expectComputeRead(cmd);
 }
 
-static void
-downloadAliasTableToStage(const vk::CommandBuffer cmd,
+static void downloadAliasTableToStage(const vk::CommandBuffer cmd,
                                       const std::size_t N,
                                       const Buffers& buffers,
                                       const Buffers& stage) {
@@ -101,13 +97,8 @@ downloadAliasTableToStage(const vk::CommandBuffer cmd,
     stageView.expectHostRead(cmd);
 }
 
-static wrs::pmr::AliasTable<weight_t, wrs::glsl::uint>
-downloadAliasTableFromStage(std::size_t N, Buffers& stage, std::pmr::memory_resource* resource) {
-    Buffers::AliasTableView stageView{stage.aliasTable, N};
-    using Entry = wrs::AliasTableEntry<weight_t, wrs::glsl::uint>;
-
-    return stageView.download<Entry, wrs::pmr_alloc<Entry>>(resource);
-}
+wrs::pmr::AliasTable<weight_t, wrs::glsl::uint>
+downloadAliasTableFromStage(std::size_t N, Buffers& stage, std::pmr::memory_resource* resource);
 
 static bool runTestCase(const TestContext& context,
                         const TestCase& testCase,
@@ -179,18 +170,31 @@ static bool runTestCase(const TestContext& context,
             heavyLightIndicies.light().begin(), heavyLightIndicies.light().end(), resource};
         std::ranges::reverse(reverseLightIndices);
 
+        auto err = wrs::test::pmr::assert_is_split<float, glsl::uint>(splits, K, heavyPrefix, lightPrefix, averageWeight, 0.01, resource);
+        if (err) {
+          SPDLOG_ERROR("Invalid reference split: \n{}", err.message());
+
+        }
+
+          /*fmt::println("Splits:");*/
+          /*for (std::size_t i = 0; i < splits.size(); ++i) {*/
+          /*  fmt::println("[{}]: ({},{},{})", i, splits[i].i, splits[i].j, splits[i].spill);*/
+          /*}*/
+
         // 2. Begin recoding
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
 
+
+
         // 3.0 Upload partition indices
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload partition indices");
             SPDLOG_DEBUG("Uploading partition indices...");
             uploadPartitionIndices(cmd, heavyIndices, reverseLightIndices, buffers, stage,
-                                    resource);
+                                   resource);
         }
         // 3.1 Upload splits
         {
@@ -253,12 +257,17 @@ static bool runTestCase(const TestContext& context,
         {
 
             SPDLOG_DEBUG("Testing results");
-            const auto err =
-                pmr::assert_is_alias_table<weight_t, weight_t, wrs::glsl::uint>(
-                    weights, aliasTable, totalWeight, 0.01, resource);
+            const auto err = pmr::assert_is_alias_table<weight_t, weight_t, wrs::glsl::uint>(
+                weights, aliasTable, totalWeight, 0.01, resource);
             if (err) {
                 SPDLOG_ERROR(err.message());
             }
+
+            /*if (testCase.weightCount < 1024 || true) {*/
+            /*    for (std::size_t i = 0; i < aliasTable.size(); ++i) {*/
+            /*        fmt::println("[{}]: ({},{})", i, aliasTable[i].p, aliasTable[i].a);*/
+            /*    }*/
+            /*}*/
         }
 
         context.profiler->collect(true, true);
@@ -266,7 +275,7 @@ static bool runTestCase(const TestContext& context,
     return failed;
 }
 
-void wrs::test::scalar_pack::test(const merian::ContextHandle& context) {
+void test(const merian::ContextHandle& context) {
     SPDLOG_INFO("Testing scalar pack algorithm");
     TestContext testContext = setupTestContext(context);
 
@@ -299,3 +308,5 @@ void wrs::test::scalar_pack::test(const merian::ContextHandle& context) {
                                  sizeof(TEST_CASES) / sizeof(TestCase)));
     }
 }
+
+} // namespace wrs::test::scalar_pack

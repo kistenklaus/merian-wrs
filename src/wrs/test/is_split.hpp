@@ -37,9 +37,9 @@ template <wrs::arithmetic T, std::integral I> struct IsSplitIndexError {
     IsSplitIndexError() = default;
 
     void appendMessageToStringStream(std::stringstream& ss, I N, I K) const {
-        ss << "\t\tFailure at index = " << index << ":\n";
-        ss << "\t\t\tGot = (" << split.i << ", " << split.j << ", "
-           << split.spill << ")\n";
+        ss << "\t\tFailure at index = " << index << ": (err:" << static_cast<uint32_t>(type)
+           << ")\n";
+        ss << "\t\t\tGot = (" << split.i << ", " << split.j << ", " << split.spill << ")\n";
         if (type & IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND) {
             if (index != K - 1) {
                 ss << "\t\t\ti out of bound. N = " << N << "\n";
@@ -56,16 +56,23 @@ template <wrs::arithmetic T, std::integral I> struct IsSplitIndexError {
         }
         if (type & IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT) {
             ss << "\t\t\tBroken Invariant: i + j = n\n";
-            ss << "\t\t\t\ti = " << split.i << ", j = " << split.j
-               << ", n = " << n << "\n";
+            ss << "\t\t\t\ti = " << split.i << ", j = " << split.j << ", n = " << n << "\n";
         }
         if (type & IS_SPLIT_ERROR_TYPE_BROKEN_SIGMA_INVARIANT) {
             ss << "\t\t\tBroken Invariant: " << sigma << " <= " << target << " && " << sigma2
                << " > " << target << " \n";
         }
         if (type & IS_SPLIT_ERROR_TYPE_INVALID_SPILL) {
-          ss << "\t\t\tInvalid spill. Expected " << sigma2 - target << ", Got " << split.spill << "\n";
-          ss << "\t\t\tsigma2 = " << sigma << ", target = " << target << ", diff = " << sigma2 - target << "\n";
+            ss << "\t\t\tInvalid spill. Expected " << sigma2 - target << ", Got " << split.spill
+               << "\n";
+            ss << "\t\t\tsigma2 = " << sigma << ", target = " << target
+               << ", diff = " << sigma2 - target << "\n";
+        }
+        if (type & IS_SPLIT_ERROR_TYPE_INVALID_NUMBER_OF_SPLITS) {
+            ss << "\t\t\tInvalid error: Invalid number of splits\n";
+        }
+        if (type == IS_SPLIT_ERROR_TYPE_NONE) {
+            ss << "\t\t\tInvalid error\n";
         }
     }
 };
@@ -95,6 +102,17 @@ struct IsSplitError {
             ss << "AssertionFailed: Invalid number of splits\n";
             ss << "\tExpected = " << K << ", Got = " << K_got << "\n";
             return ss.str();
+        }
+
+        if (type & IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT) {
+            ss << "AssertionFailed: i + j != 0 (Somewhere)" << "\n";
+        }
+        if (type & IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND) {
+            ss << "AssertionFailed: i is out of bounds (Somewhere)" << "\n";
+        }
+
+        if (type & IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND) {
+            ss << "AssertionFailed: j is out of bounds (Somewhere)" << "\n";
         }
 
         ss << "AssertionFailed: At " << errors.size() << " out of " << K << "indicies\n";
@@ -146,18 +164,15 @@ assert_is_split(std::span<wrs::Split<T, I>> splits,
 
         std::uint8_t type = IS_SPLIT_ERROR_TYPE_NONE;
 
-        if (i >= lightPrefix.size()) {
+        if (i - 1 >= lightPrefix.size()) {
             type |= IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND;
-        }
-        if (j == heavyPrefix.size()) {
-            continue;
         }
         if (j >= heavyPrefix.size()) {
             type |= IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND;
         }
-        const std::uintmax_t temp = N * k;
-        const I n =
-            static_cast<I>(wrs::ceilDiv<std::uintmax_t>(temp, static_cast<std::uintmax_t>(K)));
+        const std::uintmax_t temp = static_cast<std::uintmax_t>(N) * static_cast<std::uintmax_t>(k);
+        const I n = (temp + static_cast<std::uintmax_t>(K) - 1) / static_cast<std::uintmax_t>(K);
+
         if (i + j != n) {
             type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT;
         }
@@ -165,25 +180,32 @@ assert_is_split(std::span<wrs::Split<T, I>> splits,
         // 1. sigma <= target
         // 2. sigma + next_heavy > target
 
-        const T target = mean * n;
-        const T sigma = lightPrefix[i] + heavyPrefix[j];
-        const T sigma2 = lightPrefix[i] + heavyPrefix[j + 1];
+        if (!((type & IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND) ||
+              (type & IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND))) {
 
-        const T expectedSpill = sigma2 - target;
-        if (std::abs(expectedSpill - spill) > 1e-5 || std::abs((sigma2 - spill) - target) > 1e-5) {
-          type |= IS_SPLIT_ERROR_TYPE_INVALID_SPILL;
-        }
+            const T target = mean * n;
+            const T light = i == 0 ? 0 : lightPrefix[i - 1];
+            const T heavy = j == 0 ? 0 : heavyPrefix[j - 1];
+            const T heavy2 = heavyPrefix[j];
+            const T sigma = light + heavy;
+            const T sigma2 = light + heavy2;
 
-        if (!(sigma <= target && sigma2 > target)) {
-            type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIGMA_INVARIANT;
+            const T expectedSpill = sigma2 - target;
+            if (std::abs(expectedSpill - spill) > 1e-5 ||
+                std::abs((sigma2 - spill) - target) > 1e-5) {
+                type |= IS_SPLIT_ERROR_TYPE_INVALID_SPILL;
+            }
+
+            if (!(sigma <= target && sigma2 > target)) {
+                type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIGMA_INVARIANT;
+            }
         }
         if (type != 0) {
             errorCount += 1;
         }
     }
-    if (splits.back().i != static_cast<I>(lightPrefix.size()) &&
-        splits.back().j != static_cast<I>(heavyPrefix.size()) &&
-        splits.back().spill > 0.01) {
+    if ((splits.back().i != static_cast<I>(lightPrefix.size())) ||
+        ((splits.back().j + 1) != static_cast<I>(heavyPrefix.size())) || splits.back().spill > 0.01) {
         errorCount += 1;
     }
 
@@ -198,18 +220,17 @@ assert_is_split(std::span<wrs::Split<T, I>> splits,
         const auto& j = split.j;
         const auto& spill = split.spill;
 
-
         std::uint8_t type = IS_SPLIT_ERROR_TYPE_NONE;
 
         if (i >= lightPrefix.size()) {
             type |= IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND;
         }
-        if (j + 1 >= heavyPrefix.size()) {
+        if (j >= heavyPrefix.size()) {
             type |= IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND;
         }
-        const std::uintmax_t temp = N * k;
-        const I n =
-            static_cast<I>(wrs::ceilDiv<std::uintmax_t>(temp, static_cast<std::uintmax_t>(K)));
+        const std::uintmax_t temp = static_cast<std::uintmax_t>(N) * static_cast<std::uintmax_t>(k);
+        const I n = (temp + static_cast<std::uintmax_t>(K) - 1) / static_cast<std::uintmax_t>(K);
+
         if (i + j != n) {
             type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIZE_INVARIANT;
         }
@@ -217,20 +238,29 @@ assert_is_split(std::span<wrs::Split<T, I>> splits,
         // Invariant:
         // 1. sigma <= target
         // 2. sigma + next_heavy > target
-        const T target = mean * n;
-        const T light = i == 0 ? 0 : lightPrefix[i - 1];
-        const T heavy = j == 0 ? 0 : heavyPrefix[j - 1];
-        const T heavy2 = heavyPrefix[j];
-        const T sigma = light + heavy;
-        const T sigma2 = light + heavy2;
 
-        const T expectedSpill = sigma2 - target;
-        if (std::abs(expectedSpill - spill) > 0.01 || std::abs((sigma2 - spill) - target) > 0.01) {
-          type |= IS_SPLIT_ERROR_TYPE_INVALID_SPILL;
-        }
+        T target = 0;
+        T sigma = 0;
+        T sigma2 = 0;
+        if (!((type & IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND) ||
+              (type & IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND))) {
 
-        if (!(sigma - target <= error_margin && error_margin > target - sigma2)) {
-            type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIGMA_INVARIANT;
+            target = mean * n;
+            const T light = i == 0 ? 0 : lightPrefix[i - 1];
+            const T heavy = j == 0 ? 0 : heavyPrefix[j - 1];
+            const T heavy2 = heavyPrefix[j];
+            sigma = light + heavy;
+            sigma2 = light + heavy2;
+
+            const T expectedSpill = sigma2 - target;
+            if (std::abs(expectedSpill - spill) > 0.01 ||
+                std::abs((sigma2 - spill) - target) > 0.01) {
+                type |= IS_SPLIT_ERROR_TYPE_INVALID_SPILL;
+            }
+
+            if (!(sigma - target <= error_margin && error_margin > target - sigma2)) {
+                type |= IS_SPLIT_ERROR_TYPE_BROKEN_SIGMA_INVARIANT;
+            }
         }
 
         if (type != 0) {
@@ -249,7 +279,7 @@ assert_is_split(std::span<wrs::Split<T, I>> splits,
     if (splits.back().i != static_cast<I>(lightPrefix.size())) {
         type |= IS_SPLIT_ERROR_TYPE_I_OUT_OF_BOUND;
     }
-    if (splits.back().j != static_cast<I>(heavyPrefix.size())) {
+    if (splits.back().j + 1 != static_cast<I>(heavyPrefix.size())) {
         type |= IS_SPLIT_ERROR_TYPE_J_OUT_OF_BOUND;
     }
     if (splits.back().spill > 0.01) {

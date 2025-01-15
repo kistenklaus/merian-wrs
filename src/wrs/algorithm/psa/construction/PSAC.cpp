@@ -29,7 +29,7 @@ wrs::PSACBuffers wrs::PSACBuffers::allocate(const merian::ResourceAllocatorHandl
              alloc->createBuffer(PartitionDecoupledStateLayout::size(prefixWorkgroupCount), 
                                  vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping); 
          buffers.splits = alloc->createBuffer( 
-             SplitLayout::size(splitCount), vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping); 
+             SplitsLayout::size(splitCount), vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping); 
          buffers.aliasTable = alloc->createBuffer(AliasTableLayout::size(weightCount), 
                                                   vk::BufferUsageFlagBits::eStorageBuffer | 
                                                       vk::BufferUsageFlagBits::eTransferSrc, 
@@ -46,7 +46,7 @@ wrs::PSACBuffers wrs::PSACBuffers::allocate(const merian::ResourceAllocatorHandl
             alloc->createBuffer(PartitionPrefixLayout::size(weightCount), {}, memoryMapping);
          buffers.partitionDecoupledState = 
              alloc->createBuffer(PartitionDecoupledStateLayout::size(prefixWorkgroupCount), {}, memoryMapping); 
-         buffers.splits = alloc->createBuffer(SplitLayout::size(splitCount), {}, memoryMapping); 
+         buffers.splits = alloc->createBuffer(SplitsLayout::size(splitCount), vk::BufferUsageFlagBits::eTransferDst, memoryMapping); 
          buffers.aliasTable = 
              alloc->createBuffer(AliasTableLayout::size(weightCount), 
                                  vk::BufferUsageFlagBits::eTransferDst, memoryMapping); 

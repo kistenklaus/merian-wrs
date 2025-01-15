@@ -1,6 +1,16 @@
 #include "merian/vk/context.hpp"
 
+#include "src/wrs/algorithm/hs/HSTRepr.hpp"
+#include "src/wrs/algorithm/hs/explode/test.hpp"
+#include "src/wrs/algorithm/hs/hstc/test.hpp"
+#include "src/wrs/algorithm/hs/sampling/test.hpp"
+#include "src/wrs/algorithm/mean/decoupled/test.hpp"
+#include "src/wrs/algorithm/pack/scalar/test.hpp"
+#include "src/wrs/algorithm/pack/simd/test.hpp"
+#include "src/wrs/algorithm/split/scalar/test.hpp"
+#include "src/wrs/algorithm/its/test.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
+
 #include "merian/vk/extension/extension_vk_core.hpp"
 #include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
 #include "src/wrs/algorithm/psa/construction/test.hpp"
@@ -40,14 +50,20 @@ int main() {
 
     renderdoc::init();
 
+    /* wrs::test::hstc::test(context); */
+    /* wrs::test::hst_sampling::test(context); */
+    wrs::test::hs_explode::test(context);
+
+    /* wrs::test::decoupled_prefix_partition::test(context); */
+
     /* wrs::bench::its::write_bench_results(context); */
-    wrs::bench::psa::write_bench_results(context);
+
+    /* wrs::test::psa::test(context); */
+
+    /* wrs::bench::psa::write_bench_results(context); */
 
     /* wrs::test::psac::test(context); */
 
-    /* wrs::test::psa::test(context); */
-
-    /* wrs::test::psa::test(context); */
 
     //wrs::eval::write_its_rmse_curves(context);
 
@@ -57,16 +73,16 @@ int main() {
     /* wrs::eval::write_std_rmse_curves(); */
     /* wrs::eval::write_psa_rmse_curves(); */
     //wrs::test::testTests();
-    //wrs::test::decoupled_mean::test(context); 
+    /* wrs::test::decoupled_mean::test(context);  */
     //
-    wrs::test::decoupled_prefix_partition::test(context);
 
     /* wrs::test::scalar_split::test(context); */
-    //wrs::test::scalar_pack::test(context);
+
+    /* wrs::test::scalar_pack::test(context); */
+
     /* wrs::test::simd_pack::test(context); */
     /* wrs::test::philox::test(context); */
     /* wrs::test::its::test(context); */
-    /* wrs::test::scalar_psa::test(context); */
     /* wrs::test::sample_alias::test(context); */
 
     /* wrs::test::decoupled_prefix_sum::test(context); */

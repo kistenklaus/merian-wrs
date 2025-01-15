@@ -32,7 +32,7 @@ wrs::PSABuffers wrs::PSABuffers::allocate(const merian::ResourceAllocatorHandle&
              alloc->createBuffer(PartitionDecoupledStateLayout::size(prefixWorkgroupCount), 
                                  vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping); 
          buffers.splits = alloc->createBuffer( 
-             SplitLayout::size(splitCount), vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping); 
+             SplitsLayout::size(splitCount), vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping); 
          buffers.aliasTable = alloc->createBuffer(AliasTableLayout::size(N), 
                                                   vk::BufferUsageFlagBits::eStorageBuffer,
                                                   memoryMapping); 

@@ -2,59 +2,44 @@
 
 #extension GL_KHR_shader_subgroup_arithmetic : enable
 #extension GL_KHR_memory_scope_semantics : enable
-#extension GL_EXT_scalar_block_layout    : enable
 // #extension GL_EXT_shader_atomic_float : enable
 #extension GL_KHR_shader_subgroup_vote : enable
 #extension GL_KHR_shader_subgroup_ballot : enable
 #pragma use_vulkan_memory_model
 
-#define STABLE
-
-// type of a commutative monoid
-
-#define lbstate_t uint
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
 
 layout(constant_id = 0) const uint WORKGROUP_SIZE = 1;
-layout(constant_id = 1) const uint SUBGROUP_SIZE = 32;
-layout(constant_id = 2) const uint ROWS = 1;
-const uint PARALLEL_LOOKBACK_DEPTH = 32;
+layout(constant_id = 1) const uint ROWS = 1;
+layout(constant_id = 2) const uint SUBGROUP_SIZE = 32;
+layout(constant_id = 3) const uint PARALLEL_LOOKBACK_DEPTH = 32;
 
 const uint PARTITION_SIZE = WORKGROUP_SIZE * ROWS;
 const uint SUBPARTITION_SIZE = SUBGROUP_SIZE * ROWS;
 const uint MAX_NUMBER_OF_SUBGROUPS = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
 
-layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(set = 0, binding = 0) readonly buffer inOutputSensitive {
+    uint outputSensitive[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer outSamples {
+    uint samples[];
+};
 
 #define state_t uint
 #define STATE_NOT_READY 0u
 #define STATE_AGGREGATE_PUBLISHED 1u
 #define STATE_PREFIX_PUBLISHED 2u
 
-const uint LOOKBACK_STATE_SPIN = 1u;
-const uint LOOKBACK_STATE_DONE = 0u;
-
-// struct DecoupledAgg {
-//     cmonoid aggregate;
-//     cmonoid prefix;
-// };
-//
-struct DecoupledPartition {
-    float aggregate;
-    float prefix;
+struct DecoupledState {
+    uint aggregate;
+    uint prefix;
     state_t state;
 };
 
-layout(set = 0, binding = 0) readonly buffer InElements {
-    float elements[];
-};
-
-layout(set = 0, binding = 1) writeonly buffer OutMean {
-    float mean;
-};
-
-layout(set = 0, binding = 2) volatile buffer decoupled_states {
+layout(set = 0, binding = 2) volatile buffer DecoupledStates {
     uint counter;
-    DecoupledPartition partitions[];
+    DecoupledState partitions[];
 };
 
 layout(push_constant) uniform PushConstant {
@@ -65,50 +50,73 @@ layout(push_constant) uniform PushConstant {
 #define LOOKBACK_STATE_SPIN 1u
 #define LOOKBACK_STATE_DONE 0u
 
-// Atomic counter to guarantee forward progess
+shared uint sh_lookBackState;
 shared uint sh_partID;
 
-shared float sh_subgroupAggregates[MAX_NUMBER_OF_SUBGROUPS];
+shared uint sh_subgroupPrefixSums[MAX_NUMBER_OF_SUBGROUPS];
+shared uint sh_exclusive;
 
-shared float sh_exclusive;
+uint localPrefix[ROWS];
 
-shared lbstate_t sh_lookBackState;
-
-uint N;
-
-float computeLocalAggregate(in uint base) {
-    float threadAgg = 0;
+uint computeLocalPrefixSum(in uint base, in uint N) {
     for (uint i = 0; i < ROWS; ++i) {
         uint index = base + i * SUBGROUP_SIZE;
         if (index < N) {
-            threadAgg += elements[index];
+            localPrefix[i] = outputSensitive[index];
+        } else {
+            localPrefix[i] = 0;
         }
     }
-    float subgroupAgg = subgroupAdd(threadAgg);
-    if (subgroupElect()) {
-        sh_subgroupAggregates[gl_SubgroupID] = subgroupAgg;
-    }
-    barrier();
 
-    float workgroupAgg;
-    if (SUBGROUP_SIZE >= MAX_NUMBER_OF_SUBGROUPS) {
-        if (gl_SubgroupID == 0) {
-            if (gl_SubgroupInvocationID < MAX_NUMBER_OF_SUBGROUPS) {
-                workgroupAgg = subgroupAdd(sh_subgroupAggregates[gl_SubgroupInvocationID]);
-                if (subgroupElect()) {
-                    sh_subgroupAggregates[0] = workgroupAgg;
-                }
+    for (uint i = 0; i < ROWS; ++i) {
+        localPrefix[i] = subgroupInclusiveAdd(localPrefix[i]);
+    }
+
+    uvec4 ballot = subgroupBallot(base < N);
+    uint lastSubgroup = subgroupBallotFindMSB(ballot);
+
+    for (uint i = 1; i < ROWS; ++i) {
+        localPrefix[i] += subgroupBroadcast(localPrefix[i - 1], lastSubgroup);
+    }
+
+    if (gl_SubgroupInvocationID.x == lastSubgroup) {
+        sh_subgroupPrefixSums[gl_SubgroupID.x] = localPrefix[ROWS - 1];
+    }
+    // Perform tree-based reduction in shared memory
+    if (SUBGROUP_SIZE < MAX_NUMBER_OF_SUBGROUPS) {
+        for (uint shift = 1; shift <= MAX_NUMBER_OF_SUBGROUPS; shift <<= 1) {
+            barrier();
+            if (gl_LocalInvocationID.x >= shift) {
+                const uint other = sh_subgroupPrefixSums[gl_LocalInvocationID.x - shift];
+                sh_subgroupPrefixSums[gl_LocalInvocationID.x] += other;
             }
         }
-        subgroupBarrier();
         barrier();
-        workgroupAgg = sh_subgroupAggregates[0];
     } else {
-        workgroupAgg = 123123123;
-        // TODO
+        uint groupSum = 0;
+        if (gl_SubgroupID == 0) {
+            groupSum = (gl_SubgroupInvocationID < MAX_NUMBER_OF_SUBGROUPS)
+                ? sh_subgroupPrefixSums[gl_SubgroupInvocationID] : 0;
+            groupSum = subgroupInclusiveAdd(groupSum);
+            if (gl_SubgroupInvocationID < MAX_NUMBER_OF_SUBGROUPS) {
+                sh_subgroupPrefixSums[gl_SubgroupInvocationID] = groupSum;
+            }
+        }
+        barrier();
     }
 
-    return workgroupAgg;
+    // Step 3: Broadcast the offsets for each subgroup
+    uint subgroupOffset = (gl_SubgroupID > 0)
+        ? sh_subgroupPrefixSums[gl_SubgroupID - 1] : 0;
+
+    uint exclusive = (gl_SubgroupID > 0) ? sh_subgroupPrefixSums[gl_SubgroupID - 1] : 0;
+    for (uint i = 0; i < ROWS; ++i) {
+        localPrefix[i] += exclusive;
+    }
+
+    uint workgroupSum = sh_subgroupPrefixSums[gl_NumSubgroups - 1];
+
+    return workgroupSum;
 }
 
 bool ballotIsZero(in uvec4 ballot) {
@@ -117,7 +125,7 @@ bool ballotIsZero(in uvec4 ballot) {
 
 // see https://research.nvihttps://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-backdia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back for the
 // original paper by NVIDIA.
-float decoupledLookback(in uint partID, in float aggregate) {
+uint decoupledLookback(in uint partID, in uint aggregate) {
     // ================ Publish aggregate & state =====================
     if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
         // Non atomic write to coherent values.
@@ -137,7 +145,7 @@ float decoupledLookback(in uint partID, in float aggregate) {
             gl_StorageSemanticsBuffer, gl_SemanticsRelease);
     }
     // ================ Decoupled lookback ==================
-    float exclusive = 0;
+    uint exclusive = 0;
     uint i = 0;
     const uint MAX_IT = 100000;
     if (partID != 0) {
@@ -163,16 +171,18 @@ float decoupledLookback(in uint partID, in float aggregate) {
                         if (ballotIsZero(doneBallot)) {
                             steps = PARALLEL_LOOKBACK_DEPTH;
                         } else {
-                            const uint stepsUntilPrefix = subgroupBallotFindLSB(doneBallot) + 1;
+                            // TODO should be +1 to reflect the amount of steps
+                            const uint stepsUntilPrefix = subgroupBallotFindLSB(doneBallot);
                             steps = stepsUntilPrefix;
                         }
                     } else {
                         done = false;
-                        const uint stepsUntilNotReady = subgroupBallotFindLSB(notReadyBallot) + 1;
+                        // TODO should be +1 to reflect the amount of steps
+                        const uint stepsUntilNotReady = subgroupBallotFindLSB(notReadyBallot);
                         steps = stepsUntilNotReady - 1;
                     }
                     if (gl_SubgroupInvocationID.x < steps) {
-                        float acc;
+                        uint acc;
                         if (done) {
                             acc = partitions[lookBackIdx].prefix;
                         } else {
@@ -196,7 +206,7 @@ float decoupledLookback(in uint partID, in float aggregate) {
                 }
             }
             if (subgroupElect()) {
-                float inclusive = exclusive + aggregate;
+                uint inclusive = exclusive + aggregate;
                 partitions[partID].prefix = inclusive;
                 sh_exclusive = exclusive;
             }
@@ -207,7 +217,6 @@ float decoupledLookback(in uint partID, in float aggregate) {
                     gl_SemanticsRelease | gl_SemanticsMakeAvailable);
             }
         }
-        subgroupBarrier();
         controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
         exclusive = sh_exclusive;
     }
@@ -215,7 +224,7 @@ float decoupledLookback(in uint partID, in float aggregate) {
 }
 
 void main(void) {
-    N = pc.N;
+    const uint N = pc.N;
 
     if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
         sh_partID = atomicAdd(counter, 1);
@@ -224,12 +233,15 @@ void main(void) {
     uint partID = sh_partID;
 
     const uint base = partID * PARTITION_SIZE + gl_SubgroupID.x * SUBPARTITION_SIZE + gl_SubgroupInvocationID.x;
-    float agg = computeLocalAggregate(base);
+    //
+    uint workgroupAggregate = computeLocalPrefixSum(base, N);
 
-    float exclusive = decoupledLookback(partID, agg);
+    uint exclusive = decoupledLookback(partID, 1);
 
-    if (partID == gl_NumWorkGroups.x - 1 && gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
-        mean = (agg + exclusive) / N;
-        // mean = (agg + exclusive) / N;
+    for (uint i = 0; i < ROWS; ++i) {
+        uint index = base + i * SUBGROUP_SIZE;
+        if (index < N) {
+            samples[index] = exclusive + localPrefix[i];
+        }
     }
 }

@@ -1,0 +1,40 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+
+layout(set = 0, binding = 0) buffer in_tree {
+    float tree[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint dst_offset;
+    uint src_offset;
+    uint num_invoc;
+} pc;
+
+
+void main(void) {
+    const uint gid = gl_GlobalInvocationID.x;
+
+    if (gid >= pc.num_invoc) {
+      return;
+    }
+
+    // TODO optimize memory access pattern (NOT optimal because it's strided!)
+    // probably a good idea to use subgroupShuffle here 
+    const uint c1 = pc.src_offset + gid * 2;
+    const uint c2 = c1 + 1;
+    float w = tree[c1] + tree[c2];
+
+    const uint p = pc.dst_offset + gid;
+    // NOTE: perfectly coalessed memory write!
+    tree[p] = w;
+}

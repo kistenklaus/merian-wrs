@@ -41,8 +41,8 @@ struct PSACBuffers {
     using PartitionDecoupledStateView = layout::BufferView<PartitionDecoupledStateLayout>;
 
     merian::BufferHandle splits;
-    using SplitLayout = ScalarSplitBuffers::SplitsLayout;
-    using SplitView = layout::BufferView<SplitLayout>;
+    using SplitsLayout = ScalarSplitBuffers::SplitsLayout;
+    using SplitsView = layout::BufferView<SplitsLayout>;
 
     merian::BufferHandle aliasTable;
     using AliasTableLayout = ScalarPackBuffers::AliasTableLayout;
@@ -70,13 +70,13 @@ struct PSACConfig {
     constexpr static PSACConfig defaultV() {
         return PSACConfig{
             .meanWorkgroupSize = 512,
-            .meanRows = 4,
+            .meanRows = 8,
             .prefixSumWorkgroupSize = 512,
             .prefixSumRows = 8,
             .prefixSumLookbackDepth = 32,
             .splitWorkgroupSize = 512,
-            .packWorkgroupSize = 1,
-            .splitSize = 32,
+            .packWorkgroupSize = 512,
+            .splitSize = 8,
         };
     }
 };
@@ -144,6 +144,10 @@ class PSAC {
         meanStates.expectComputeRead(cmd);
         prefixStates.expectComputeRead(cmd);
 
+
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
+            {},{},{},{});
+
         if (profiler.has_value()) {
             MERIAN_PROFILE_SCOPE_GPU(*profiler, cmd, "Mean");
             m_mean.run(cmd, meanBuffers, weightCount);
@@ -151,7 +155,8 @@ class PSAC {
             m_mean.run(cmd, meanBuffers, weightCount);
         }
 
-        common_vulkan::pipelineBarrierComputeReadAfterComputeWrite(cmd, buffers.mean);
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
+            {},{},{},{});
 
         if (profiler.has_value()) {
             MERIAN_PROFILE_SCOPE_GPU(*profiler, cmd, "PrefixPartition");
@@ -160,8 +165,8 @@ class PSAC {
             m_prefixPartition.run(cmd, partitionBuffers, weightCount);
         }
 
-        common_vulkan::pipelineBarrierComputeReadAfterComputeWrite(cmd, buffers.partitionIndices);
-        common_vulkan::pipelineBarrierComputeReadAfterComputeWrite(cmd, buffers.partitionPrefix);
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
+            {},{},{},{});
 
         ScalarSplitBuffers splitBuffers;
         splitBuffers.mean = buffers.mean;
@@ -175,7 +180,8 @@ class PSAC {
             m_split.run(cmd, splitBuffers, weightCount, splitCount);
         }
 
-        common_vulkan::pipelineBarrierComputeReadAfterComputeWrite(cmd, buffers.splits);
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
+            {},{},{},{});
 
         ScalarPackBuffers packBuffers;
         packBuffers.weights = buffers.weights;
@@ -190,6 +196,9 @@ class PSAC {
         } else {
             m_pack.run(cmd, weightCount, splitCount, packBuffers);
         }
+
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
+            {},{},{},{});
     }
 
     inline glsl::uint getPrefixPartitionSize() const {

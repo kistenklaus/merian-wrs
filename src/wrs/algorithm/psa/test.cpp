@@ -50,6 +50,13 @@ static constexpr TestCase TEST_CASES[] = {
         .config = PSAConfig::defaultV(),
         .iterations = 1,
     },
+    TestCase{
+        .N = static_cast<glsl::uint>(1e7),
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<glsl::uint>(1e7) / 32,
+        .config = PSAConfig::defaultV(),
+        .iterations = 100,
+    },
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {

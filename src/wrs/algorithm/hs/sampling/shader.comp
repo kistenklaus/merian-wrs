@@ -1,0 +1,138 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer in_hst {
+    float hst[];
+};
+
+layout(set = 0, binding = 1) buffer out_hst_samples {
+    uint hst_samples[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint child_offset;
+    uint parent_offset;
+    uint num_invoc;
+} pc;
+
+// Constants for Philox2x32-10
+const uint PHILOX_M2x32 = 0xD256D193u; // Multiplication constant
+const uint PHILOX_W32 = 0x9E3779B9u; // Weyl constant
+const uint PHILOX_ROUNDS = 10;
+
+// Function to perform a single Philox round
+void philoxRound(inout uint x0, inout uint x1, uint k) {
+    uint hi = (x0 * PHILOX_M2x32) >> 32; // High 32 bits of multiplication
+    uint lo = x0 * PHILOX_M2x32; // Low 32 bits of multiplication
+
+    x0 = hi ^ x1 ^ k;
+    x1 = lo;
+}
+
+// Philox2x32-10 implementation
+void philox2x32_10(inout uint x0, inout uint x1, uint key) {
+    uint k = key;
+    for (int i = 0; i < PHILOX_ROUNDS; i++) {
+        philoxRound(x0, x1, k);
+        k += PHILOX_W32; // Update the key with the Weyl constant
+    }
+}
+
+// Generate a random number using Philox2x32-10
+vec2 philoxRandom(uvec2 counter, uint key) {
+    uint x0 = counter.x;
+    uint x1 = counter.y;
+
+    // Apply 10 rounds of Philox
+    philox2x32_10(x0, x1, key);
+
+    // Return a single random number normalized to [0, 1)
+    return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
+}
+
+// // Random number generator
+// float rand(uint seed) {
+//     seed ^= seed >> 21;
+//     seed ^= seed << 35;
+//     seed ^= seed >> 4;
+//     return fract(float(seed) * 1.0 / 4294967296.0);
+// }
+
+// Logarithm of factorial using Stirling's Approximation
+float logFactorial(uint n) {
+    if (n == 0 || n == 1) return 0.0; // log(0!) = log(1!) = 0
+    float nf = float(n);
+    return nf * log(nf) - nf + 0.5 * log(2.0 * 3.14159 * nf);
+}
+
+// Binomial PMF: Computes P(X = k) for Binomial(n, p)
+float binomialPMF(uint k, uint n, float p) {
+    float logCoeff = logFactorial(n) - logFactorial(k) - logFactorial(n - k);
+    float logProb = k * log(p) + (n - k) * log(1.0 - p);
+    return exp(logCoeff + logProb);
+}
+
+// Rejection sampling for Binomial distribution
+uint sampleBinomial(float p, uint n, uint seed) {
+    uint k; // Candidate sample
+    float u; // Random number for acceptance check
+    float ratio; // Acceptance ratio
+    uint maxIter = 100000; // Prevent infinite loops in extreme cases
+    uint iter = 0;
+
+    while (iter < maxIter) {
+        // Increment seed to ensure new random values
+        seed += iter;
+
+        vec2 u = philoxRandom(uvec2(gl_GlobalInvocationID.x, 0), seed);
+
+        // Generate a proposal sample (uniform distribution as proposal)
+        k = uint(u.x * float(n + 1)); // Candidate in [0, n]
+
+        // Compute the acceptance ratio
+        ratio = binomialPMF(k, n, p) / (1.0 / float(n + 1)); // Uniform proposal density
+
+        // Accept or reject the candidate
+        if (u.y <= ratio) {
+            return k; // Return accepted sample
+        }
+
+        iter++;
+    }
+
+    // Fallback: If too many iterations, return a default value
+    return n / 2; // Return an approximate value (mean of Binomial)
+}
+
+void main(void) {
+    const uint gid = gl_GlobalInvocationID.x;
+    const uint invocID = gl_LocalInvocationID.x;
+
+    if (gid >= pc.num_invoc) {
+        return;
+    }
+
+    const uint c1 = pc.child_offset + 2 * gid;
+    const uint c2 = c1 + 1;
+    float w1 = hst[c1];
+    float w2 = hst[c2];
+    float w = w1 + w2;
+
+    const float p = w1 / w;
+    const uint n = hst_samples[pc.parent_offset + gid];
+
+    uint seed = uint(gl_GlobalInvocationID.x);
+    const uint n1 = sampleBinomial(p, n, seed);
+    const uint n2 = n - n1;
+
+    hst_samples[c1] = n1;
+    hst_samples[c2] = n2;
+}

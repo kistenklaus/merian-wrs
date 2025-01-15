@@ -8,12 +8,22 @@ src_files += files('wrs/memory/DefaultResource.cpp')
 src_files += files('wrs/algorithm/prefix_partition/decoupled/test.cpp')
 src_files += files('wrs/algorithm/prefix_partition/decoupled/DecoupledPrefixPartition.cpp')
 src_files += files('wrs/algorithm/split/scalar/test.cpp')
+src_files += files('wrs/algorithm/split/scalar/test.lsp.cpp')
 src_files += files('wrs/algorithm/split/scalar/ScalarSplit.cpp')
 src_files += files('wrs/algorithm/mean/decoupled/test.cpp')
 src_files += files('wrs/algorithm/mean/decoupled/DecoupledMean.cpp')
 src_files += files('wrs/algorithm/pack/scalar/test.cpp')
+src_files += files('wrs/algorithm/pack/scalar/test.lsp.cpp')
 src_files += files('wrs/algorithm/pack/scalar/ScalarPack.cpp')
 src_files += files('wrs/algorithm/pack/simd/test.cpp')
+
+src_files += files('wrs/algorithm/hs/hstc/test.cpp')
+
+src_files += files('wrs/algorithm/hs/sampling/test.cpp')
+
+src_files += files('wrs/algorithm/hs/explode/test.cpp')
+src_files += files('wrs/algorithm/hs/explode/test.lsp.cpp')
+src_files += files('wrs/algorithm/hs/explode/Explode.cpp')
 
 src_files += files('wrs/algorithm/psa/PSA.cpp')
 src_files += files('wrs/algorithm/psa/test.cpp')

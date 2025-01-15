@@ -11,19 +11,7 @@
 #include <fmt/base.h>
 #include <string>
 
-constexpr wrs::glsl::uint MEAN_WORKGROUP_SIZE = 512;
-constexpr wrs::glsl::uint MEAN_ROWS = 4;
-constexpr wrs::glsl::uint PREFIX_PARTITION_WORKGROUP_SIZE = 512;
-constexpr wrs::glsl::uint PREFIX_PARTITION_ROWS = 4;
-constexpr wrs::glsl::uint PREFIX_PARTITION_LOOKBACK_DEPTH = 32;
-constexpr wrs::glsl::uint SPLIT_WORKGROUP_SIZE = 512;
-constexpr wrs::glsl::uint SPLIT_SIZE = 32;
-constexpr wrs::glsl::uint PACK_WORKGROUP_SIZE = 1;
-constexpr wrs::glsl::uint SAMPLING_WORKGROUP_SIZE = 512;
-
-/* constexpr wrs::glsl::uint COOPERATIVE_SAMPLING_SIZE = 4096; */
-
-constexpr wrs::glsl::uint WEIGHT_COUNT = 1024 * 2048;
+constexpr wrs::glsl::uint WEIGHT_COUNT = 1024 * 2048 * 2;
 constexpr wrs::glsl::uint MIN_SAMPLES_COUNT = 1e3;
 constexpr wrs::glsl::uint MAX_SAMPLES_COUNT = 1e7;
 constexpr wrs::glsl::uint BENCHMARK_SAMPLES = 100;
@@ -41,20 +29,7 @@ void wrs::bench::psa::write_bench_results(const merian::ContextHandle& context) 
     query_pool->reset(); // LOL THIS WAS HARD TO FIND shared_ptr also defines a reset function =^).
     profiler->set_query_pool(query_pool);
 
-    wrs::PSA psa{context, PSAConfig{
-                              .psac =
-                                  {
-                                      .meanWorkgroupSize = MEAN_WORKGROUP_SIZE,
-                                      .meanRows = MEAN_ROWS,
-                                      .prefixSumWorkgroupSize = PREFIX_PARTITION_WORKGROUP_SIZE,
-                                      .prefixSumRows = PREFIX_PARTITION_ROWS,
-                                      .prefixSumLookbackDepth = PREFIX_PARTITION_LOOKBACK_DEPTH,
-                                      .splitWorkgroupSize = SPLIT_WORKGROUP_SIZE,
-                                      .packWorkgroupSize = PACK_WORKGROUP_SIZE,
-                                      .splitSize = SPLIT_SIZE,
-                                  },
-                              .samplingWorkgroupSize = SAMPLING_WORKGROUP_SIZE,
-                          }};
+    wrs::PSA psa{context};
 
     using Buffers = wrs::PSA::Buffers;
     Buffers local =

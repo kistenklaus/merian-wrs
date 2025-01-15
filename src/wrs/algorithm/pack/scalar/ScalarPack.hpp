@@ -121,7 +121,6 @@ class ScalarPack {
     void run(const vk::CommandBuffer cmd, const glsl::uint N,
              const glsl::uint K,
              const ScalarPackBuffers& buffers) {
-        assert(N / K == 32); // each split has the size of 32
 
         m_pipeline->bind(cmd);
 

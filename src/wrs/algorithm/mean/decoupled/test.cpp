@@ -3,7 +3,6 @@
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/mean/decoupled/DecoupledMean.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test/test_cases.hpp"
-#include "src/wrs/common_vulkan.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test/test_setup.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test/test_types.hpp"
 #include "src/wrs/gen/weight_generator.h"
@@ -12,7 +11,6 @@
 #include "src/wrs/memory/StackResource.hpp"
 #include "src/wrs/reference/reduce.hpp"
 #include "src/wrs/test/test.hpp"
-#include <algorithm>
 #include <fmt/base.h>
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_structs.hpp>
