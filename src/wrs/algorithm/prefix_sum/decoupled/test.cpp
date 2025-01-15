@@ -43,14 +43,14 @@ struct TestCase {
 
 static constexpr TestCase TEST_CASES[] = {
     //
-    TestCase{
-        .workgroupSize = 512,
-        .rows = 8,
-        .N = 1024 * 2048,
-        .distribution = Distribution::UNIFORM,
-        .parallelLookbackDepth = 32,
-        .iterations = 1,
-    },
+    /*TestCase{*/
+    /*    .workgroupSize = 512,*/
+    /*    .rows = 8,*/
+    /*    .N = 1024 * 2048,*/
+    /*    .distribution = Distribution::UNIFORM,*/
+    /*    .parallelLookbackDepth = 32,*/
+    /*    .iterations = 1,*/
+    /*},*/
     /* TestCase{ */
     /*     .workgroupSize = 512, */
     /*     .rows = 5, */
@@ -124,14 +124,14 @@ static constexpr TestCase TEST_CASES[] = {
     /*     .parallelLookbackDepth = 2, */
     /*     .iterations = 1, */
     /* }, */
-    /* TestCase{ */
-    /*     .workgroupSize = 64, */
-    /*     .rows = 2, */
-    /*     .N = 256, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 32, */
-    /*     .iterations = 1, */
-    /* }, */
+    TestCase{
+        .workgroupSize = 512,
+        .rows = 8,
+        .N = 1024 * 2048,
+        .distribution = Distribution::UNIFORM,
+        .parallelLookbackDepth = 1,
+        .iterations = 1,
+    },
 };
 
 std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
@@ -198,11 +198,13 @@ static bool runTestCase(const TestContext& context,
                         Buffers& buffers,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
-    std::string testName = fmt::format("{{workgroupSize={},N={},rows={},lookback={}}}", testCase.workgroupSize,
-                                       testCase.N, testCase.rows, testCase.parallelLookbackDepth);
+    std::string testName =
+        fmt::format("{{workgroupSize={},N={},rows={},lookback={}}}", testCase.workgroupSize,
+                    testCase.N, testCase.rows, testCase.parallelLookbackDepth);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.workgroupSize, testCase.rows, testCase.parallelLookbackDepth};
+    Algorithm kernel{context.context, testCase.workgroupSize, testCase.rows,
+                     testCase.parallelLookbackDepth};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -269,12 +271,18 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
-            wrs::test::pmr::assert_is_inclusive_prefix<float>(weights, results.prefixSum, resource);
+            auto err = wrs::test::pmr::assert_is_inclusive_prefix<float>(weights, results.prefixSum,
+                                                                         resource);
 
-            if (testCase.N < 1000) {
-                for (std::size_t i = 0; i < results.prefixSum.size(); ++i) {
+            if (testCase.N <= 1024 * 2048) {
+                for (std::size_t i = 0;
+                     i < std::min(results.prefixSum.size(), static_cast<std::size_t>(1024)); ++i) {
                     fmt::println("[{}] = {}", i, results.prefixSum[i]);
                 }
+            }
+
+            if (err) {
+                SPDLOG_ERROR("Invalid prefix: \n{}", err.message());
             }
         }
         context.profiler->collect(true, true);

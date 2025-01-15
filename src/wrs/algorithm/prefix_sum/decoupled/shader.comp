@@ -82,16 +82,17 @@ float computeLocalPrefixSum(in uint base, in uint N) {
     if (gl_SubgroupInvocationID.x == lastSubgroup) {
         sh_subgroupPrefixSums[gl_SubgroupID.x] = localPrefix[ROWS - 1];
     }
+    barrier();
     // Perform tree-based reduction in shared memory
     if (SUBGROUP_SIZE < MAX_NUMBER_OF_SUBGROUPS) {
-        for (uint shift = 1; shift <= MAX_NUMBER_OF_SUBGROUPS; shift <<= 1) {
-            barrier();
-            if (gl_LocalInvocationID.x >= shift) {
-                const float other = sh_subgroupPrefixSums[gl_LocalInvocationID.x - shift];
-                sh_subgroupPrefixSums[gl_LocalInvocationID.x] += other;
-            }
-        }
-        barrier();
+        // for (uint shift = 1; shift <= MAX_NUMBER_OF_SUBGROUPS; shift <<= 1) {
+        //     barrier();
+        //     if (gl_LocalInvocationID.x >= shift) {
+        //         const float other = sh_subgroupPrefixSums[gl_LocalInvocationID.x - shift];
+        //         sh_subgroupPrefixSums[gl_LocalInvocationID.x] += other;
+        //     }
+        // }
+        // barrier();
     } else {
         float groupSum = 0.0;
         if (gl_SubgroupID == 0) {
@@ -172,13 +173,13 @@ float decoupledLookback(in uint partID, in float aggregate) {
                             steps = PARALLEL_LOOKBACK_DEPTH;
                         } else {
                             // TODO should be +1 to reflect the amount of steps
-                            const uint stepsUntilPrefix = subgroupBallotFindLSB(doneBallot);
+                            const uint stepsUntilPrefix = subgroupBallotFindLSB(doneBallot) + 1;
                             steps = stepsUntilPrefix;
                         }
                     } else {
                         done = false;
                         // TODO should be +1 to reflect the amount of steps
-                        const uint stepsUntilNotReady = subgroupBallotFindLSB(notReadyBallot);
+                        const uint stepsUntilNotReady = subgroupBallotFindLSB(notReadyBallot) + 1;
                         steps = stepsUntilNotReady - 1;
                     }
                     if (gl_SubgroupInvocationID.x < steps) {
@@ -217,6 +218,9 @@ float decoupledLookback(in uint partID, in float aggregate) {
                     gl_SemanticsRelease | gl_SemanticsMakeAvailable);
             }
         }
+        subgroupBarrier();
+        controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
+        controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
         controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
         exclusive = sh_exclusive;
     }
@@ -236,7 +240,7 @@ void main(void) {
     //
     float workgroupAggregate = computeLocalPrefixSum(base, N);
 
-    float exclusive = decoupledLookback(partID, 1);
+    float exclusive = decoupledLookback(partID, workgroupAggregate);
 
     for (uint i = 0; i < ROWS; ++i) {
         uint index = base + i * SUBGROUP_SIZE;

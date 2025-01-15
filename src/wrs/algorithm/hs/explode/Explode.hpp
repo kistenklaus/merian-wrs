@@ -9,6 +9,7 @@
 #include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/types/glsl.hpp"
+#include <fmt/base.h>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
 
@@ -29,18 +30,16 @@ struct ExplodeBuffers {
     using SamplesView = layout::BufferView<SamplesLayout>;
 
     merian::BufferHandle decoupledState;
-    static constexpr glsl::StorageQualifier decoupledStatesStorageQualifier =
-        glsl::StorageQualifier::std430;
     using _DecoupledStateLayout =
-        wrs::layout::StructLayout<decoupledStatesStorageQualifier,
+        wrs::layout::StructLayout<storageQualifier,
                                   layout::Attribute<glsl::uint, "aggregate">,
                                   layout::Attribute<glsl::uint, "prefix">,
-                                  layout::Attribute<wrs::glsl::uint, "state">>;
+                                  layout::Attribute<glsl::uint, "state">>;
     using _DecoupledStateArrayLayout =
-        wrs::layout::ArrayLayout<_DecoupledStateLayout, decoupledStatesStorageQualifier>;
+        wrs::layout::ArrayLayout<_DecoupledStateLayout, storageQualifier>;
     using DecoupledStatesLayout =
-        wrs::layout::StructLayout<decoupledStatesStorageQualifier,
-                                  layout::Attribute<wrs::glsl::uint, "counter">,
+        wrs::layout::StructLayout<storageQualifier,
+                                  layout::Attribute<glsl::uint, "counter">,
                                   layout::Attribute<_DecoupledStateArrayLayout, "partitions">>;
     using DecoupledStatesView = layout::BufferView<DecoupledStatesLayout>;
 
@@ -67,7 +66,9 @@ class Explode {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
-                .add_binding_storage_buffer()
+                .add_binding_storage_buffer() // tree
+                .add_binding_storage_buffer() // samples
+                .add_binding_storage_buffer() // output senitive
                 .build_push_descriptor_layout(context);
 
         const std::string shaderPath = "src/wrs/algorithm/hs/explode/shader.comp";
@@ -100,6 +101,7 @@ class Explode {
                                         buffers.decoupledState);
         m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
         const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
+        fmt::println("WORKGROUP-COUNT: {}", workgroupCount);
         cmd.dispatch(workgroupCount, 1, 1);
     }
 

@@ -12,8 +12,8 @@ namespace wrs::test::decoupled_mean {
 
 inline std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
 
-    uint32_t maxElementCount;
-    std::size_t maxPartitionSize;
+    uint32_t maxElementCount = 0;
+    std::size_t maxPartitionSize = 0;
 
     for (const auto& testCase : TEST_CASES) {
       maxElementCount = std::max(maxElementCount, testCase.elementCount);

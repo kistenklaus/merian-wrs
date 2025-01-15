@@ -12,6 +12,7 @@ wrs::DecoupledMeanBuffers wrs::DecoupledMeanBuffers::allocate(merian::ResourceAl
                                 ELEMENT_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
         buffers.mean = alloc->createBuffer(MeanLayout::size(),
             MEAN_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
+
         buffers.decoupledStates = alloc->createBuffer(DecoupledStatesLayout::size(workgroupCount),
             MEAN_BUFFER_USAGE_FLAGS | vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
     } else {

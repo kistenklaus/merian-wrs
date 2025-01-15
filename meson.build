@@ -11,9 +11,10 @@ project(
 )
 
 
-renderdoc = declare_dependency(
-  link_args: ['-L/usr/bin/librenderdoc.so', '-lrenderdoc'],  # Linker flags
-)
+# renderdoc = declare_dependency(
+#   link_args: ['-L/usr/bin/librenderdoc.so', '-lrenderdoc'],  # Linker flags
+# )
+
 # add_global_arguments('-fconcepts-diagnostics-depth=5', language : 'cpp')
 
 # Debug configuration
@@ -36,7 +37,7 @@ exe = executable(
     'merian-example',
     src_files,
     dependencies: [
-        renderdoc,
+        # renderdoc,
         merian,
     ],
     include_directories: inc_dirs,

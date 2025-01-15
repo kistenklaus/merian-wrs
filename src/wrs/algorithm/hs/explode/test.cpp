@@ -1,6 +1,5 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
-#include "src/renderdoc.hpp"
 #include "src/wrs/algorithm/pack/simd/SimdPack.hpp"
 #include "src/wrs/eval/histogram.hpp"
 #include "src/wrs/gen/weight_generator.h"
@@ -48,7 +47,7 @@ static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
         .workgroupSize = 512,
-        .rows = 4,
+        .rows = 8,
         .lookbackDepth = 32,
         .N = 1024 * 2048,
         .distribution = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
@@ -56,15 +55,15 @@ static constexpr TestCase TEST_CASES[] = {
         .iterations = 1,
     },
 
-    TestCase{
-        .workgroupSize = 32,
-        .rows = 2,
-        .lookbackDepth = 32,
-        .N = 128,
-        .distribution = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 32,
-        .iterations = 1,
-    },
+    /* TestCase{ */
+    /*     .workgroupSize = 4, */
+    /*     .rows = 1, */
+    /*     .lookbackDepth = 1, */
+    /*     .N = 64, */
+    /*     .distribution = wrs::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 64, */
+    /*     .iterations = 1, */
+    /* }, */
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
@@ -170,7 +169,14 @@ static bool runTestCase(const TestContext& context,
             aliasTable, testCase.S, resource);
         std::pmr::vector<glsl::uint> outputSensitive =
             wrs::eval::histogram<glsl::uint, wrs::pmr_alloc<glsl::uint>>(referenceSamples,
-                                                                         testCase.S, resource);
+                                                                         testCase.N, resource);
+
+        if (testCase.N < 1024) {
+          fmt::println("Histogram");
+          for (std::size_t i = 0; i < testCase.N; ++i) {
+            fmt::println("[{}]: {}", i, outputSensitive[i]);
+          }
+        }
 
         context.profiler->end();
 
@@ -221,6 +227,7 @@ static bool runTestCase(const TestContext& context,
             SPDLOG_DEBUG("Testing results");
 
             if (testCase.S < 1024) {
+                fmt::println("Samples");
                 for (std::size_t i = 0; i < results.samples.size(); ++i) {
                     fmt::println("[{}]: {}", i, results.samples[i]);
                 }
@@ -247,9 +254,7 @@ void wrs::test::hs_explode::test(const merian::ContextHandle& context) {
 
     uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        renderdoc::startCapture();
         runTestCase(testContext, testCase, buffers, stage, resource);
-        renderdoc::stopCapture();
         stackResource.reset();
     }
 
