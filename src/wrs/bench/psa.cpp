@@ -11,10 +11,10 @@
 #include <fmt/base.h>
 #include <string>
 
-constexpr wrs::glsl::uint WEIGHT_COUNT = 1024 * 2048 * 2;
+constexpr wrs::glsl::uint WEIGHT_COUNT = 1024 * 2048;
 constexpr wrs::glsl::uint MIN_SAMPLES_COUNT = 1e3;
 constexpr wrs::glsl::uint MAX_SAMPLES_COUNT = 1e7;
-constexpr wrs::glsl::uint BENCHMARK_SAMPLES = 100;
+constexpr wrs::glsl::uint BENCHMARK_SAMPLES = 200;
 constexpr wrs::glsl::uint BENCHMARK_ITERATIONS = 100;
 
 void wrs::bench::psa::write_bench_results(const merian::ContextHandle& context) {

@@ -25,6 +25,20 @@ src_files += files('wrs/algorithm/hs/explode/test.cpp')
 src_files += files('wrs/algorithm/hs/explode/test.lsp.cpp')
 src_files += files('wrs/algorithm/hs/explode/Explode.cpp')
 
+src_files += files('wrs/algorithm/hs/HS.cpp')
+src_files += files('wrs/algorithm/hs/test.cpp')
+src_files += files('wrs/algorithm/hs/svo/test.cpp')
+src_files += files('wrs/eval/hst_eval.cpp')
+
+src_files += files('wrs/eval/hst_std_eval.cpp')
+
+src_files += files('wrs/bench/hst.cpp')
+
+src_files += files('wrs/algorithm/splitpack/SplitPack.cpp')
+src_files += files('wrs/algorithm/splitpack/test.cpp')
+src_files += files('wrs/algorithm/splitpack/test.lsp.cpp')
+
+
 src_files += files('wrs/algorithm/psa/PSA.cpp')
 src_files += files('wrs/algorithm/psa/test.cpp')
 src_files += files('wrs/algorithm/psa/test.lsp.cpp')

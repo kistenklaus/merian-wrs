@@ -13,15 +13,18 @@ layout(set = 0, binding = 0) readonly buffer in_hst {
     float hst[];
 };
 
-layout(set = 0, binding = 1) buffer out_hst_samples {
-    uint hst_samples[];
+layout(set = 0, binding = 1) writeonly buffer out_histogram {
+    uint histogram[];
 };
 
 layout(push_constant) uniform PushConstant {
-    uint child_offset;
-    uint parent_offset;
-    uint num_invoc;
+    uint S;
+    uint regionOffset;
+    uint regionSize;
 } pc;
+
+shared float scratchHst[gl_WorkGroupSize.x * 2];
+shared uint scratchHistogram[gl_WorkGroupSize.x * 2];
 
 // Constants for Philox2x32-10
 const uint PHILOX_M2x32 = 0xD256D193u; // Multiplication constant
@@ -89,11 +92,12 @@ float binomialPMF(uint k, uint n, float p) {
 }
 
 // Normal Approximation Sampling (Large n)
-uint approximationSampling(uint n, float p, uvec2 counter, uint seed) {
+uint approximationSampling(uint n, float p, inout uvec2 counter, uint seed) {
     float mean = n * p;
     float stddev = sqrt(n * p * (1.0 - p));
 
     vec2 rng = philoxRandom(counter, seed);
+    counter.y += 1;
     float z = sqrt(-2.0 * log(rng.x)) * cos(6.283185 * rng.y); // Box-Muller transform for normal
     float candidate = mean + stddev * z;
 
@@ -102,19 +106,18 @@ uint approximationSampling(uint n, float p, uvec2 counter, uint seed) {
 }
 
 // Rejection sampling for Binomial distribution
-uint rejectionSampling(float p, uint n, uint seed) {
+uint rejectionSampling(float p, uint n, inout uvec2 counter, uint seed) {
     uint k; // Candidate sample
     float u; // Random number for acceptance check
     float ratio; // Acceptance ratio
     uint maxIter = 100; // Prevent infinite loops in extreme cases
     uint iter = 0;
-    uvec2 counter = uvec2(gl_GlobalInvocationID.x, 0);
 
     while (iter < maxIter) {
         // Increment seed to ensure new random values
 
         vec2 u = philoxRandom(counter, seed);
-        counter.x += 1;
+        counter.y += 1;
 
         // Generate a proposal sample (uniform distribution as proposal)
         k = uint(u.x * float(n + 1)); // Candidate in [0, n]
@@ -134,37 +137,65 @@ uint rejectionSampling(float p, uint n, uint seed) {
     return n / 2; // Return an approximate value (mean of Binomial)
 }
 
-
 // uint approximationSampling(uint n, float p, uvec2 counter, uint seed) {
-uint sampleBinomial(float p, uint n, uint seed) {
-    if (n < 10) {
-        return rejectionSampling(p, n, seed);
+uint sampleBinomial(float p, uint n, inout uvec2 counter, uint seed) {
+    if (n < 0) {
+        return rejectionSampling(p, n, counter, seed);
     } else {
-        return approximationSampling(n, p, uvec2(gl_GlobalInvocationID.x, 0), seed);
-    }
+        return approximationSampling(n, p, counter, seed ) ;
+}
 }
 
 void main(void) {
-    const uint gid = gl_GlobalInvocationID.x;
     const uint invocID = gl_LocalInvocationID.x;
+    // coalessed read hst to shared.
+    float w = 0.0f;
+    if (invocID < pc.regionSize) {
+        w = hst[pc.regionOffset + invocID];
+    }
+    scratchHst[invocID] = w;
+    if (invocID == gl_WorkGroupSize.x - 1) {
+        scratchHistogram[gl_WorkGroupSize.x * 2 - 2] = pc.S;
+    }
+    barrier();
 
-    if (gid >= pc.num_invoc) {
-        return;
+    // Build HST
+    uint offset = 0;
+    uint size = pc.regionSize;
+    for (uint shift = gl_WorkGroupSize.x >> 1; shift > 0; shift >>= 1) {
+        float w1;
+        float w2;
+        if (invocID < shift) {
+            // NOTE: Assumes that the workgroup size if a power of 2!
+            w1 = scratchHst[offset + invocID];
+            w2 = scratchHst[offset + invocID + shift];
+        }
+        offset += shift * 2;
+        if (invocID < shift) {
+            scratchHst[offset + invocID] = w1 + w2;
+        }
+        barrier();
     }
 
-    const uint c1 = pc.child_offset + 2 * gid;
-    const uint c2 = c1 + 1;
-    float w1 = hst[c1];
-    float w2 = hst[c2];
-    float w = w1 + w2;
+    uvec2 counter = uvec2(gl_LocalInvocationID.x, 0);
+    uint seed = 12345u;
+    for (uint shift = 1; shift <= gl_WorkGroupSize.x; shift <<= 1) {
+        uint n;
+        if (invocID < shift) {
+            n = scratchHistogram[offset + invocID];
+        }
+        offset -= shift << 1;
+        if (invocID < shift) {
+            float w1 = scratchHst[offset + invocID];
+            float w2 = scratchHst[offset + invocID + shift];
+            float w = w1 + w2;
+            float p = w1 / w;
+            uint s = sampleBinomial(p, n, counter, seed);
+            scratchHistogram[offset + invocID] = s;
+            scratchHistogram[offset + invocID + shift] = n - s;
+        }
+        barrier();
+    }
 
-    const float p = w1 / w;
-    const uint n = hst_samples[pc.parent_offset + gid];
-
-    uint seed = 1238u;
-    const uint n1 = sampleBinomial(p, n, seed);
-    const uint n2 = n - n1;
-
-    hst_samples[c1] = n1;
-    hst_samples[c2] = n2;
+    histogram[invocID + pc.regionOffset] = uint(scratchHistogram[invocID]);
 }

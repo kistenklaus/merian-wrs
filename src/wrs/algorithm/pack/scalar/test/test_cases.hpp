@@ -8,9 +8,9 @@ constexpr TestCase TEST_CASES[] = {
     {
         .weightType = WEIGHT_TYPE_FLOAT,
         .workgroupSize = 512,
-        .weightCount = static_cast<glsl::uint>(1e7),
-        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-        .splitCount = static_cast<glsl::uint>(1e7) / 8,
+        .weightCount = static_cast<glsl::uint>(1024),
+        .distribution = Distribution::PSEUDO_RANDOM_UNIFORM,
+        .splitCount = static_cast<glsl::uint>(1024) / 2,
         .iterations = 1,
     },
     /*{*/

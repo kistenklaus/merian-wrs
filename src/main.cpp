@@ -5,6 +5,7 @@
 #include "src/wrs/algorithm/hs/explode/test.hpp"
 #include "src/wrs/algorithm/hs/hstc/test.hpp"
 #include "src/wrs/algorithm/hs/sampling/test.hpp"
+#include "src/wrs/algorithm/hs/svo/test.hpp"
 #include "src/wrs/algorithm/its/test.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test.hpp"
 #include "src/wrs/algorithm/pack/scalar/test.hpp"
@@ -18,8 +19,13 @@
 #include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
 #include "src/wrs/algorithm/psa/construction/test.hpp"
 #include "src/wrs/algorithm/psa/test.hpp"
+#include "src/wrs/algorithm/splitpack/test.hpp"
+#include "src/wrs/bench/hst.hpp"
 #include "src/wrs/bench/its.hpp"
+#include "src/wrs/eval/hst_eval.hpp"
 #include "src/wrs/bench/psa.hpp"
+#include "src/wrs/algorithm/hs/test.hpp"
+#include "src/wrs/eval/hst_std_eval.hpp"
 
 #include <dlfcn.h>
 #include <fmt/base.h>
@@ -36,7 +42,7 @@ int main() {
     const auto core = std::make_shared<merian::ExtensionVkCore>(
         std::set<std::string>{"vk12/vulkanMemoryModel", "vk12/vulkanMemoryModelDeviceScope"});
 
-    const auto debug_utils = std::make_shared<merian::ExtensionVkDebugUtils>(true);
+    const auto debug_utils = std::make_shared<merian::ExtensionVkDebugUtils>(false);
     const auto resources = std::make_shared<merian::ExtensionResources>();
     const auto push_descriptor = std::make_shared<merian::ExtensionVkPushDescriptor>();
     const std::vector<std::shared_ptr<merian::Extension>> extensions = {
@@ -54,9 +60,21 @@ int main() {
         throw std::runtime_error("Failed to create context!!!");
     }
 
+    wrs::test::splitpack::test(context);
+
     /* wrs::test::hstc::test(context); */
+    /* wrs::test::hs_svo::test(context); */
     /* wrs::test::hst_sampling::test(context); */
-    wrs::test::hs_explode::test(context);
+    /* wrs::test::hs_explode::test(context); */
+    /* wrs::test::hs::test(context); */
+
+
+    /* wrs::eval::write_hst_rmse_curves(context); */
+    /* wrs::eval::write_hst_std_rmse_curves(); */
+
+    
+    /* wrs::bench::hst::write_bench_results(context); */
+
 
     /* wrs::test::decoupled_prefix_partition::test(context); */
 
@@ -65,6 +83,9 @@ int main() {
     /* wrs::test::psa::test(context); */
 
     /* wrs::bench::psa::write_bench_results(context); */
+
+
+
 
     /* wrs::test::psac::test(context); */
 

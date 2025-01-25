@@ -106,14 +106,15 @@ uint computeLocalPrefixSum(in uint base, in uint N) {
         }
         barrier();
     }
+    barrier();
 
     // Step 3: Broadcast the offsets for each subgroup
     uint subgroupOffset = (gl_SubgroupID > 0)
         ? sh_subgroupPrefixSums[gl_SubgroupID - 1] : 0;
 
     uint exclusive = (gl_SubgroupID > 0) ? sh_subgroupPrefixSums[gl_SubgroupID - 1] : 0;
-    for (uint i = 1; i < ROWS; ++i) {
-        localPrefix[i] = localPrefix[i - 1] + exclusive;
+    for (uint i = 0; i < ROWS; ++i) {
+        localPrefix[i] += exclusive;
     }
 
     uint workgroupSum = sh_subgroupPrefixSums[gl_NumSubgroups - 1];
@@ -220,8 +221,6 @@ uint decoupledLookback(in uint partID, in uint aggregate) {
             }
         }
         subgroupBarrier();
-        controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
-        controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
         controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
         exclusive = sh_exclusive;
     }

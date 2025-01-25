@@ -76,7 +76,7 @@ struct PSACConfig {
             .prefixSumLookbackDepth = 32,
             .splitWorkgroupSize = 512,
             .packWorkgroupSize = 512,
-            .splitSize = 8,
+            .splitSize = 2,
         };
     }
 };

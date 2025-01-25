@@ -70,7 +70,7 @@ inline wrs::Partition<T, std::pmr::vector<T>> stable_partition(
 
 template <wrs::arithmetic T, std::integral I>
 inline wrs::Partition<I, std::pmr::vector<I>>
-stable_partition_indicies(const std::span<T>& elements,
+stable_partition_indicies(std::span<const T> elements,
                           const T pivot,
                           const std::pmr::polymorphic_allocator<I>& alloc = {}) {
     // URTO

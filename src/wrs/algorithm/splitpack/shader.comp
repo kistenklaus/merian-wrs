@@ -1,0 +1,287 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint SUBGROUP_SIZE = 32;
+layout(constant_id = 2) const uint SPLIT_SIZE = 32;
+const uint MAX_SUBGROUP_COUNT = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+
+struct AliasTableEntry {
+    float p;
+    uint a;
+};
+
+struct Split {
+    uint i;
+    uint j;
+    float spill;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer in_weights {
+    float weights[];
+};
+
+layout(set = 0, binding = 1, std430) readonly buffer in_partitions {
+    uint heavyCount;
+    uint heavyLight[];
+} partitionIndices;
+
+layout(set = 0, binding = 2, std430) readonly buffer in_partitionPrefixSums {
+    uint heavyCount;
+    float heavyLight[];
+} partitionPrefix;
+
+layout(set = 0, binding = 3, std430) readonly buffer in_weightAverage {
+    float mean;
+} meta;
+
+layout(set = 0, binding = 4) writeonly buffer out_aliastable {
+    AliasTableEntry table[];
+} aliasTable;
+
+// layout(set = 0, binding = 5, std430) writeonly buffer out_splits {
+//     Split splits[];
+// } debug;
+
+layout(push_constant) uniform PushConstant {
+    uint K;
+    uint N;
+} pc;
+
+uint heavyCount;
+uint lightCount;
+uint lightPrefixFirst;
+
+bool heavyPrefixAt(uint i, out float heavyPrefix) {
+    if (i < heavyCount) {
+        heavyPrefix = partitionPrefix.heavyLight[i];
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool lightPrefixAt(uint i, out float lightPrefix) {
+    if (i < lightCount) {
+        lightPrefix = partitionPrefix.heavyLight[lightPrefixFirst - i];
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// computes the ceiling division of a * b by c
+// assumes that a > c > b
+uint ceilMulDiv(uint a, uint b, uint c) {
+    uint div = a / c;
+    uint rem = a % c;
+    uint safe_part = div * b;
+    uint rem_part = (rem * b + c - 1) / c;
+    return safe_part + rem_part;
+}
+
+Split computeSplit(uint k, uint N, uint K, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {
+    const uint n = ceilMulDiv(N, k, K);
+
+    uint a = 0;
+    uint b = min(n, heavyCount);
+    const float target = mean * n;
+
+    uint j = 0, i = 0;
+    float sigma2 = 0;
+
+    while (true) {
+        j = (a + b) / 2;
+        i = min(n - j, lightCount);
+
+        if (a > b) {
+            sigma2 = partitionPrefix.heavyLight[lightPrefixFirst - i]
+                    + partitionPrefix.heavyLight[j + 1];
+            break;
+        }
+
+        const float heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
+        const float light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
+
+        const float sigma = light + heavy;
+
+        if (sigma <= target) {
+            float heavy2 = partitionPrefix.heavyLight[j];
+            sigma2 = light + heavy2;
+            if (sigma2 > target) {
+                break;
+            } else {
+                a = j + 1;
+            }
+        } else {
+            b = j - 1;
+        }
+    }
+    Split split;
+    split.i = i;
+    split.j = j;
+    split.spill = sigma2 - target;
+    return split;
+}
+
+shared uvec2 workgroupShuffleScratch[MAX_SUBGROUP_COUNT];
+
+uvec2 shuffleNextSplit(in uint k, in Split split) {
+    uvec2 ij0 = uvec2(split.i, split.j);
+    if (gl_SubgroupInvocationID == 0) {
+        workgroupShuffleScratch[gl_SubgroupID] = ij0;
+    }
+    uvec2 ij1 = subgroupShuffle(ij0, gl_SubgroupInvocationID + 1);
+    barrier();
+    if (gl_SubgroupInvocationID == gl_SubgroupSize - 1 && gl_SubgroupID != gl_NumSubgroups - 1) {
+        ij1 = workgroupShuffleScratch[gl_SubgroupID + 1];
+    }
+    return ij1;
+}
+
+void pack(uint i0, uint i1, uint j0, uint j1, float spill,
+float averageWeight, uint lastLightIndex,
+uint lightCount, uint heavyCount, uint k) {
+    uint i = i0;
+    uint j = j0;
+
+    float w = spill;
+    if (w == 0.0f) {
+        uint h = partitionIndices.heavyLight[j];
+        w = weights[h];
+    }
+
+    while (i < i1 || j < j1) {
+        bool packHeavy;
+        // Checking bounds before the numerical comparision avoids
+        // Floating point inaccuracies while comparing!
+        if (j == j1) {
+            // Only light buckets left.
+            packHeavy = false;
+        } else if (i == i1) {
+            // Only heavy buckets left.
+            packHeavy = true;
+        } else {
+            packHeavy = w <= averageWeight;
+        }
+        // if (j >= N) {
+        //   break;
+        // }
+        uint h = partitionIndices.heavyLight[j];
+        uint weightIdx;
+        if (packHeavy) {
+            // if (j + 1 >= heavyCount) {
+            //   break;
+            // }
+            weightIdx = partitionIndices.heavyLight[j + 1];
+        } else {
+            // if (lastLightIndex - i >= N) {
+            //   break;
+            // }
+            weightIdx = partitionIndices.heavyLight[lastLightIndex - i];
+        }
+        // if (weightIdx >= N) {
+        //   break;
+        // }
+        float weight = weights[weightIdx];
+        float p;
+        uint idx, a;
+        if (packHeavy) {
+            // Pack heavy bucket!
+            p = w / averageWeight;
+            a = weightIdx;
+            idx = h;
+            j += 1;
+        } else {
+            // Pack light bucket
+            p = weight / averageWeight;
+            a = h;
+            idx = weightIdx;
+            i += 1;
+        }
+        // if (idx >= N) {
+        //   break;
+        // }
+        aliasTable.table[idx].p = p;
+        aliasTable.table[idx].a = a;
+        w = (w + weight) - averageWeight;
+    }
+    if (j1 == heavyCount - 1) {
+        // Last heavy element overal has to be handled seperately otherwise,
+        // we access heavyIndices out of bound.
+        // Maybe this would actually be fine because of our layout. Then the residual of the
+        // last element which should always be zero, but numerical instabilities would be
+        // reassigned to the last light element, both are probably fine, but here we choose to
+        // redirect to not have the last heavy element redirect to anything makes it easier to debug!
+        uint h = partitionIndices.heavyLight[j];
+        aliasTable.table[h].p = 1.0f;
+        aliasTable.table[h].a = h;
+    }
+}
+
+void main(void) {
+    const uint N = pc.N;
+    const uint K = pc.K;
+    const float mean = meta.mean;
+    heavyCount = partitionPrefix.heavyCount;
+    lightCount = N - heavyCount;
+    lightPrefixFirst = N - 1;
+
+    const uint k = gl_WorkGroupID.x * (WORKGROUP_SIZE - 1) + gl_LocalInvocationID.x;
+
+    if (k > K) {
+        return; // Ensure k does not exceed or equal the number of splits (K)
+    }
+
+    // if (gl_GlobalInvocationID.x == 0) {
+    //     debug.splits[K - 1].i = lightCount;
+    //     debug.splits[K - 1].j = heavyCount;
+    //     debug.splits[K - 1].spill = 0;
+    // }
+
+    Split split;
+    if (k == 0) {
+        split.i = 0;
+        split.j = 0;
+        split.spill = 0;
+    } else if (k == K) {
+        split.i = lightCount;
+        split.j = heavyCount;
+        split.spill = 0;
+    } else {
+        split = computeSplit(k, N, K, mean, heavyCount, lightCount, lightPrefixFirst);
+    }
+
+    const uvec2 ij1 = shuffleNextSplit(k, split);
+
+    if (k >= K) {
+        return;
+    }
+    if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
+        return;
+    }
+    uint i0 = split.i;
+    uint j0 = split.j;
+    float spill = split.spill;
+    uint i1 = ij1.x;
+    uint j1 = ij1.y;
+
+    // debug.splits[k].spill = partitionPrefix.heavyLight[k];
+    // return;
+    
+    // debug.splits[k].i = i0;
+    // debug.splits[k].j = j0;
+    // debug.splits[k].i = i1;
+    // debug.splits[k].j = j1;
+    // debug.splits[k].spill = spill;
+
+    pack(i0,i1,j0,j1, spill, mean, lightPrefixFirst, lightCount, heavyCount, k);
+}

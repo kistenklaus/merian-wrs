@@ -44,16 +44,16 @@ static constexpr TestCase TEST_CASES[] = {
         .workgroupSize = 512,
         .N = 1024 * 2048,
         .distribution = wrs::Distribution::SEEDED_RANDOM_UNIFORM,
-        .S = 1024 * 2048 / 64,
+        .S = 1024 * 2048,
         .iterations = 1,
     },
-    TestCase{
-        .workgroupSize = 32,
-        .N = 32,
-        .distribution = wrs::Distribution::UNIFORM,
-        .S = 32,
-        .iterations = 1,
-    },
+    /* TestCase{ */
+    /*     .workgroupSize = 512, */
+    /*     .N = 32, */
+    /*     .distribution = wrs::Distribution::UNIFORM, */
+    /*     .S = 10000, */
+    /*     .iterations = 1, */
+    /* }, */
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {

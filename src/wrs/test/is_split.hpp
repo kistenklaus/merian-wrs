@@ -134,10 +134,10 @@ IsSplitError<
     T,
     I,
     typename std::allocator_traits<Allocator>::template rebind_alloc<IsSplitIndexError<T, I>>>
-assert_is_split(std::span<wrs::Split<T, I>> splits,
+assert_is_split(std::span<const wrs::Split<T, I>> splits,
                 I K,
-                std::span<T> heavyPrefix,
-                std::span<T> lightPrefix,
+                std::span<const T> heavyPrefix,
+                std::span<const T> lightPrefix,
                 const T mean,
                 const T error_margin = {},
                 const Allocator& alloc = {}) {
@@ -303,10 +303,10 @@ assert_is_split(std::span<wrs::Split<T, I>> splits,
 namespace pmr {
 template <wrs::arithmetic T, std::integral I>
 IsSplitError<T, I, std::pmr::polymorphic_allocator<IsSplitIndexError<T, I>>>
-assert_is_split(std::span<wrs::Split<T, I>> splits,
+assert_is_split(std::span<const wrs::Split<T, I>> splits,
                 I K,
-                std::span<T> heavyPrefix,
-                std::span<T> lightPrefix,
+                std::span<const T> heavyPrefix,
+                std::span<const T> lightPrefix,
                 T mean,
                 const T error_margin = {},
                 const std::pmr::polymorphic_allocator<void>& alloc = {}) {

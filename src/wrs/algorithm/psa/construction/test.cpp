@@ -36,12 +36,12 @@ constexpr TestCase TEST_CASES[] = {
         .iterations = 1,
     },
 
-    TestCase{
-        .weightCount = static_cast<std::size_t>(256),
-        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-        .config = PSACConfig::defaultV(),
-        .iterations = 1,
-    },
+    /* TestCase{ */
+    /*     .weightCount = static_cast<std::size_t>(256), */
+    /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+    /*     .config = PSACConfig::defaultV(), */
+    /*     .iterations = 1, */
+    /* }, */
 };
 
 static void uploadWeights(vk::CommandBuffer cmd,

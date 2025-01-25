@@ -105,20 +105,27 @@ class HSTSampling {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, std::size_t N) {
+    void run(const vk::CommandBuffer cmd,
+             const Buffers& buffers,
+             std::size_t N,
+             const glsl::uint svoThreshold = 0) const {
 
         m_pipeline->bind(cmd);
         hst::HSTRepr repr{N};
 
         m_pipeline->push_descriptor_set(cmd, buffers.hst, buffers.samples);
 
-        /* fmt::println("hst_offset = {}", repr.get().back().parentOffset); */
-
         glsl::uint parentOffset = static_cast<glsl::uint>(repr.size());
         glsl::uint invoc = 1;
         for (const auto& level : repr.get() | std::views::reverse) {
+
             /* fmt::println("child_offset = {}, parent_offset = {}, invoc={}", level.parentOffset, */
             /*              parentOffset, invoc); */
+            if (invoc * 2 <= svoThreshold) {
+                parentOffset = level.parentOffset;
+                invoc = level.numParents;
+                continue;
+            }
 
             m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
                                                               .child_offset = level.parentOffset,
@@ -138,15 +145,19 @@ class HSTSampling {
                                 {});
         }
 
-        m_pipeline->push_constant<PushConstants>(cmd,
-                                                 PushConstants{
-                                                     .child_offset = repr.get().front().childOffset,
-                                                     .parent_offset = parentOffset,
-                                                     .num_invoc = invoc,
-                                                 });
+        if (invoc * 2 > svoThreshold) {
+            /* fmt::println("LAST HSTSampling: child_offset = {}, parent_offset = {}, invoc={}", */
+            /*              repr.get().front().childOffset, parentOffset, invoc); */
+            m_pipeline->push_constant<PushConstants>(
+                cmd, PushConstants{
+                         .child_offset = repr.get().front().childOffset,
+                         .parent_offset = parentOffset,
+                         .num_invoc = invoc,
+                     });
 
-        const glsl::uint workgroupCount = (invoc + m_workgroupSize - 1) / m_workgroupSize;
-        cmd.dispatch(workgroupCount, 1, 1);
+            const glsl::uint workgroupCount = (invoc + m_workgroupSize - 1) / m_workgroupSize;
+            cmd.dispatch(workgroupCount, 1, 1);
+        }
     }
 
   private:

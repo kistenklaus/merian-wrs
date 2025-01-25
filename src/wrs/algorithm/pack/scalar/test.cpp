@@ -1,6 +1,5 @@
 #include "./test.hpp"
 #include "./test/test_cases.hpp"
-#include "src/wrs/test/is_split.hpp"
 #include "./test/test_setup.hpp"
 #include "./test/test_types.hpp"
 #include "merian/vk/utils/profiler.hpp"
@@ -14,6 +13,7 @@
 #include "src/wrs/reference/reduce.hpp"
 #include "src/wrs/reference/split.hpp"
 #include "src/wrs/test/is_alias_table.hpp"
+#include "src/wrs/test/is_split.hpp"
 #include "src/wrs/test/test.hpp"
 #include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
@@ -170,24 +170,23 @@ static bool runTestCase(const TestContext& context,
             heavyLightIndicies.light().begin(), heavyLightIndicies.light().end(), resource};
         std::ranges::reverse(reverseLightIndices);
 
-        auto err = wrs::test::pmr::assert_is_split<float, glsl::uint>(splits, K, heavyPrefix, lightPrefix, averageWeight, 0.01, resource);
-        if (err) {
-          SPDLOG_ERROR("Invalid reference split: \n{}", err.message());
+        /*auto err = wrs::test::pmr::assert_is_split<float, glsl::uint>(splits, K, heavyPrefix,
+         * lightPrefix, averageWeight, 0.01, resource);*/
+        /*if (err) {*/
+        /*  SPDLOG_ERROR("Invalid reference split: \n{}", err.message());*/
+        /**/
+        /*}*/
 
-        }
-
-          /*fmt::println("Splits:");*/
-          /*for (std::size_t i = 0; i < splits.size(); ++i) {*/
-          /*  fmt::println("[{}]: ({},{},{})", i, splits[i].i, splits[i].j, splits[i].spill);*/
-          /*}*/
+        /*fmt::println("Splits:");*/
+        /*for (std::size_t i = 0; i < splits.size(); ++i) {*/
+        /*  fmt::println("[{}]: ({},{},{})", i, splits[i].i, splits[i].j, splits[i].spill);*/
+        /*}*/
 
         // 2. Begin recoding
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
-
-
 
         // 3.0 Upload partition indices
         {

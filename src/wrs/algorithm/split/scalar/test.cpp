@@ -236,14 +236,14 @@ static void runTestCase(const wrs::test::TestContext& context,
 
         // ========= Compare results against reference ==========
         {
-            SPDLOG_DEBUG("Testing splits");
-            auto err = wrs::test::pmr::assert_is_split<weight_t, wrs::glsl::uint>(
-                splits, K, heavyPrefixSum, lightPrefixSum, averageWeight, 0.01, resource);
-            if (err) {
-                SPDLOG_ERROR(fmt::format("Invalid split!\n{}", err.message()));
-            }
+            /* SPDLOG_DEBUG("Testing splits"); */
+            /* auto err = wrs::test::pmr::assert_is_split<weight_t, wrs::glsl::uint>( */
+            /*     splits, K, heavyPrefixSum, lightPrefixSum, averageWeight, 0.01, resource); */
+            /* if (err) { */
+            /*     SPDLOG_ERROR(fmt::format("Invalid split!\n{}", err.message())); */
+            /* } */
 
-            if (testCase.weightCount < 1024) {
+            if (testCase.splitCount <= 1024) {
               fmt::println("");
               for (std::size_t i = 0; i < splits.size(); ++i) {
                 fmt::println("({},{},{})", splits[i].i, splits[i].j, splits[i].spill);

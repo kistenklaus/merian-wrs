@@ -45,25 +45,25 @@ struct TestCase {
 
 static constexpr TestCase TEST_CASES[] = {
     //
-    TestCase{
-        .workgroupSize = 512,
-        .rows = 8,
-        .lookbackDepth = 32,
-        .N = 1024 * 2048,
-        .distribution = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 / 64,
-        .iterations = 1,
-    },
-
     /* TestCase{ */
-    /*     .workgroupSize = 4, */
-    /*     .rows = 1, */
-    /*     .lookbackDepth = 1, */
-    /*     .N = 64, */
+    /*     .workgroupSize = 512, */
+    /*     .rows = 8, */
+    /*     .lookbackDepth = 32, */
+    /*     .N = 1024 * 2048, */
     /*     .distribution = wrs::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 64, */
+    /*     .S = 1024 * 2048 / 64, */
     /*     .iterations = 1, */
     /* }, */
+
+    TestCase{
+        .workgroupSize = 64,
+        .rows = 1,
+        .lookbackDepth = 32,
+        .N = 64,
+        .distribution = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .S = 64,
+        .iterations = 1,
+    },
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {

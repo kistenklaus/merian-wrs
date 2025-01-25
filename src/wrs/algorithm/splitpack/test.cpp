@@ -11,29 +11,32 @@
 #include "src/wrs/reference/reduce.hpp"
 #include "src/wrs/reference/split.hpp"
 #include "src/wrs/test/is_alias_table.hpp"
+#include "src/wrs/test/is_split.hpp"
 #include "src/wrs/test/test.hpp"
 #include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
+#include <memory_resource>
 #include <ranges>
 #include <spdlog/spdlog.h>
 #include <tuple>
+#include <vector>
 
-#include "./HSTC.hpp"
+#include "./SplitPack.hpp"
 
 using namespace wrs;
 using namespace wrs::test;
 
-using Algorithm = HSTC;
+using Algorithm = SplitPack;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
     glsl::uint workgroupSize;
     glsl::uint N;
-    Distribution distribution;
-    glsl::uint svoThreshold;
+    Distribution dist;
+    glsl::uint splitSize;
     uint32_t iterations;
 };
 
@@ -41,21 +44,14 @@ static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
         .workgroupSize = 512,
-        .N = 16,
-        .distribution = wrs::Distribution::UNIFORM,
-        .svoThreshold = 512,
+        .N = 1024 * 2048,
+        .dist = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .splitSize = 2,
         .iterations = 1,
     },
-    /* TestCase{ */
-    /*     .workgroupSize = 32, */
-    /*     .N = 3, */
-    /*     .distribution = wrs::Distribution::UNIFORM, */
-    /*     .iterations = 1, */
-    /* }, */
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
-
     glsl::uint maxN = 0;
     for (const auto& testCase : TEST_CASES) {
         maxN = std::max(maxN, testCase.N);
@@ -68,37 +64,24 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
     return std::make_tuple(local, stage);
 }
 
-static void uploadTestCase(const vk::CommandBuffer cmd,
-                           const Buffers& buffers,
-                           const Buffers& stage,
-                           std::span<const float> weights) {
-    Buffers::TreeView stageView{stage.tree, weights.size()};
-    Buffers::TreeView localView{buffers.tree, weights.size()};
-    stageView.upload(weights);
-    stageView.copyTo(cmd, localView);
-    localView.expectComputeRead(cmd);
-}
+namespace wrs::test::splitpack {
 
-static void
-downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t N) {
-    Buffers::TreeView stageView{stage.tree, 2 * N - 2};
-    Buffers::TreeView localView{buffers.tree, 2 * N - 2};
-    localView.expectComputeRead(cmd);
-    localView.copyTo(cmd, stageView);
-    stageView.expectHostRead(cmd);
-}
+void uploadTestCase(const vk::CommandBuffer cmd,
+                    const Buffers& buffers,
+                    const Buffers& stage,
+                    std::span<const float> weights,
+                    std::span<const glsl::uint> lightIndices,
+                    std::span<const glsl::uint> heavyIndices,
+                    std::span<const float> lightPrefix,
+                    std::span<const float> heavyPrefix,
+                    const float mean,
+                    std::pmr::memory_resource* resource);
 
-struct Results {
-    std::pmr::vector<float> tree;
-};
-static Results
-downloadFromStage(Buffers& stage, std::size_t N, std::pmr::memory_resource* resource) {
-    Buffers::TreeView stageView{stage.tree, 2 * N - 2};
-    auto tree = stageView.download<float, wrs::pmr_alloc<float>>(resource);
-    return Results{
-        .tree = std::move(tree),
-    };
-};
+void downloadToStage(
+    vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, glsl::uint N, glsl::uint K);
+
+Results
+downloadFromStage(Buffers& stage, glsl::uint N, glsl::uint K, std::pmr::memory_resource* resource);
 
 static bool runTestCase(const TestContext& context,
                         const TestCase& testCase,
@@ -109,7 +92,9 @@ static bool runTestCase(const TestContext& context,
         fmt::format("{{workgroupSize={},N={}}}", testCase.workgroupSize, testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.workgroupSize};
+    Algorithm kernel{context.context, testCase.workgroupSize, testCase.splitSize};
+
+    glsl::uint K = testCase.N / testCase.splitSize;
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -127,13 +112,26 @@ static bool runTestCase(const TestContext& context,
 
         // 1. Generate input
         context.profiler->start("Generate test input");
-        std::pmr::vector<float> weights =
-            wrs::pmr::generate_weights(testCase.distribution, testCase.N);
+        const std::pmr::vector<float> weights =
+            wrs::pmr::generate_weights<float>(testCase.dist, testCase.N);
+        const float totalWeight = wrs::reference::kahan_reduction<float>(weights);
+        const float averageWeight = totalWeight / static_cast<float>(testCase.N);
+        const auto partitionIndices =
+            wrs::reference::stable_partition_indicies<float, glsl::uint,
+                                                      wrs::pmr_alloc<glsl::uint>>(
+                weights, averageWeight, wrs::pmr_alloc<glsl::uint>(resource));
+        const auto partition = wrs::reference::stable_partition<float, wrs::pmr_alloc<float>>(
+            weights, averageWeight, wrs::pmr_alloc<float>(resource));
+        const auto lightPrefix =
+            wrs::reference::pmr::prefix_sum<float>(partition.light(), resource);
+        const auto heavyPrefix =
+            wrs::reference::pmr::prefix_sum<float>(partition.heavy(), resource);
+
         context.profiler->end();
 
         // 2. Begin recoding
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
-        const std::string recordingLabel = fmt::format("Recording : {}", testName);
+        std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
 
@@ -141,21 +139,23 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
             SPDLOG_DEBUG("Uploading test case...");
-            uploadTestCase(cmd, buffers, stage, weights);
+            uploadTestCase(cmd, buffers, stage, weights, partitionIndices.light(),
+                           partitionIndices.heavy(), lightPrefix, heavyPrefix, averageWeight,
+                           resource);
         }
 
         // 4. Run test case
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.N, testCase.svoThreshold);
+            kernel.run(cmd, buffers, testCase.N);
         }
 
         // 5. Download results to stage
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
             SPDLOG_DEBUG("Downloading results to stage...");
-            downloadToStage(cmd, buffers, stage, testCase.N);
+            downloadToStage(cmd, buffers, stage, testCase.N, K + 1);
         }
 
         // 6. Submit to device
@@ -168,31 +168,66 @@ static bool runTestCase(const TestContext& context,
         // 7. Download from stage
         context.profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        Results results = downloadFromStage(stage, testCase.N, resource);
+        Results results = downloadFromStage(stage, testCase.N, K + 1, resource);
         context.profiler->end();
 
         // 7. Test results
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
-            /* SPDLOG_WARN(fmt::format("tree-size: {}", results.tree.size())); */
 
-            if (testCase.N < 1024) {
-                for (std::size_t i = 0; i < results.tree.size(); ++i) {
-                    fmt::println("[{}]: {}", i, results.tree[i]);
+            fmt::println("HEAVY-COUNT: {}", heavyPrefix.size());
+            if (K <= 1024) {
+                fmt::println("MEAN: {}", averageWeight);
+                fmt::println("WEIGHTS");
+                for (std::size_t i = 0; i < weights.size(); ++i) {
+                  fmt::println("[{}]: {}", i, weights[i]);
+                }
+                fmt::println("PARTITION:");
+                for (std::size_t i = 0; i < std::max(partitionIndices.light().size(), partitionIndices.heavy().size()); ++i) {
+                    fmt::println("[{}]: {}    {}", i, i < partitionIndices.heavy().size() ? partitionIndices.heavy()[i] : -1,
+                                 i < partitionIndices.light().size() ? partitionIndices.light()[i] : -1);
+                }
+                fmt::println("PREFIX:");
+                for (std::size_t i = 0; i < std::max(lightPrefix.size(), heavyPrefix.size()); ++i) {
+                    fmt::println("[{}]: {}    {}", i, i < heavyPrefix.size() ? heavyPrefix[i] : -1,
+                                 i < lightPrefix.size() ? lightPrefix[i] : -1);
+                }
+                fmt::println("SPLITS");
+                for (std::size_t i = 0; i < results.splits.size(); ++i) {
+                    const auto& split = results.splits[i];
+                    fmt::println("[{}]: ({},{},{})", i, split.i, split.j, split.spill);
+                }
+
+                fmt::println("ALIAS-TABLE:");
+                for (std::size_t i = 0; i < results.aliasTable.size(); ++i) {
+                    const auto& entry = results.aliasTable[i];
+                    fmt::println("[{}]: ({},{})", i, entry.p, entry.a);
                 }
             }
 
-            fmt::println("Root: {}", results.tree.back() + results.tree[results.tree.size() - 2]);
-            fmt::println("Reduction: {}", wrs::reference::kahan_reduction<float>(weights));
+            /* auto err2 = wrs::test::pmr::assert_is_split<float,
+             * glsl::uint>(std::span(results.splits.data() + 1, */
+            /*       results.splits.size() - 1), K, heavyPrefix, lightPrefix, averageWeight,  */
+            /*     0.01, */
+            /*     resource); */
+            /* if (err2) { */
+            /*   SPDLOG_ERROR(err2.message()); */
+            /* } */
+
+            auto err = wrs::test::pmr::assert_is_alias_table<float, float, glsl::uint>(
+                weights, results.aliasTable, totalWeight, 0.01, resource);
+            if (err) {
+                SPDLOG_ERROR(err.message());
+            }
         }
         context.profiler->collect(true, true);
     }
     return failed;
 }
 
-void wrs::test::hstc::test(const merian::ContextHandle& context) {
-    SPDLOG_INFO("Testing HSTC algorithm");
+void test(const merian::ContextHandle& context) {
+    SPDLOG_INFO("Testing splitpack algorithm");
 
     const TestContext testContext = setupTestContext(context);
 
@@ -224,3 +259,5 @@ void wrs::test::hstc::test(const merian::ContextHandle& context) {
                                  sizeof(TEST_CASES) / sizeof(TestCase)));
     }
 }
+
+} // namespace wrs::test::splitpack

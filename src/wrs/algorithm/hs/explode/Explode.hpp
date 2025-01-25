@@ -94,15 +94,18 @@ class Explode {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
+    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) const {
 
         m_pipeline->bind(cmd);
         m_pipeline->push_descriptor_set(cmd, buffers.outputSensitive, buffers.samples,
                                         buffers.decoupledState);
         m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
         const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
-        fmt::println("WORKGROUP-COUNT: {}", workgroupCount);
         cmd.dispatch(workgroupCount, 1, 1);
+    }
+
+    inline glsl::uint getPartitionSize() const {
+        return m_partitionSize;
     }
 
   private:

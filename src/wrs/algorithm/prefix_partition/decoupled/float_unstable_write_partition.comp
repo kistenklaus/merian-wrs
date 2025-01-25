@@ -288,9 +288,8 @@ ExclusivePrefix decoupledLookback(in uint partID, in WorkgroupAggregate aggregat
                     gl_ScopeQueueFamily, gl_StorageSemanticsBuffer,
                     gl_SemanticsRelease | gl_SemanticsMakeAvailable);
             }
-            subgroupBarrier();
         }
-        // WTF NVIDIA Driver?
+        // WTF NVIDIA Driver? (Probably some bugs related to Independent Thread Scheduling)
         subgroupBarrier();
         controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
 

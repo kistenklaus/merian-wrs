@@ -6,11 +6,17 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/utils/profiler.hpp"
+#include "src/wrs/algorithm/hs/explode/Explode.hpp"
+#include "src/wrs/algorithm/hs/hstc/HSTC.hpp"
+#include "src/wrs/algorithm/hs/sampling/HSTSampling.hpp"
+#include "src/wrs/algorithm/hs/svo/SmallValueOptimization.hpp"
 #include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
 #include <concepts>
+#include <fmt/base.h>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
 
@@ -18,69 +24,178 @@
 
 namespace wrs {
 
-struct ITSBuffers {
-    using Self = ITSBuffers;
+struct HSBuffers {
+    using Self = HSBuffers;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
+    merian::BufferHandle weightTree;
+    using WeightTreeLayout = layout::ArrayLayout<float, storageQualifier>;
+    using WeightTreeView = layout::BufferView<WeightTreeLayout>;
+
+    merian::BufferHandle outputSensitiveSamples;
+    using OutputSensitiveSamplesLayout = layout::ArrayLayout<glsl::uint, storageQualifier>;
+    using OutputSensitiveSamplesView = layout::BufferView<OutputSensitiveSamplesLayout>;
+
+    merian::BufferHandle explodeDecoupledStates;
+    using _ExplodeDecoupledStateLayout =
+        wrs::layout::StructLayout<storageQualifier,
+                                  layout::Attribute<glsl::uint, "aggregate">,
+                                  layout::Attribute<glsl::uint, "prefix">,
+                                  layout::Attribute<glsl::uint, "state">>;
+    using _ExplodeDecoupledStateArrayLayout =
+        wrs::layout::ArrayLayout<_ExplodeDecoupledStateLayout, storageQualifier>;
+    using ExplodeDecoupledStatesLayout = wrs::layout::StructLayout<
+        storageQualifier,
+        layout::Attribute<glsl::uint, "counter">,
+        layout::Attribute<_ExplodeDecoupledStateArrayLayout, "partitions">>;
+    using ExplodeDecoupledStatesView = layout::BufferView<ExplodeDecoupledStatesLayout>;
+
+    merian::BufferHandle samples;
+    using SamplesLayout = layout::ArrayLayout<glsl::uint, storageQualifier>;
+    using SamplesView = layout::BufferView<SamplesLayout>;
+
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
-                                    merian::MemoryMappingType memoryMapping) {
-        Self buffers;
-        if (memoryMapping == merian::MemoryMappingType::NONE) {
-
-        } else {
-
-        }
-        return buffers;
-    }
+                         merian::MemoryMappingType memoryMapping,
+                         std::size_t N,
+                         std::size_t S,
+                         std::size_t explodePartitionSize);
 };
 
-class Algorithm {
-    struct PushConstants {
-        glsl::uint X;
-    };
+class HS {
   public:
-    using Buffers = ITSBuffers;
+    using Buffers = HSBuffers;
 
-    explicit Algorithm(const merian::ContextHandle& context, glsl::uint workgroupSize) : m_workgroupSize(workgroupSize){
+    explicit HS(const merian::ContextHandle& context,
+                glsl::uint hstcWorkgroupSize,
+                glsl::uint svoWorkgroupSize,
+                glsl::uint samplingWorkgroupSize,
+                glsl::uint explodeWorkgroupSize,
+                glsl::uint explodeRows,
+                glsl::uint explodeLookbackDepth)
+        : m_hstc(context, hstcWorkgroupSize), m_svo(context, svoWorkgroupSize),
+          m_hstSampling(context, samplingWorkgroupSize),
+          m_explode(context, explodeWorkgroupSize, explodeRows, explodeLookbackDepth) {}
 
-        const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
-            merian::DescriptorSetLayoutBuilder()
-                .add_binding_storage_buffer()
-                .build_push_descriptor_layout(context);
+    void run(const vk::CommandBuffer cmd,
+             const Buffers& buffers,
+             std::size_t N,
+             glsl::uint S,
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
 
-        const std::string shaderPath = "src/wrs/algorithm/???";
+        if (profiler.has_value()) {
+            profiler.value()->start("Prepare");
+            profiler.value()->cmd_start(cmd, "Prepare");
+        }
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const std::size_t explodePartitionSize = m_explode.getPartitionSize();
+        const std::size_t explodeWorkgroupCount =
+            (N + explodePartitionSize - 1) / explodePartitionSize;
+        Buffers::ExplodeDecoupledStatesView localView{buffers.explodeDecoupledStates,
+                                                      explodeWorkgroupCount};
+        localView.zero(cmd);
+        localView.expectComputeRead(cmd);
 
-        const merian::PipelineLayoutHandle pipelineLayout =
-            merian::PipelineLayoutBuilder(context)
-                .add_descriptor_set_layout(descriptorSet0Layout)
-                .add_push_constant<PushConstants>()
-                .build_pipeline_layout();
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
 
-        merian::SpecializationInfoBuilder specInfoBuilder;
-        specInfoBuilder.add_entry(m_workgroupSize);
-        const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
+        if (profiler.has_value()) {
+            profiler.value()->start("Construction");
+            profiler.value()->cmd_start(cmd, "Construction");
+        }
 
-        m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
-    }
+        wrs::HSTC::Buffers hstcBuffers;
+        hstcBuffers.tree = buffers.weightTree;
+        m_hstc.run(cmd, hstcBuffers, N, m_svo.getWorkgroupSize());
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers) {
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, TODO);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
-                                                          .X = TODO
-        });
-        const uint32_t workgroupCount = TODO;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
+                            buffers.weightTree->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                               vk::AccessFlagBits::eShaderRead),
+                            {});
+
+        HSSVOBuffers svoBuffers;
+        svoBuffers.hst = buffers.weightTree;
+        svoBuffers.histogram = buffers.outputSensitiveSamples;
+        wrs::hst::HSTRepr repr{N};
+        glsl::uint offset = 0;
+        glsl::uint size = N;
+        for (const auto& level : repr.get()) {
+          if (level.numChildren <= m_svo.getWorkgroupSize()) {
+            offset = level.childOffset;
+            size = level.numChildren;
+            break;
+          }
+        }
+
+        if (profiler.has_value()) {
+          profiler.value()->start("SVO");
+          profiler.value()->cmd_start(cmd, "SVO");
+        }
+
+        m_svo.run(cmd, svoBuffers, S, offset, size);
+
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
+
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
+                            buffers.outputSensitiveSamples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                               vk::AccessFlagBits::eShaderRead),
+                            {});
+
+
+        if (profiler.has_value()) {
+            profiler.value()->start("Sampling");
+            profiler.value()->cmd_start(cmd, "Sampling");
+        }
+
+        wrs::HSTSampling::Buffers samplingBuffers;
+        samplingBuffers.hst = buffers.weightTree;
+        samplingBuffers.samples = buffers.outputSensitiveSamples;
+        m_hstSampling.run(cmd, samplingBuffers, N, m_svo.getWorkgroupSize());
+
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
+
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
+                            buffers.outputSensitiveSamples->buffer_barrier(
+                                vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
+                            {});
+
+        if (profiler.has_value()) {
+            profiler.value()->start("Explode");
+            profiler.value()->cmd_start(cmd, "Explode");
+        }
+
+        wrs::Explode::Buffers explodeBuffers;
+        explodeBuffers.outputSensitive = buffers.outputSensitiveSamples;
+        explodeBuffers.samples = buffers.samples;
+        explodeBuffers.decoupledState = buffers.explodeDecoupledStates;
+        m_explode.run(cmd, explodeBuffers, N);
+
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
     }
 
   private:
-    merian::PipelineHandle m_pipeline;
-    glsl::uint m_workgroupSize;
+    wrs::HSTC m_hstc;
+    wrs::HSSVO m_svo;
+    wrs::HSTSampling m_hstSampling;
+    wrs::Explode m_explode;
 };
 
-}
+} // namespace wrs

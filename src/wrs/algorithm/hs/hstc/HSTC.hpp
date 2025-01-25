@@ -83,7 +83,10 @@ class HSTC {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, const glsl::uint N) {
+    void run(const vk::CommandBuffer cmd,
+             const Buffers& buffers,
+             const glsl::uint N,
+             const glsl::uint svoThreshold = 0) const {
 
         m_pipeline->bind(cmd);
         m_pipeline->push_descriptor_set(cmd, buffers.tree);
@@ -92,6 +95,14 @@ class HSTC {
 
         bool first = false;
         for (const auto& level : repr.get()) {
+            if (level.numChildren <= svoThreshold) {
+                break;
+            }
+
+            glsl::uint dstOffset = level.parentOffset + (level.overlap ? 1u : 0u);
+            glsl::uint srcOffset = level.childOffset;
+            glsl::uint numInvoc = level.numParents - (level.overlap ? 1u : 0u);
+            const uint32_t workgroupCount = (numInvoc + m_workgroupSize - 1) / m_workgroupSize;
 
             if (!first) {
                 cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
@@ -102,15 +113,14 @@ class HSTC {
             }
             first = false;
 
-            glsl::uint dstOffset = level.parentOffset + (level.overlap ? 1u : 0u);
-            glsl::uint srcOffset = level.childOffset;
-            glsl::uint numInvoc = level.numParents - (level.overlap ? 1u : 0u);
+            /* fmt::println("HSTC: dst_offset = {}, src_offset = {}, invoc = {}", dstOffset, srcOffset, */
+            /*              numInvoc); */
+
             m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
                                                               .dst_offset = dstOffset,
                                                               .src_offset = srcOffset,
                                                               .num_invoc = numInvoc,
                                                           });
-            const uint32_t workgroupCount = (numInvoc + m_workgroupSize - 1) / m_workgroupSize;
             cmd.dispatch(workgroupCount, 1, 1);
         }
     }

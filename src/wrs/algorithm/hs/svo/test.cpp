@@ -21,19 +21,20 @@
 #include <spdlog/spdlog.h>
 #include <tuple>
 
-#include "./HSTC.hpp"
+#include "./SmallValueOptimization.hpp"
+#include "src/wrs/why.hpp"
 
 using namespace wrs;
 using namespace wrs::test;
 
-using Algorithm = HSTC;
+using Algorithm = HSSVO;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
     glsl::uint workgroupSize;
     glsl::uint N;
-    Distribution distribution;
-    glsl::uint svoThreshold;
+    Distribution dist;
+    glsl::uint S;
     uint32_t iterations;
 };
 
@@ -41,21 +42,14 @@ static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
         .workgroupSize = 512,
-        .N = 16,
-        .distribution = wrs::Distribution::UNIFORM,
-        .svoThreshold = 512,
+        .N = 512,
+        .dist = wrs::Distribution::UNIFORM,
+        .S = 1024 * 2048 / 64,
         .iterations = 1,
     },
-    /* TestCase{ */
-    /*     .workgroupSize = 32, */
-    /*     .N = 3, */
-    /*     .distribution = wrs::Distribution::UNIFORM, */
-    /*     .iterations = 1, */
-    /* }, */
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
-
     glsl::uint maxN = 0;
     for (const auto& testCase : TEST_CASES) {
         maxN = std::max(maxN, testCase.N);
@@ -72,8 +66,8 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
                            std::span<const float> weights) {
-    Buffers::TreeView stageView{stage.tree, weights.size()};
-    Buffers::TreeView localView{buffers.tree, weights.size()};
+    Buffers::HstView stageView{stage.hst, weights.size()};
+    Buffers::HstView localView{buffers.hst, weights.size()};
     stageView.upload(weights);
     stageView.copyTo(cmd, localView);
     localView.expectComputeRead(cmd);
@@ -81,22 +75,22 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
 
 static void
 downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t N) {
-    Buffers::TreeView stageView{stage.tree, 2 * N - 2};
-    Buffers::TreeView localView{buffers.tree, 2 * N - 2};
-    localView.expectComputeRead(cmd);
+    Buffers::HistogramView stageView{stage.histogram, N};
+    Buffers::HistogramView localView{buffers.histogram, N};
+    localView.expectComputeWrite();
     localView.copyTo(cmd, stageView);
     stageView.expectHostRead(cmd);
 }
 
 struct Results {
-    std::pmr::vector<float> tree;
+    std::pmr::vector<glsl::uint> histogram;
 };
 static Results
 downloadFromStage(Buffers& stage, std::size_t N, std::pmr::memory_resource* resource) {
-    Buffers::TreeView stageView{stage.tree, 2 * N - 2};
-    auto tree = stageView.download<float, wrs::pmr_alloc<float>>(resource);
+    Buffers::HistogramView stageView{stage.histogram, N};
+    auto histogram = stageView.download<glsl::uint, wrs::pmr_alloc<glsl::uint>>(resource);
     return Results{
-        .tree = std::move(tree),
+        .histogram = std::move(histogram),
     };
 };
 
@@ -105,8 +99,8 @@ static bool runTestCase(const TestContext& context,
                         Buffers& buffers,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
-    std::string testName =
-        fmt::format("{{workgroupSize={},N={}}}", testCase.workgroupSize, testCase.N);
+    std::string testName = fmt::format("{{workgroupSize={},N={},S={}}}", testCase.workgroupSize,
+                                       testCase.N, testCase.S);
     SPDLOG_INFO("Running test case:{}", testName);
 
     Algorithm kernel{context.context, testCase.workgroupSize};
@@ -128,12 +122,12 @@ static bool runTestCase(const TestContext& context,
         // 1. Generate input
         context.profiler->start("Generate test input");
         std::pmr::vector<float> weights =
-            wrs::pmr::generate_weights(testCase.distribution, testCase.N);
+            wrs::pmr::generate_weights<float>(testCase.dist, testCase.N, resource);
         context.profiler->end();
 
         // 2. Begin recoding
         vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
-        const std::string recordingLabel = fmt::format("Recording : {}", testName);
+        std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
 
@@ -148,7 +142,7 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.N, testCase.svoThreshold);
+            kernel.run(cmd, buffers, testCase.S, 0, testCase.N);
         }
 
         // 5. Download results to stage
@@ -175,24 +169,17 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
-            /* SPDLOG_WARN(fmt::format("tree-size: {}", results.tree.size())); */
-
-            if (testCase.N < 1024) {
-                for (std::size_t i = 0; i < results.tree.size(); ++i) {
-                    fmt::println("[{}]: {}", i, results.tree[i]);
-                }
+            for (std::size_t i = 0; i < results.histogram.size(); ++i) {
+              fmt::println("[{}]: {}", i, results.histogram[i]);
             }
-
-            fmt::println("Root: {}", results.tree.back() + results.tree[results.tree.size() - 2]);
-            fmt::println("Reduction: {}", wrs::reference::kahan_reduction<float>(weights));
         }
         context.profiler->collect(true, true);
     }
     return failed;
 }
 
-void wrs::test::hstc::test(const merian::ContextHandle& context) {
-    SPDLOG_INFO("Testing HSTC algorithm");
+void wrs::test::hs_svo::test(const merian::ContextHandle& context) {
+    SPDLOG_INFO("Testing HS Small Value Optimization algorithm");
 
     const TestContext testContext = setupTestContext(context);
 

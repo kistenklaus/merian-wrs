@@ -64,7 +64,7 @@ uint ceilMulDiv(uint a, uint b, uint c) {
   return safe_part + rem_part;
 }
 
-void computeSplit(uint k, uint N, uint K, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {
+Split computeSplit(uint k, uint N, uint K, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {
     const uint n = ceilMulDiv(N, k, K);
 
     uint a = 0;
@@ -102,9 +102,11 @@ void computeSplit(uint k, uint N, uint K, float mean, uint heavyCount, uint ligh
             b = j - 1;
         }
     }
-    splits[k - 1].i = i;
-    splits[k - 1].j = j;
-    splits[k - 1].spill = sigma2 - target;
+    Split split;
+    split.i = i;
+    split.j = j;
+    split.spill = sigma2 - target;
+    return split;
 }
 
 void main(void) {
@@ -127,5 +129,6 @@ void main(void) {
         splits[K - 1].spill = 0;
     }
 
-    computeSplit(k, N, K, mean, heavyCount, lightCount, lightPrefixFirst);
+    const Split split = computeSplit(k, N, K, mean, heavyCount, lightCount, lightPrefixFirst);
+    splits[k - 1] = split;
 }
