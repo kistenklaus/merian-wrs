@@ -75,9 +75,9 @@ void wrs::bench::psa::write_bench_results(const merian::ContextHandle& context) 
     profiler->collect(true, false);
     auto report = profiler->get_report();
 
-    wrs::exp::CSVWriter<9> csv{
-        {"sample_size", "latency", "sampling", "construction", "prepare", "mean", "prefix-partition", "split", "pack"},
-        "./psa_benchmark.csv"};
+    wrs::exp::CSVWriter<8> csv{{"sample_size", "latency", "sampling", "construction", "prepare",
+                                "mean", "prefix-partition", "splitPack"},
+                               "./psa_benchmark.csv"};
     for (auto report : report.gpu_report) {
         float duration = report.duration;
         std::size_t S = std::stoi(report.name);
@@ -87,29 +87,29 @@ void wrs::bench::psa::write_bench_results(const merian::ContextHandle& context) 
         float prepare = NAN;
         float mean = NAN;
         float partition = NAN;
-        float split = NAN;
-        float pack = NAN;
+        float splitPack = NAN;
         for (auto child : report.children) {
             if (child.name == "Construction") {
                 construction = child.duration;
                 for (auto step : child.children) {
-                  if (step.name == "Prepare") {
-                    prepare = step.duration;
-                  }else if (step.name == "Mean") {
-                    mean = step.duration;
-                  } else if (step.name == "PrefixPartition") {
-                    partition = step.duration;
-                  } else if (step.name == "Split") {
-                    split = step.duration;
-                  } else if (step.name == "Pack") {
-                    pack = step.duration;
-                  }
+                    if (step.name == "Prepare") {
+                        prepare = step.duration;
+                    } else if (step.name == "Mean") {
+                        mean = step.duration;
+                    } else if (step.name == "PrefixPartition") {
+                        partition = step.duration;
+                    } else if (step.name == "SplitPack") {
+                        splitPack = step.duration;
+                    }
+                    /* } else if (step.name == "Pack") { */
+                    /*   pack = step.duration; */
+                    /* } */
                 }
             } else if (child.name == "Sampling") {
                 sampling = child.duration;
             }
         }
-        csv.pushRow(S, duration, sampling, construction, prepare, mean, partition, split, pack);
+        csv.pushRow(S, duration, sampling, construction, prepare, mean, partition, splitPack);
     }
 
     /* fmt::println("{}",merian::Profiler::get_report_str(report)); */

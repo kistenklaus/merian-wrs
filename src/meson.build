@@ -25,6 +25,8 @@ src_files += files('wrs/algorithm/hs/explode/test.cpp')
 src_files += files('wrs/algorithm/hs/explode/test.lsp.cpp')
 src_files += files('wrs/algorithm/hs/explode/Explode.cpp')
 
+src_files += files('wrs/algorithm/mean/atomic/test.cpp')
+
 src_files += files('wrs/algorithm/hs/HS.cpp')
 src_files += files('wrs/algorithm/hs/test.cpp')
 src_files += files('wrs/algorithm/hs/svo/test.cpp')

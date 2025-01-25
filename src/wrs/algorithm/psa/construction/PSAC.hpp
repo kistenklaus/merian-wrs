@@ -1,4 +1,5 @@
 #pragma once
+#include "src/wrs/algorithm/splitpack/SplitPack.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/types/glsl.hpp"
 #include <merian/vk/utils/profiler.hpp>
@@ -95,15 +96,15 @@ class PSAC {
                             config.prefixSumLookbackDepth,
                             true,
                             false),
-          m_split(context, config.splitWorkgroupSize), m_pack(context, config.packWorkgroupSize),
+          m_splitpack(context, config.splitWorkgroupSize, config.splitSize),
+          /* m_split(context, config.splitWorkgroupSize), m_pack(context, config.packWorkgroupSize),
+           */
           m_splitSize(config.splitSize) {}
 
     void run(const vk::CommandBuffer cmd,
              const Buffers& buffers,
              const std::size_t weightCount,
              std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
-
-        std::size_t splitCount = (weightCount + m_splitSize - 1) / m_splitSize;
 
         DecoupledMeanBuffers meanBuffers;
         meanBuffers.elements = buffers.weights;
@@ -144,10 +145,6 @@ class PSAC {
         meanStates.expectComputeRead(cmd);
         prefixStates.expectComputeRead(cmd);
 
-
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
-            {},{},{},{});
-
         if (profiler.has_value()) {
             MERIAN_PROFILE_SCOPE_GPU(*profiler, cmd, "Mean");
             m_mean.run(cmd, meanBuffers, weightCount);
@@ -155,8 +152,11 @@ class PSAC {
             m_mean.run(cmd, meanBuffers, weightCount);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
-            {},{},{},{});
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
+                            buffers.mean->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                         vk::AccessFlagBits::eShaderRead),
+                            {});
 
         if (profiler.has_value()) {
             MERIAN_PROFILE_SCOPE_GPU(*profiler, cmd, "PrefixPartition");
@@ -165,40 +165,33 @@ class PSAC {
             m_prefixPartition.run(cmd, partitionBuffers, weightCount);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
-            {},{},{},{});
+        cmd.pipelineBarrier(
+            vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eComputeShader,
+            {}, {},
+            {
+                buffers.partitionIndices->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                         vk::AccessFlagBits::eShaderRead),
+                buffers.partitionPrefix->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                        vk::AccessFlagBits::eShaderRead),
+            },
+            {});
 
-        ScalarSplitBuffers splitBuffers;
-        splitBuffers.mean = buffers.mean;
-        splitBuffers.splits = buffers.splits;
-        splitBuffers.partitionPrefix = buffers.partitionPrefix;
-
-        if (profiler.has_value()) {
-            MERIAN_PROFILE_SCOPE_GPU(*profiler, cmd, "Split");
-            m_split.run(cmd, splitBuffers, weightCount, splitCount);
-        } else {
-            m_split.run(cmd, splitBuffers, weightCount, splitCount);
-        }
-
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
-            {},{},{},{});
-
-        ScalarPackBuffers packBuffers;
-        packBuffers.weights = buffers.weights;
-        packBuffers.mean = buffers.mean;
-        packBuffers.splits = buffers.splits;
-        packBuffers.partitionIndices = buffers.partitionIndices;
-        packBuffers.aliasTable = buffers.aliasTable;
+        SplitPackBuffers splitPackBuffers;
+        splitPackBuffers.weights = buffers.weights;
+        splitPackBuffers.partitionIndices = buffers.partitionIndices;
+        splitPackBuffers.partitionPrefix = buffers.partitionPrefix;
+        splitPackBuffers.mean = buffers.mean;
+        splitPackBuffers.aliasTable = buffers.aliasTable;
 
         if (profiler.has_value()) {
-            MERIAN_PROFILE_SCOPE_GPU(*profiler, cmd, "Pack");
-            m_pack.run(cmd, weightCount, splitCount, packBuffers);
-        } else {
-            m_pack.run(cmd, weightCount, splitCount, packBuffers);
+            profiler.value()->start("SplitPack");
+            profiler.value()->cmd_start(cmd, "SplitPack");
         }
-
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands,
-            {},{},{},{});
+        m_splitpack.run(cmd, splitPackBuffers, weightCount);
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
     }
 
     inline glsl::uint getPrefixPartitionSize() const {
@@ -216,8 +209,9 @@ class PSAC {
   private:
     DecoupledMean m_mean;
     DecoupledPrefixPartition m_prefixPartition;
-    ScalarSplit m_split;
-    ScalarPack m_pack;
+    /*ScalarSplit m_split;*/
+    /*ScalarPack m_pack;*/
+    SplitPack m_splitpack;
 
     glsl::uint m_splitSize;
 };

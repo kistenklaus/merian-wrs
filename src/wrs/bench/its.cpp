@@ -22,7 +22,7 @@ constexpr wrs::glsl::uint COOPERATIVE_SAMPLING_SIZE = 4096;
 
 constexpr wrs::glsl::uint WEIGHT_COUNT = 1024 * 2048;
 constexpr wrs::glsl::uint MIN_SAMPLES_COUNT = 1e3;
-constexpr wrs::glsl::uint MAX_SAMPLES_COUNT = 1e7;
+constexpr wrs::glsl::uint MAX_SAMPLES_COUNT = 1e8;
 constexpr wrs::glsl::uint BENCHMARK_SAMPLES = 500;
 constexpr wrs::glsl::uint BENCHMARK_ITERATIONS = 10;
 

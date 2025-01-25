@@ -124,7 +124,6 @@ class SplitPack {
                                                       });
         const glsl::uint splitsPerDispatch = m_workgroupSize - 1;
         const glsl::uint workgroupCount = (K + splitsPerDispatch - 1) / splitsPerDispatch;
-        fmt::println("DISPATCH: {}", workgroupCount);
         cmd.dispatch(workgroupCount, 1, 1);
     }
 
