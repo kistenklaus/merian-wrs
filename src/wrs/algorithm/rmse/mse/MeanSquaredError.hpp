@@ -1,74 +1,77 @@
 #pragma once
 
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
-#include "merian/vk/memory/memory_allocator.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
+#include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
+#include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
+#include <concepts>
 #include <memory>
+#include <stdexcept>
 #include <vulkan/vulkan_handles.hpp>
 
 #include "merian/vk/memory/resource_allocator.hpp"
 
 namespace wrs {
 
-struct PhiloxBuffers {
-    using Self = PhiloxBuffers;
+struct MeanSquaredErrorBuffers {
+    using Self = MeanSquaredErrorBuffers;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
-    merian::BufferHandle samples;
-    using SamplesLayout = layout::ArrayLayout<glsl::uint, storageQualifier>;
-    using SamplesView = layout::BufferView<SamplesLayout>;
+    merian::BufferHandle histogram;
+    using HistogramLayout = layout::ArrayLayout<glsl::uint, storageQualifier>;
+    using HistogramView = layout::BufferView<HistogramLayout>;
+
+    merian::BufferHandle weights;
+    using WeightsLayout = layout::ArrayLayout<float, storageQualifier>;
+    using WeightsView = layout::BufferView<WeightsLayout>;
+
+    merian::BufferHandle mse;
+    using MseLayout = layout::ArrayLayout<float, storageQualifier>;
+    using MseView = layout::BufferView<MseLayout>;
 
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
-                         merian::MemoryMappingType memoryMapping,
-                         glsl::uint sampleCount) {
+                         merian::MemoryMappingType memoryMapping) {
         Self buffers;
+        throw std::runtime_error("NOT IMPLEMENTED");
         if (memoryMapping == merian::MemoryMappingType::NONE) {
-            buffers.samples = alloc->createBuffer(SamplesLayout::size(sampleCount),
-                                                  vk::BufferUsageFlagBits::eStorageBuffer |
-                                                      vk::BufferUsageFlagBits::eTransferSrc,
-                                                  merian::MemoryMappingType::NONE);
+
         } else {
-            buffers.samples =
-                alloc->createBuffer(SamplesLayout::size(sampleCount),
-                                    vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
         }
         return buffers;
     }
 };
 
-class PhiloxConfig {
-  public:
-    glsl::uint workgroupSize;
-
-    constexpr PhiloxConfig() : workgroupSize(512) {}
-    explicit constexpr PhiloxConfig(glsl::uint workgroupSize) : workgroupSize(workgroupSize) {}
-};
-
-class Philox {
+class MeanSquaredError {
     struct PushConstants {
-        glsl::uint seed;
+        glsl::uint offset;
+        float S;
         glsl::uint N;
+        float totalWeight;
     };
 
   public:
-    using Buffers = PhiloxBuffers;
+    using Buffers = MeanSquaredErrorBuffers;
 
-    explicit Philox(const merian::ContextHandle& context, PhiloxConfig config = {})
-        : m_workgroupSize(config.workgroupSize) {
+    explicit MeanSquaredError(const merian::ContextHandle& context,
+                              glsl::uint workgroupSize = 512,
+                              glsl::uint rows = 8)
+        : m_partitionSize(workgroupSize * rows) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
-                .add_binding_storage_buffer()
+                .add_binding_storage_buffer() // histogram
+                .add_binding_storage_buffer() // weights
+                .add_binding_storage_buffer() // rme
                 .build_push_descriptor_layout(context);
 
-        const std::string shaderPath = "src/wrs/algorithm/prng/philox/philox.comp";
+        const std::string shaderPath = "src/wrs/algorithm/rmse/mse/shader.comp";
 
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
@@ -81,7 +84,10 @@ class Philox {
                 .build_pipeline_layout();
 
         merian::SpecializationInfoBuilder specInfoBuilder;
-        specInfoBuilder.add_entry(config.workgroupSize);
+        specInfoBuilder.add_entry(workgroupSize);
+        specInfoBuilder.add_entry(rows);
+        specInfoBuilder.add_entry(
+            context->physical_device.physical_device_subgroup_properties.subgroupSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
@@ -89,23 +95,26 @@ class Philox {
 
     void run(const vk::CommandBuffer cmd,
              const Buffers& buffers,
-             glsl::uint sampleCount,
+             glsl::uint offset,
+             float S,
              glsl::uint N,
-             glsl::uint seed = 12345u) {
+             float totalWeight) {
 
         m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.samples);
+        m_pipeline->push_descriptor_set(cmd, buffers.histogram, buffers.weights, buffers.mse);
         m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
-                                                          .seed = seed,
+                                                          .offset = offset,
+                                                          .S = S,
                                                           .N = N,
+                                                          .totalWeight = totalWeight,
                                                       });
-        const uint32_t workgroupCount = (sampleCount + m_workgroupSize - 1) / m_workgroupSize;
+        const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
         cmd.dispatch(workgroupCount, 1, 1);
     }
 
   private:
     merian::PipelineHandle m_pipeline;
-    glsl::uint m_workgroupSize;
+    glsl::uint m_partitionSize;
 };
 
 } // namespace wrs

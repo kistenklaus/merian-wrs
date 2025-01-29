@@ -1,7 +1,6 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
-#include "src/wrs/algorithm/pack/simd/SimdPack.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
@@ -32,104 +31,19 @@ using Algorithm = DecoupledPrefixSum;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
-    glsl::uint workgroupSize;
-    glsl::uint rows;
+    DecoupledPrefixSumConfig config;
+
     glsl::uint N;
     Distribution distribution;
 
-    glsl::uint parallelLookbackDepth;
     uint32_t iterations;
 };
 
 static constexpr TestCase TEST_CASES[] = {
-    //
-    /*TestCase{*/
-    /*    .workgroupSize = 512,*/
-    /*    .rows = 8,*/
-    /*    .N = 1024 * 2048,*/
-    /*    .distribution = Distribution::UNIFORM,*/
-    /*    .parallelLookbackDepth = 32,*/
-    /*    .iterations = 1,*/
-    /*},*/
-    /* TestCase{ */
-    /*     .workgroupSize = 512, */
-    /*     .rows = 5, */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 16, */
-    /*     .iterations = 1, */
-    /* }, */
-    /* TestCase{ */
-    /*     .workgroupSize = 512, */
-    /*     .rows = 5, */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 8, */
-    /*     .iterations = 1, */
-    /* }, */
-    /* TestCase{ */
-    /*     .workgroupSize = 512, */
-    /*     .rows = 5, */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 4, */
-    /*     .iterations = 1, */
-    /* }, */
-    /* TestCase{ */
-    /*     .workgroupSize = 512, */
-    /*     .rows = 5, */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 2, */
-    /*     .iterations = 1, */
-    /* }, */
-    /*  */
-    /* TestCase{ */
-    /*     .workgroupSize = 512, */
-    /*     .rows = 4, */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 32, */
-    /*     .iterations = 1, */
-    /* }, */
-    /* TestCase{ */
-    /*     .workgroupSize = 512, */
-    /*     .rows = 4, */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 16, */
-    /*     .iterations = 1, */
-    /* }, */
-    /* TestCase{ */
-    /*     .workgroupSize = 512, */
-    /*     .rows = 4, */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 8, */
-    /*     .iterations = 1, */
-    /* }, */
-    /* TestCase{ */
-    /*     .workgroupSize = 512, */
-    /*     .rows = 4, */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 4, */
-    /*     .iterations = 1, */
-    /* }, */
-    /* TestCase{ */
-    /*     .workgroupSize = 512, */
-    /*     .rows = 5, */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = Distribution::UNIFORM, */
-    /*     .parallelLookbackDepth = 2, */
-    /*     .iterations = 1, */
-    /* }, */
     TestCase{
-        .workgroupSize = 512,
-        .rows = 8,
+        .config = {},
         .N = 1024 * 2048,
         .distribution = Distribution::UNIFORM,
-        .parallelLookbackDepth = 1,
         .iterations = 1,
     },
 };
@@ -141,7 +55,7 @@ std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
 
     for (auto testCase : TEST_CASES) {
         maxElementCount = std::max(maxElementCount, testCase.N);
-        glsl::uint partitionSize = testCase.workgroupSize * testCase.rows;
+        glsl::uint partitionSize = testCase.config.partitionSize();
         maxPartitionSize = std::max(maxPartitionSize, partitionSize);
     }
     Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
@@ -199,12 +113,11 @@ static bool runTestCase(const TestContext& context,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
     std::string testName =
-        fmt::format("{{workgroupSize={},N={},rows={},lookback={}}}", testCase.workgroupSize,
-                    testCase.N, testCase.rows, testCase.parallelLookbackDepth);
+        fmt::format("{{workgroupSize={},N={},rows={},lookback={}}}", testCase.config.workgroupSize,
+                    testCase.N, testCase.config.rows, testCase.config.parallelLookbackDepth);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.workgroupSize, testCase.rows,
-                     testCase.parallelLookbackDepth};
+    Algorithm kernel{context.context, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -223,7 +136,7 @@ static bool runTestCase(const TestContext& context,
         // 1. Generate input
         context.profiler->start("Generate test input");
         auto weights = wrs::pmr::generate_weights(testCase.distribution, testCase.N);
-        std::size_t partitionSize = testCase.workgroupSize * testCase.rows;
+        std::size_t partitionSize = testCase.config.partitionSize();
         // TODO
         context.profiler->end();
 

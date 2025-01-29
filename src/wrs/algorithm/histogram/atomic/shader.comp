@@ -1,0 +1,39 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_ARB_gpu_shader_int64 : enable
+#extension GL_EXT_shader_atomic_int64: enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer in_samples {
+   uint samples[];
+};
+
+layout(set = 0, binding = 1) buffer out_histogram {
+   uint64_t histogram[];
+};
+
+layout(push_constant) uniform PushConstant {
+  uint offset;
+  uint count;
+} pc;
+
+
+void main(void) {
+    const uint gid = gl_GlobalInvocationID.x;
+    const uint invocID = gl_LocalInvocationID.x;
+    if (gid >= pc.count) {
+      return;
+    }
+
+    uint ix = gid + pc.offset;
+
+    uint s = samples[ix];
+    atomicAdd(histogram[s], uint64_t(1)); // obviously not optimal 
+}

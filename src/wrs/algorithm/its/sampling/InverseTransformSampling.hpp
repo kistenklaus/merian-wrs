@@ -47,24 +47,38 @@ struct InverseTransformSamplingBuffers {
         } else {
             buffers.cmf = alloc->createBuffer(CMFLayout::size(cmfSize),
                                               vk::BufferUsageFlagBits::eTransferSrc, memoryMapping);
-            buffers.samples = alloc->createBuffer(
-                SamplesLayout::size(sampleCount), vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.samples =
+                alloc->createBuffer(SamplesLayout::size(sampleCount),
+                                    vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
         }
         return buffers;
     }
+};
+
+class InverseTransformSamplingConfig {
+  public:
+    glsl::uint workgroupSize;
+    glsl::uint cooperativeSamplingSize;
+
+    constexpr InverseTransformSamplingConfig() : workgroupSize(512), cooperativeSamplingSize(4096) {}
+    explicit constexpr InverseTransformSamplingConfig(glsl::uint workgroupSize,
+                                            glsl::uint cooperativeSamplingSize)
+        : workgroupSize(workgroupSize), cooperativeSamplingSize(cooperativeSamplingSize) {}
 };
 
 class InverseTransformSampling {
     struct PushConstants {
         glsl::uint N; // cmf size
         glsl::uint S; // sample count
+        glsl::uint seed;
     };
 
   public:
     using Buffers = InverseTransformSamplingBuffers;
 
     explicit InverseTransformSampling(const merian::ContextHandle& context,
-        glsl::uint workgroupSize, glsl::uint cooperativeSamplingSize = 4096) : m_workgroupSize(workgroupSize) {
+                                      InverseTransformSamplingConfig config = {})
+        : m_workgroupSize(config.workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -86,19 +100,24 @@ class InverseTransformSampling {
 
         merian::SpecializationInfoBuilder specInfoBuilder;
         specInfoBuilder.add_entry(m_workgroupSize);
-        specInfoBuilder.add_entry(cooperativeSamplingSize);
+        specInfoBuilder.add_entry(config.cooperativeSamplingSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N, glsl::uint S) {
+    void run(const vk::CommandBuffer cmd,
+             const Buffers& buffers,
+             glsl::uint N,
+             glsl::uint S,
+             glsl::uint seed = 12345u) {
 
         m_pipeline->bind(cmd);
         m_pipeline->push_descriptor_set(cmd, buffers.cmf, buffers.samples);
         m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
                                                           .N = N,
                                                           .S = S,
+                                                          .seed = seed,
                                                       });
         const uint32_t workgroupCount = (S + m_workgroupSize - 1) / m_workgroupSize;
         cmd.dispatch(workgroupCount, 1, 1);

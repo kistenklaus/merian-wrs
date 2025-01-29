@@ -27,20 +27,35 @@ layout(set = 0, binding = 1) writeonly buffer outSamples {
 layout(push_constant) uniform PushConstant {
     uint N;
     uint S;
+    uint seed;
 } pc;
 
 // Constants for Philox2x32-10
-const uint PHILOX_M2x32 = 0xD256D193u; // Multiplication constant
-const uint PHILOX_W32 = 0x9E3779B9u; // Weyl constant
+const uint PHILOX_M2x32 = 0xD256D193u;  // Multiplication constant
+const uint PHILOX_W32 = 0x9E3779B9u;   // Weyl constant
 const uint PHILOX_ROUNDS = 10;
 
-// Function to perform a single Philox round
 void philoxRound(inout uint x0, inout uint x1, uint k) {
-    uint hi = (x0 * PHILOX_M2x32) >> 32; // High 32 bits of multiplication
-    uint lo = x0 * PHILOX_M2x32; // Low 32 bits of multiplication
+    uint lo0 = x0 & 0xFFFFu;       // Lower 16 bits of x0
+    uint hi0 = x0 >> 16;           // Upper 16 bits of x0
 
-    x0 = hi ^ x1 ^ k;
-    x1 = lo;
+    uint lo1 = PHILOX_M2x32 & 0xFFFFu; // Lower 16 bits of PHILOX_M2x32
+    uint hi1 = PHILOX_M2x32 >> 16;     // Upper 16 bits of PHILOX_M2x32
+
+    // Full 64-bit multiplication emulation
+    uint lo = lo0 * lo1;                 // Low 32 bits of multiplication
+    uint mid1 = lo0 * hi1;               // Cross-product
+    uint mid2 = hi0 * lo1;               // Cross-product
+    uint hi = hi0 * hi1;                 // High 32 bits of multiplication
+
+    hi += (mid1 >> 16) + (mid2 >> 16);   // Accumulate carries
+    lo += (mid1 << 16);                  // Combine lower bits
+    lo += (mid2 << 16);                  // Combine lower bits
+    if (lo < (mid1 << 16)) hi++;         // Handle carry
+    if (lo < (mid2 << 16)) hi++;         // Handle carry
+
+    x0 = hi ^ x1 ^ k; // Use the computed high 32 bits
+    x1 = lo;          // Use the low 32 bits directly
 }
 
 // Philox2x32-10 implementation
@@ -61,13 +76,11 @@ vec2 philoxRandom(uvec2 counter, uint key) {
     philox2x32_10(x0, x1, key);
 
     // Return a single random number normalized to [0, 1)
-    return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
+    return vec2(clamp(float(x0) / 4294967296.0, 0.0, 1.0), clamp(float(x1) / 4294967296.0, 0.0, 1.0)); // Normalize to [0, 1)
 }
-
 
 void main(void) {
     const uint gid = gl_GlobalInvocationID.x;
-    const uint invocID = gl_LocalInvocationID.x;
 
     const uint N = pc.N;
     const uint S = pc.S;
@@ -76,21 +89,21 @@ void main(void) {
       return;
     }
 
-    float U;
-    if (subgroupElect()) {
-      const uvec2 counter = uvec2(gl_SubgroupID.x + gl_WorkGroupID.x * gl_NumSubgroups.x);
-      const uint key = 56789u;
-      U = philoxRandom(counter, key).x;
-    }
-    U = subgroupBroadcastFirst(U);
+    // float U;
+    // if (subgroupElect()) {
+    //   const uvec2 counter = uvec2(gl_SubgroupID.x + gl_WorkGroupID.x * gl_NumSubgroups.x);
+    //   const uint key = 56789u;
+    //   U = philoxRandom(counter, key).x;
+    // }
+    // U = subgroupBroadcastFirst(U);
 
-    uint sectionStartIdx = min(uint(U * N), N - SECTION_SIZE);
+    // uint sectionStartIdx = min(uint(U * N), N - SECTION_SIZE);
 
     const uvec2 counter = uvec2(gid, 0);
-    const uint key = 12345u;
+    const uint key = pc.seed;
     const vec2 u = philoxRandom(counter, key);
 
-    const uint ix = uint(u.x * SECTION_SIZE) + sectionStartIdx;
+    const uint ix = min(uint(u.x * N), N - 1);
     const float p = table[ix].p;
     if (u.y >= p) {
       samples[gid] = table[ix].a;

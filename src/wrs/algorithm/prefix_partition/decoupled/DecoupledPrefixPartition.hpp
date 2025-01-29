@@ -13,7 +13,6 @@
 #include "src/wrs/layout/PrimitiveLayout.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <stdexcept>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_enums.hpp>
 
@@ -35,8 +34,7 @@ struct DecoupledPrefixPartitionBuffers {
      * MinSize: sizeof(T) * N
      */
     merian::BufferHandle elements;
-    static constexpr auto ELEMENT_BUFFER_USAGE_FLAGS =
-        vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr auto ELEMENT_BUFFER_USAGE_FLAGS = vk::BufferUsageFlagBits::eStorageBuffer;
     using ElementsLayout = layout::ArrayLayout<element_type, storageQualifier>;
     using ElementsView = layout::BufferView<ElementsLayout>;
 
@@ -48,8 +46,7 @@ struct DecoupledPrefixPartitionBuffers {
      * MinSize: sizeof(T)
      */
     merian::BufferHandle pivot;
-    static constexpr auto PIVOT_BUFFER_USAGE_FLAGS =
-        vk::BufferUsageFlagBits::eStorageBuffer;
+    static constexpr auto PIVOT_BUFFER_USAGE_FLAGS = vk::BufferUsageFlagBits::eStorageBuffer;
     using PivotLayout = layout::PrimitiveLayout<float, storageQualifier>;
     using PivotView = layout::BufferView<PivotLayout>;
 
@@ -73,25 +70,27 @@ struct DecoupledPrefixPartitionBuffers {
     /*     monoid lightInclusivePrefix; */
     /*     state_t state; */
     /* }; */
-    using _BatchDescriptorLayout = layout::StructLayout<storageQualifier,
-          layout::Attribute<glsl::uint, "heavyCount">,
-          layout::Attribute<glsl::uint, "heavyCountInclusivePrefix">,
-          layout::Attribute<element_type, "heavySum">,
-          layout::Attribute<element_type, "heavyInclusivePrefix">,
-          layout::Attribute<element_type, "lightSum">,
-          layout::Attribute<element_type, "lightInclusivePrefix">,
-          layout::Attribute<glsl::uint, "state">>;
+    using _BatchDescriptorLayout =
+        layout::StructLayout<storageQualifier,
+                             layout::Attribute<glsl::uint, "heavyCount">,
+                             layout::Attribute<glsl::uint, "heavyCountInclusivePrefix">,
+                             layout::Attribute<element_type, "heavySum">,
+                             layout::Attribute<element_type, "heavyInclusivePrefix">,
+                             layout::Attribute<element_type, "lightSum">,
+                             layout::Attribute<element_type, "lightInclusivePrefix">,
+                             layout::Attribute<glsl::uint, "state">>;
 
-    using _BatchDescriptorArrayLayout = layout::ArrayLayout<_BatchDescriptorLayout,
-          storageQualifier>;
+    using _BatchDescriptorArrayLayout =
+        layout::ArrayLayout<_BatchDescriptorLayout, storageQualifier>;
 
-    using BatchDescriptorsLayout = layout::StructLayout<storageQualifier,
-          layout::Attribute<glsl::uint, "atomicBatchCounter">,
-          layout::Attribute<_BatchDescriptorArrayLayout, "batchInfo">>;
+    using BatchDescriptorsLayout =
+        layout::StructLayout<storageQualifier,
+                             layout::Attribute<glsl::uint, "atomicBatchCounter">,
+                             layout::Attribute<_BatchDescriptorArrayLayout, "batchInfo">>;
     using BatchDescriptorsView = layout::BufferView<BatchDescriptorsLayout>;
 
-    constexpr static vk::DeviceSize
-    minBatchDescriptorSize(const uint32_t N, const uint32_t partitionSize,
+    constexpr static vk::DeviceSize minBatchDescriptorSize(const uint32_t N,
+                                                           const uint32_t partitionSize,
                                                            const size_t sizeof_weight) {
         const uint32_t workgroupCount = (N + partitionSize - 1) / partitionSize;
         vk::DeviceSize batchDescriptorSize = 4 * sizeof_weight + 2 * sizeof_weight + sizeof_weight;
@@ -123,15 +122,15 @@ struct DecoupledPrefixPartitionBuffers {
     merian::BufferHandle partitionPrefix;
     static constexpr vk::BufferUsageFlagBits PREFIX_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
-    static constexpr vk::DeviceSize minPartitionPrefixSize(std::size_t N, vk::DeviceSize sizeOfElement) {
-      return sizeOfElement * N + sizeof(glsl::uint);
+    static constexpr vk::DeviceSize minPartitionPrefixSize(std::size_t N,
+                                                           vk::DeviceSize sizeOfElement) {
+        return sizeOfElement * N + sizeof(glsl::uint);
     }
-    using PartitionPrefixLayout = layout::StructLayout<storageQualifier,
-          layout::Attribute<wrs::glsl::uint, "heavyCount">,
-          layout::Attribute<element_type*, "heavyLightPrefix">>;
+    using PartitionPrefixLayout =
+        layout::StructLayout<storageQualifier,
+                             layout::Attribute<wrs::glsl::uint, "heavyCount">,
+                             layout::Attribute<element_type*, "heavyLightPrefix">>;
     using PartitionPrefixView = layout::BufferView<PartitionPrefixLayout>;
-
-      
 
     /**
      * Buffer, which contains both partitions.
@@ -139,49 +138,62 @@ struct DecoupledPrefixPartitionBuffers {
      *
      * Layout: T[[N]]
      * Elements 0,...n-1 contains the indicies of all elements above the pivot
-     * Elements n,...,N+1 contain the indicies of all elements below or equal to the pivot (in revrse)
+     * Elements n,...,N+1 contain the indicies of all elements below or equal to the pivot (in
+     * revrse)
      *
      */
-    std::optional<merian::BufferHandle> partition;
+    merian::BufferHandle partition;
     static constexpr vk::BufferUsageFlagBits PARTITION_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
-    using PartitionLayout = layout::StructLayout<storageQualifier,
-          layout::Attribute<wrs::glsl::uint, "heavyCount">,
-          layout::Attribute<wrs::glsl::uint*, "heavyLightIndices">>;
+    using PartitionLayout =
+        layout::StructLayout<storageQualifier,
+                             layout::Attribute<wrs::glsl::uint, "heavyCount">,
+                             layout::Attribute<wrs::glsl::uint*, "heavyLightIndices">>;
     using PartitionView = layout::BufferView<PartitionLayout>;
 
-
     static constexpr vk::DeviceSize minPartitionIndices(std::size_t N) {
-      return sizeof(wrs::glsl::uint) * N + sizeof(wrs::glsl::uint);
+        return sizeof(wrs::glsl::uint) * N + sizeof(wrs::glsl::uint);
     }
 
-    static std::size_t partitionSize(std::size_t workgroupSize, std::size_t rows ) {
-      return workgroupSize * rows;
+    static std::size_t partitionSize(std::size_t workgroupSize, std::size_t rows) {
+        return workgroupSize * rows;
     }
     static std::size_t workgroupCount(std::size_t elementCount, std::size_t partitionSize) {
-      return (elementCount + partitionSize - 1) / partitionSize;
+        return (elementCount + partitionSize - 1) / partitionSize;
     }
 
-
     static DecoupledPrefixPartitionBuffers allocate(merian::ResourceAllocatorHandle alloc,
-                                         std::size_t elementCount,
-                                         std::size_t partitionSize,
-                                         merian::MemoryMappingType memoryMapping);
+                                                    std::size_t elementCount,
+                                                    std::size_t partitionSize,
+                                                    merian::MemoryMappingType memoryMapping);
+};
 
+class DecoupledPrefixPartitionConfig {
+  public:
+    glsl::uint workgroupSize;
+    glsl::uint rows;
+    glsl::uint parallelLookbackDepth;
 
+    constexpr DecoupledPrefixPartitionConfig()
+        : workgroupSize(512), rows(8), parallelLookbackDepth(32) {}
+    explicit constexpr DecoupledPrefixPartitionConfig(glsl::uint workgroupSize,
+                                                      glsl::uint rows,
+                                                      glsl::uint parallelLookbackDepth)
+        : workgroupSize(workgroupSize), rows(rows), parallelLookbackDepth(parallelLookbackDepth) {}
+
+    constexpr glsl::uint partitionSize() const {
+        return workgroupSize * rows;
+    }
 };
 
 class DecoupledPrefixPartition {
   public:
     using weight_t = float;
+    using Buffers = DecoupledPrefixPartitionBuffers;
 
     explicit DecoupledPrefixPartition(const merian::ContextHandle& context,
-                                      glsl::uint workgroupSize = 512,
-                                      glsl::uint rows = 8,
-                                      glsl::uint lookbackDepth = 32,
-                                      bool writePartition = false,
-                                      bool stable = false)
-        : m_partitionSize(workgroupSize * rows), m_writePartition(writePartition), m_stable(stable) {
+                                      DecoupledPrefixPartitionConfig config = {})
+        : m_partitionSize(config.partitionSize()) {
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
                 .add_binding_storage_buffer()
@@ -191,22 +203,7 @@ class DecoupledPrefixPartition {
                 .add_binding_storage_buffer()
                 .build_push_descriptor_layout(context);
 
-        std::string shaderPath;
-        if (writePartition) {
-            if (m_stable) {
-                shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/"
-                             "float_stable_write_partition.comp";
-            } else {
-                shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/"
-                             "float_unstable_write_partition.comp";
-            }
-        } else {
-            if (m_stable) {
-                shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/float_stable.comp";
-            } else {
-                shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/float_unstable.comp";
-            }
-        }
+        std::string shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/shader.comp";
 
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
@@ -219,48 +216,23 @@ class DecoupledPrefixPartition {
                 .build_pipeline_layout();
 
         merian::SpecializationInfoBuilder specInfoBuilder;
+        assert(context->physical_device.physical_device_subgroup_properties.subgroupSize >=
+               config.parallelLookbackDepth);
         specInfoBuilder.add_entry(
-            workgroupSize,
-            context->physical_device.physical_device_subgroup_properties.subgroupSize, rows,
-            lookbackDepth);
+            config.workgroupSize,
+            context->physical_device.physical_device_subgroup_properties.subgroupSize, config.rows,
+            config.parallelLookbackDepth);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
-        m_writes.resize(m_writePartition ? 5 : 4);
-        vk::WriteDescriptorSet& elementsDescriptor = m_writes[0];
-        elementsDescriptor.setDstBinding(0);
-        elementsDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& pivotDescriptor = m_writes[1];
-        pivotDescriptor.setDstBinding(1);
-        pivotDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& batchStateDescriptor = m_writes[2];
-        batchStateDescriptor.setDstBinding(2);
-        batchStateDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& prefixPartitionDescriptor = m_writes[3];
-        prefixPartitionDescriptor.setDstBinding(3);
-        prefixPartitionDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        if (m_writePartition) {
-            vk::WriteDescriptorSet& partitionDescriptor = m_writes[4];
-            partitionDescriptor.setDstBinding(4);
-            partitionDescriptor.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        }
     }
     void run(vk::CommandBuffer cmd, const DecoupledPrefixPartitionBuffers& buffers, uint32_t N) {
         m_pipeline->bind(cmd);
-        vk::DescriptorBufferInfo elementDesc = buffers.elements->get_descriptor_info();
-        m_writes[0].setBufferInfo(elementDesc);
-        vk::DescriptorBufferInfo pivotDesc = buffers.pivot->get_descriptor_info();
-        m_writes[1].setBufferInfo(pivotDesc);
-        vk::DescriptorBufferInfo batchDesc = buffers.batchDescriptors->get_descriptor_info();
-        m_writes[2].setBufferInfo(batchDesc);
-        vk::DescriptorBufferInfo prefixDesc = buffers.partitionPrefix->get_descriptor_info();
-        m_writes[3].setBufferInfo(prefixDesc);
-        vk::DescriptorBufferInfo partitionDesc;
-        if (m_writePartition) {
-            partitionDesc = buffers.partition.value()->get_descriptor_info();
-            m_writes[4].setBufferInfo(partitionDesc);
-        }
-        m_pipeline->push_descriptor_set(cmd, m_writes);
+
+
+        m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.pivot,
+                                        buffers.batchDescriptors, buffers.partitionPrefix,
+                                        buffers.partition);
         m_pipeline->push_constant(cmd, N);
 
         uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
@@ -272,17 +244,13 @@ class DecoupledPrefixPartition {
                                                                        sizeof(weight_t));
     }
 
-
     inline glsl::uint getPartitionSize() const {
-      return m_partitionSize;
+        return m_partitionSize;
     }
-  
+
   private:
     const uint32_t m_partitionSize;
-    const bool m_writePartition;
-    const bool m_stable; // TODO does not need to be stored!! only required during construction
     merian::PipelineHandle m_pipeline;
-    std::vector<vk::WriteDescriptorSet> m_writes;
 };
 
 } // namespace wrs

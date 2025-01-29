@@ -25,11 +25,7 @@ struct TestCase {
     Distribution distribution;
     glsl::uint S;
 
-    glsl::uint prefixSumWorkgroupSize;
-    glsl::uint prefixSumRows;
-    glsl::uint prefixSumLookbackDepth;
-    glsl::uint samplingWorkgroupSize;
-    glsl::uint cooperativeSamplingSize;
+    ITSConfig config;
     uint32_t iterations;
 };
 
@@ -39,11 +35,7 @@ static constexpr TestCase TEST_CASES[] = {
         .N = 1024 * 2048,
         .distribution = wrs::Distribution::SEEDED_RANDOM_UNIFORM,
         .S = 1024 * 2048 / 64,
-        .prefixSumWorkgroupSize = 512,
-        .prefixSumRows = 8,
-        .prefixSumLookbackDepth = 32,
-        .samplingWorkgroupSize = 512,
-        .cooperativeSamplingSize = 4096,
+        .config = {},
         .iterations = 1,
     },
 };
@@ -56,7 +48,7 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
         maxWeightCount = std::max(maxWeightCount, testCase.N);
         maxSamplesCount = std::max(maxSamplesCount, testCase.S);
         maxPartitionSize =
-            std::max(maxPartitionSize, testCase.prefixSumWorkgroupSize * testCase.prefixSumRows);
+            std::max(maxPartitionSize, testCase.config.prefixSumConfig.partitionSize());
     }
 
     Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
@@ -105,17 +97,14 @@ static bool runTestCase(const TestContext& context,
                         std::pmr::memory_resource* resource) {
     std::string testName = fmt::format(
         "{{N={},S={},Dist={},PWG={},PR={},PD={},SWG={},CSS={}}}", testCase.N, testCase.S,
-        distribution_to_pretty_string(testCase.distribution), testCase.prefixSumWorkgroupSize,
-        testCase.prefixSumRows, testCase.prefixSumLookbackDepth, testCase.samplingWorkgroupSize,
-        testCase.cooperativeSamplingSize);
+        distribution_to_pretty_string(testCase.distribution),
+        testCase.config.prefixSumConfig.workgroupSize, testCase.config.prefixSumConfig.rows,
+        testCase.config.prefixSumConfig.parallelLookbackDepth,
+        testCase.config.samplingConfig.workgroupSize,
+        testCase.config.samplingConfig.cooperativeSamplingSize);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context,
-                     testCase.prefixSumWorkgroupSize,
-                     testCase.prefixSumRows,
-                     testCase.prefixSumLookbackDepth,
-                     testCase.samplingWorkgroupSize,
-                     testCase.cooperativeSamplingSize};
+    Algorithm kernel{context.context, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -133,7 +122,8 @@ static bool runTestCase(const TestContext& context,
 
         // 1. Generate input
         context.profiler->start("Generate test input");
-        auto weights = wrs::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
+        auto weights =
+            wrs::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
         // TODO
         context.profiler->end();
 

@@ -49,7 +49,7 @@ static I nextHeavy(const std::span<T>& weights, I i, P pivot) {
 template <wrs::arithmetic T,
           std::floating_point P,
           std::integral I,
-          wrs::generic_allocator Allocator = std::allocator<void>>
+          wrs::generic_allocator Allocator = std::allocator<wrs::AliasTableEntry<P,I>>>
 wrs::AliasTable<
     P,
     I,

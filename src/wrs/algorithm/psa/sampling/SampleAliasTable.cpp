@@ -57,11 +57,11 @@ wrs::SampleAliasTable::SampleAliasTable(const merian::ContextHandle& context, gl
 
 
 void wrs::SampleAliasTable::run(const vk::CommandBuffer cmd, const Buffers& buffers,
-    std::size_t N, std::size_t S) {
+    std::size_t N, std::size_t S, glsl::uint seed) {
 
     m_pipeline->bind(cmd);
     m_pipeline->push_descriptor_set(cmd, buffers.aliasTable, buffers.samples);
-    m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N, .S = S});
+    m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N, .S = S, .seed = seed});
     const uint32_t workgroupCount = (S + m_workgroupSize - 1) / m_workgroupSize;
     cmd.dispatch(workgroupCount, 1, 1);
 }

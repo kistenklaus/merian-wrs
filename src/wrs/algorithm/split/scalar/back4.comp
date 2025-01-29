@@ -90,12 +90,15 @@ Split computeSplit(uint k, uint N, uint K, float mean, uint heavyCount, uint lig
             b = j - 1;
         }
     }
-    j = b; //lower bound
+    j = b;
     i = min(n - j, lightCount - 1);
 
+    heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
     light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
     float heavy2 = partitionPrefix.heavyLight[j];
     float sigma2 = heavy2 + light;
+
+    sigma = light + heavy;
     Split split;
     split.i = i;
     split.j = j;

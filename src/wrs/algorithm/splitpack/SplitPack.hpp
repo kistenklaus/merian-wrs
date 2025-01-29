@@ -87,7 +87,7 @@ class SplitPack {
                 .add_binding_storage_buffer() // partition prefix
                 .add_binding_storage_buffer() // mean
                 .add_binding_storage_buffer() // alias table
-                /* .add_binding_storage_buffer() // debug */
+                .add_binding_storage_buffer() // debug
                 .build_push_descriptor_layout(context);
 
         const std::string shaderPath = "src/wrs/algorithm/splitpack/shader.comp";
@@ -117,7 +117,8 @@ class SplitPack {
 
         m_pipeline->bind(cmd);
         m_pipeline->push_descriptor_set(cmd, buffers.weights, buffers.partitionIndices,
-                                        buffers.partitionPrefix, buffers.mean, buffers.aliasTable);
+                                        buffers.partitionPrefix, buffers.mean, buffers.aliasTable,
+                                        buffers.splits);
         m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
                                                           .K = K,
                                                           .N = N,

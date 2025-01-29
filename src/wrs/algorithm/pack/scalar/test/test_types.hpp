@@ -13,8 +13,7 @@ enum WeightType {
 vk::DeviceSize sizeOfWeight(const WeightType ty);
 
 struct TestCase {
-    WeightType weightType;
-    uint32_t workgroupSize;
+    ScalarPackConfig config;
     uint32_t weightCount; // N
     Distribution distribution;
     uint32_t splitCount;  // K

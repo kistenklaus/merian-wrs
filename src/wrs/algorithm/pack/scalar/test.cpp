@@ -28,14 +28,6 @@ using namespace wrs::test;
 
 namespace wrs::test::scalar_pack {
 
-vk::DeviceSize sizeOfWeight(const wrs::test::scalar_pack::WeightType ty) {
-    switch (ty) {
-    case WEIGHT_TYPE_FLOAT:
-        return sizeof(float);
-    }
-    throw std::runtime_error("NOT IMPLEMENTED");
-}
-
 using weight_t = float;
 
 static void uploadPartitionIndices(const vk::CommandBuffer cmd,
@@ -111,7 +103,7 @@ static bool runTestCase(const TestContext& context,
     SPDLOG_INFO("Running test case:{}", testName);
 
     SPDLOG_DEBUG("Creating ScalarPack instance");
-    wrs::ScalarPack kernel{context.context, testCase.workgroupSize};
+    wrs::ScalarPack kernel{context.context, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {

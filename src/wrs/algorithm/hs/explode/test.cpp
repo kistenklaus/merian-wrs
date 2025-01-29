@@ -1,6 +1,5 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
-#include "src/wrs/algorithm/pack/simd/SimdPack.hpp"
 #include "src/wrs/eval/histogram.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"

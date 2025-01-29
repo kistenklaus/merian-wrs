@@ -21,27 +21,27 @@ layout(set = 0, binding = 1) writeonly buffer out_samples {
 layout(push_constant) uniform PushConstant {
     uint N; // weight count
     uint S; // sample count
+    uint seed;
 } pc;
 
 // Constants for Philox2x32-10
 const uint PHILOX_M2x32 = 0xD256D193u; // Multiplication constant
 const uint PHILOX_W32 = 0x9E3779B9u; // Weyl constant
-const uint PHILOX_ROUNDS = 10;
+const uint PHILOX_ROUNDS = 7;
 
-// Function to perform a single Philox round
-void philoxRound(inout uint x0, inout uint x1, uint k) {
-    uint hi = (x0 * PHILOX_M2x32) >> 32; // High 32 bits of multiplication
-    uint lo = x0 * PHILOX_M2x32; // Low 32 bits of multiplication
-
-    x0 = hi ^ x1 ^ k;
-    x1 = lo;
+void philox2x32Round(inout uint x0, inout uint x1, uint k) {
+  uint hi;
+  uint lo;
+  umulExtended(x0, PHILOX_M2x32, hi, lo);
+  x0 = x1 ^ hi;
+  x1 = lo + k;
 }
 
 // Philox2x32-10 implementation
-void philox2x32_10(inout uint x0, inout uint x1, uint key) {
+void philox2x32(inout uint x0, inout uint x1, uint key) {
     uint k = key;
     for (int i = 0; i < PHILOX_ROUNDS; i++) {
-        philoxRound(x0, x1, k);
+        philox2x32Round(x0, x1, k);
         k += PHILOX_W32; // Update the key with the Weyl constant
     }
 }
@@ -52,17 +52,17 @@ vec2 philoxRandom(uvec2 counter, uint key) {
     uint x1 = counter.y;
 
     // Apply 10 rounds of Philox
-    philox2x32_10(x0, x1, key);
+    philox2x32(x0, x1, key);
 
     // Return a single random number normalized to [0, 1)
     return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
 }
-
 void main(void) {
     const uint gid = gl_GlobalInvocationID.x;
 
     const uint N = pc.N;
     const uint S = pc.S;
+    const uint seed = pc.seed;
     if (gid >= S) return;
 
     const float total = cmf[N - 1];
@@ -71,7 +71,7 @@ void main(void) {
     float u1;
     if (subgroupElect()) {
         uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, 0); // Use subgroup ID for random sample
-        uint key = 12345u;
+        uint key = seed;
         u1 = philoxRandom(counter, key).x * total;
     }
     u1 = subgroupBroadcastFirst(u1); // Broadcast u1 to all threads in the subgroup
@@ -97,7 +97,7 @@ void main(void) {
 
     // Step 3: Continue Binary Search Independently
     uvec2 counter = uvec2(gl_GlobalInvocationID.x, 0); // Independent counter for each thread
-    uint key = 67890u; // Independent key for each thread
+    uint key = seed ^ 0xA9EC5C80; // Independent key for each thread
     float u2 = cmf[low] + philoxRandom(counter, key).x * (cmf[high] - cmf[low]);
 
     while (low < high) {

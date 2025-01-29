@@ -236,12 +236,6 @@ static void runTestCase(const wrs::test::TestContext& context,
 
         // ========= Compare results against reference ==========
         {
-            /* SPDLOG_DEBUG("Testing splits"); */
-            /* auto err = wrs::test::pmr::assert_is_split<weight_t, wrs::glsl::uint>( */
-            /*     splits, K, heavyPrefixSum, lightPrefixSum, averageWeight, 0.01, resource); */
-            /* if (err) { */
-            /*     SPDLOG_ERROR(fmt::format("Invalid split!\n{}", err.message())); */
-            /* } */
 
             if (testCase.splitCount <= 1024) {
               fmt::println("");
@@ -249,6 +243,15 @@ static void runTestCase(const wrs::test::TestContext& context,
                 fmt::println("({},{},{})", splits[i].i, splits[i].j, splits[i].spill);
               }
               fmt::println("");
+            }
+
+            SPDLOG_DEBUG("Testing splits");
+            auto err = wrs::test::pmr::assert_is_split<weight_t, wrs::glsl::uint>(
+                splits, K, heavyPrefixSum, lightPrefixSum, averageWeight, 0.01, resource);
+            if (err) {
+                SPDLOG_ERROR(fmt::format("Invalid split!\n{}", err.message()));
+            } else {
+              SPDLOG_INFO("Splits: OK");
             }
         }
         context.profiler->collect(true,true);

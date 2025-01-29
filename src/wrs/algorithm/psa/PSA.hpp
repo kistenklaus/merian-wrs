@@ -17,10 +17,6 @@ struct PSABuffers {
     using WeightsLayout = PSACBuffers::WeightsLayout;
     using WeightsView = layout::BufferView<WeightsLayout>;
 
-    merian::BufferHandle meanDecoupledStates;
-    using MeanDecoupledStatesLayout = PSACBuffers::MeanDecoupledStatesLayout;
-    using MeanDecoupledStateView = layout::BufferView<MeanDecoupledStatesLayout>;
-
     merian::BufferHandle mean;
     using MeanLayout = PSACBuffers::MeanLayout;
     using MeanView = layout::BufferView<MeanLayout>;
@@ -52,7 +48,6 @@ struct PSABuffers {
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
                          merian::MemoryMappingType memoryMapping,
                          std::size_t N,
-                         std::size_t meanPartitionSize,
                          std::size_t prefixPartitionSize,
                          std::size_t splitCount,
                          std::size_t S);
@@ -64,7 +59,7 @@ struct PSAConfig {
 
     static constexpr PSAConfig defaultV() {
         return PSAConfig{
-            .psac = PSACConfig::defaultV(),
+            .psac = {},
             .samplingWorkgroupSize = 512,
         };
     }
@@ -86,7 +81,6 @@ class PSA {
         PSAC::Buffers psacBuffers;
         psacBuffers.weights = buffers.weights;
         psacBuffers.mean = buffers.mean;
-        psacBuffers.meanDecoupledStates = buffers.meanDecoupledStates;
         psacBuffers.partitionPrefix = buffers.partitionPrefix;
         psacBuffers.partitionIndices = buffers.partitionIndices;
         psacBuffers.partitionDecoupledState = buffers.partitionDecoupledState;
@@ -131,11 +125,10 @@ class PSA {
                      const merian::MemoryMappingType& memoryMapping,
                      std::size_t N,
                      std::size_t S) const {
-        std::size_t meanPartitionSize = m_psac.getMeanPartitionSize();
         std::size_t prefixPartitionSize = m_psac.getPrefixPartitionSize();
         std::size_t splitSize = m_psac.getSplitSize();
         std::size_t splitCount = (N + splitSize - 1) / splitSize;
-        return Buffers::allocate(alloc, memoryMapping, N, meanPartitionSize, prefixPartitionSize,
+        return Buffers::allocate(alloc, memoryMapping, N, prefixPartitionSize,
                                  splitCount, S);
     }
 

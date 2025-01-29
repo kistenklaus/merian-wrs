@@ -18,17 +18,16 @@
 namespace wrs {
 
 struct ScalarPackBuffers {
-  static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
-  using weight_type = glsl::float_t;
+    static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
+    using weight_type = glsl::float_t;
 
     merian::BufferHandle partitionIndices; // bind = 0
-    using PartitionIndicesLayout = layout::StructLayout<storageQualifier, 
-          layout::Attribute<glsl::uint, "heavyCount">,
-          layout::Attribute<glsl::uint*, "heavyLightIndices">
-          >;
+    using PartitionIndicesLayout =
+        layout::StructLayout<storageQualifier,
+                             layout::Attribute<glsl::uint, "heavyCount">,
+                             layout::Attribute<glsl::uint*, "heavyLightIndices">>;
     using PartitionIndicesView = layout::BufferView<PartitionIndicesLayout>;
 
-    
     merian::BufferHandle weights; // binding = 1
     using WeightsLayout = layout::ArrayLayout<weight_type, storageQualifier>;
     using WeightsView = layout::BufferView<WeightsLayout>;
@@ -36,40 +35,48 @@ struct ScalarPackBuffers {
     merian::BufferHandle mean; // binding = 2
     using MeanLayout = layout::PrimitiveLayout<weight_type, storageQualifier>;
     using MeanView = layout::BufferView<MeanLayout>;
-    
+
     merian::BufferHandle splits; // binding = 3
     using SplitStructLayout = layout::StructLayout<storageQualifier,
-          layout::Attribute<glsl::uint, "i">,
-          layout::Attribute<glsl::uint, "j">,
-          layout::Attribute<weight_type, "spill">>;
+                                                   layout::Attribute<glsl::uint, "i">,
+                                                   layout::Attribute<glsl::uint, "j">,
+                                                   layout::Attribute<weight_type, "spill">>;
     using SplitsLayout = layout::ArrayLayout<SplitStructLayout, storageQualifier>;
     using SplitsView = layout::BufferView<SplitsLayout>;
 
     merian::BufferHandle aliasTable; // binding = 4
     using AliasTableEntryLayout = layout::StructLayout<storageQualifier,
-          layout::Attribute<weight_type, "p">,
-          layout::Attribute<glsl::uint, "a">>;
+                                                       layout::Attribute<weight_type, "p">,
+                                                       layout::Attribute<glsl::uint, "a">>;
     using AliasTableLayout = layout::ArrayLayout<AliasTableEntryLayout, storageQualifier>;
     using AliasTableView = layout::BufferView<AliasTableLayout>;
 
     static ScalarPackBuffers allocate(merian::ResourceAllocatorHandle alloc,
-                                         std::size_t weightCount,
-                                         std::size_t splitCount,
-                                         merian::MemoryMappingType memoryMapping);
+                                      std::size_t weightCount,
+                                      std::size_t splitCount,
+                                      merian::MemoryMappingType memoryMapping);
+};
+
+class ScalarPackConfig {
+  public:
+    glsl::uint workgroupSize;
+
+    constexpr ScalarPackConfig() : workgroupSize(512) {}
+    explicit constexpr ScalarPackConfig(glsl::uint workgroupSize) : workgroupSize(workgroupSize) {}
 };
 
 class ScalarPack {
 
     struct PushConstant {
-      glsl::uint N;
-      glsl::uint K;
+        glsl::uint N;
+        glsl::uint K;
     };
+
   public:
     using weight_t = float;
 
-    explicit ScalarPack(const merian::ContextHandle& context, glsl::uint workgroupSize = 1) :
-      m_workgroupSize(workgroupSize)
-        {
+    explicit ScalarPack(const merian::ContextHandle& context, ScalarPackConfig config = {})
+        : m_workgroupSize(config.workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -93,7 +100,7 @@ class ScalarPack {
                 .build_pipeline_layout();
 
         merian::SpecializationInfoBuilder specInfoBuilder;
-        specInfoBuilder.add_entry<glsl::uint>(m_workgroupSize);
+        specInfoBuilder.add_entry<glsl::uint>(config.workgroupSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
@@ -115,16 +122,17 @@ class ScalarPack {
         vk::WriteDescriptorSet& table = m_writes[4];
         table.setDstBinding(4);
         table.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-
     }
 
-    void run(const vk::CommandBuffer cmd, const glsl::uint N,
+    void run(const vk::CommandBuffer cmd,
+             const glsl::uint N,
              const glsl::uint K,
              const ScalarPackBuffers& buffers) {
 
         m_pipeline->bind(cmd);
 
-        vk::DescriptorBufferInfo partitionIndicesDesc = buffers.partitionIndices->get_descriptor_info();
+        vk::DescriptorBufferInfo partitionIndicesDesc =
+            buffers.partitionIndices->get_descriptor_info();
         m_writes[0].setBufferInfo(partitionIndicesDesc);
         vk::DescriptorBufferInfo weightsDesc = buffers.weights->get_descriptor_info();
         m_writes[1].setBufferInfo(weightsDesc);
@@ -136,8 +144,7 @@ class ScalarPack {
         m_writes[4].setBufferInfo(aliasTableDesc);
         m_pipeline->push_descriptor_set(cmd, m_writes);
 
-
-        m_pipeline->push_constant<PushConstant>(cmd, PushConstant{.N=N,.K=K});
+        m_pipeline->push_constant<PushConstant>(cmd, PushConstant{.N = N, .K = K});
 
         uint32_t workgroupCount = (K + m_workgroupSize - 1) / m_workgroupSize;
         cmd.dispatch(workgroupCount, 1, 1);

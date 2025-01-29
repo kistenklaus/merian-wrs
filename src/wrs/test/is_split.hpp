@@ -116,7 +116,7 @@ struct IsSplitError {
         }
 
         ss << "AssertionFailed: At " << errors.size() << " out of " << K << "indicies\n";
-        constexpr size_t MAX_LOG = 3;
+        constexpr size_t MAX_LOG = 10;
         for (const auto& error : errors | std::views::take(MAX_LOG)) {
             error.appendMessageToStringStream(ss, N, K);
         }

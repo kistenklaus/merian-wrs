@@ -15,7 +15,11 @@ src_files += files('wrs/algorithm/mean/decoupled/DecoupledMean.cpp')
 src_files += files('wrs/algorithm/pack/scalar/test.cpp')
 src_files += files('wrs/algorithm/pack/scalar/test.lsp.cpp')
 src_files += files('wrs/algorithm/pack/scalar/ScalarPack.cpp')
-src_files += files('wrs/algorithm/pack/simd/test.cpp')
+
+src_files += files('wrs/eval/philox_eval.cpp')
+
+
+src_files += files('wrs/eval/psa_eval.cpp')
 
 src_files += files('wrs/algorithm/hs/hstc/test.cpp')
 

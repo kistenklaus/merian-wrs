@@ -1,11 +1,14 @@
 #include "./its_eval.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
+#include "merian/vk/memory/memory_allocator.hpp"
 #include "src/wrs/algorithm/its/sampling/InverseTransformSampling.hpp"
+#include "src/wrs/algorithm/prefix_sum/decoupled/DecoupledPrefixSum.hpp"
 #include "src/wrs/eval/logscale.hpp"
 #include "src/wrs/eval/rms.hpp"
+#include "src/wrs/export/csv.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/reference/prefix_sum.hpp"
-#include "src/wrs/export/csv.hpp"
+#include "src/wrs/reference/reduce.hpp"
 #include "src/wrs/why.hpp"
 
 void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
@@ -15,54 +18,105 @@ void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
     merian::QueueHandle queue = context->get_queue_GCT();
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
 
-    std::size_t N = 1024 * 2048;
-    std::size_t S = 1e9;
+    constexpr std::size_t N = 1024 * 2048;
+    constexpr std::size_t S = 1e11;
 
-    std::vector<float> weights = wrs::generate_weights(Distribution::SEEDED_RANDOM_EXPONENTIAL, N);
-    std::vector<float> cmf = wrs::reference::prefix_sum<float>(weights);
+    const std::vector<float> weights =
+        wrs::generate_weights(Distribution::SEEDED_RANDOM_EXPONENTIAL, N);
+    const float totalWeight = wrs::reference::kahan_reduction<float>(weights);
 
-    wrs::InverseTransformSampling itsKernel{context, 512};
+    wrs::InverseTransformSampling itsKernel{context};
 
-    using Buffers = wrs::InverseTransformSampling::Buffers;
-    Buffers stage =
-        Buffers::allocate(alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, cmf.size(), S);
-    Buffers local = Buffers::allocate(alloc, merian::MemoryMappingType::NONE, cmf.size(), S);
+    constexpr glsl::uint MAX_SAMPLING_STEP_SIZE = 0x3FFFFFFF;
+    constexpr glsl::uint SAMPLING_STEP_COUNT =
+        (S + static_cast<uint64_t>(MAX_SAMPLING_STEP_SIZE) - 1) /
+        static_cast<uint64_t>(MAX_SAMPLING_STEP_SIZE);
+    constexpr glsl::uint RMSE_CURVE_TICKS = 100;
+    constexpr glsl::uint SUBMIT_LIMIT = 4;
 
-    Buffers::CMFView cmfStage{stage.cmf, cmf.size()};
-    Buffers::CMFView cmfLocal{local.cmf, cmf.size()};
+    using SamplingBuffers = wrs::InverseTransformSampling::Buffers;
+    SamplingBuffers stage = SamplingBuffers::allocate(
+        alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, N, MAX_SAMPLING_STEP_SIZE);
+    SamplingBuffers local =
+        SamplingBuffers::allocate(alloc, merian::MemoryMappingType::NONE, N, MAX_SAMPLING_STEP_SIZE);
 
-    Buffers::SamplesView samplesStage{stage.samples, S};
-    Buffers::SamplesView samplesLocal{local.samples, S};
+    wrs::DecoupledPrefixSum prefixSumKernel{context};
+    using PrefixBuffers = wrs::DecoupledPrefixSum::Buffers;
+    PrefixBuffers prefixLocal = PrefixBuffers::allocate(alloc, merian::MemoryMappingType::NONE, N,
+                                                        prefixSumKernel.getPartitionSize());
 
-    vk::CommandBuffer cmd = cmdPool->create_and_begin();
+    PrefixBuffers prefixStage =
+        PrefixBuffers::allocate(alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, N,
+                                prefixSumKernel.getPartitionSize());
+    {
 
-    cmfStage.upload<float>(cmf);
-    cmfStage.copyTo(cmd, cmfLocal);
-    cmfLocal.expectComputeRead(cmd);
+        prefixLocal.prefixSum = local.cmf;
+        prefixStage.prefixSum = stage.cmf;
 
-    itsKernel.run(cmd, local, N, S);
+        vk::CommandBuffer cmd = cmdPool->create_and_begin();
+        PrefixBuffers::ElementsView stageView{prefixStage.elements, N};
+        PrefixBuffers::ElementsView localView{prefixLocal.elements, N};
+        stageView.upload<float>(weights);
+        stageView.copyTo(cmd, localView);
+        localView.expectComputeRead(cmd);
 
-    samplesLocal.copyTo(cmd, samplesStage);
-    samplesStage.expectHostRead(cmd);
+        prefixSumKernel.run(cmd, prefixLocal, N);
 
-    cmd.end();
-    queue->submit_wait(cmd);
+        PrefixBuffers::PrefixSumView prefixView{prefixLocal.prefixSum, N};
+        prefixView.expectComputeRead(cmd);
 
-    std::vector<wrs::glsl::uint> samples = samplesStage.download<wrs::glsl::uint>();
+        cmd.end();
+        queue->submit_wait(cmd);
+    }
 
-    std::size_t ticks = 100;
-    wrs::eval::log10::IntLogScaleRange<glsl::uint> scale =
-        wrs::eval::log10scale<wrs::glsl::uint>(1, S, ticks);
+    std::size_t s = S;
+    std::mt19937 rng;
+    std::uniform_int_distribution<glsl::uint> dist;
 
-    auto rmseCurve = wrs::eval::rmse_curve<float, glsl::uint>(weights, samples, scale, std::nullopt);
-  
+    wrs::eval::RMSECurveAcceleratedBuilder rmseCurveBuilder{
+        context, prefixLocal.elements, totalWeight, N,
+        wrs::eval::log10scale<uint64_t>(1000, S, RMSE_CURVE_TICKS)};
+    std::vector<glsl::uint> samplesSection;
+
+    for (std::size_t i = 0; i < SAMPLING_STEP_COUNT;) {
+
+        vk::CommandBuffer cmd = cmdPool->create_and_begin();
+
+        std::size_t x = 0;
+        while (i < SAMPLING_STEP_COUNT && x < SUBMIT_LIMIT) {
+
+            std::size_t s2 = s;
+            if (s2 == 0) {
+                continue;
+            }
+            if (s2 > MAX_SAMPLING_STEP_SIZE) {
+                s2 = MAX_SAMPLING_STEP_SIZE;
+            }
+            s -= std::min<std::size_t>(s, MAX_SAMPLING_STEP_SIZE);
+
+            
+            glsl::uint seed = dist(rng);
+            itsKernel.run(cmd, local, N, s2, seed);
+
+            rmseCurveBuilder.consume(cmd, local.samples, s2);
+            ++i;
+            ++x;
+        }
+
+        SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", S - s, S,
+                    100 * ((S - s) / static_cast<float>(S)));
+
+        cmd.end();
+        queue->submit_wait(cmd);
+    }
+
+    const auto rmseCurve = rmseCurveBuilder.get();
 
     const std::string csvPath = "./its_rmse.csv";
-    SPDLOG_INFO(fmt::format("Combining computed RSME curves and writing results to {}", csvPath));
-
+    SPDLOG_INFO("Writing rmse results to \"{}\"",csvPath); 
     wrs::exp::CSVWriter<2> csv{{"sample_size", "Inverse-CMF"}, csvPath};
-    
+
     for (auto rmse : rmseCurve) {
-      csv.pushTupleRow(rmse);
+        csv.pushTupleRow(rmse);
     }
 }

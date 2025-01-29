@@ -1,11 +1,13 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
-#include "src/wrs/algorithm/pack/simd/SimdPack.hpp"
+#include "src/wrs/eval/rms.hpp"
+#include "src/wrs/reference/sample_alias_table.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
+#include "src/wrs/reference/inverse_alias_table.hpp"
 #include "src/wrs/reference/partition.hpp"
 #include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/reduce.hpp"
@@ -44,7 +46,7 @@ static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
         .workgroupSize = 512,
-        .N = 1024 * 2048,
+        .N = 1024,
         .dist = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
         .splitSize = 2,
         .iterations = 1,
@@ -178,47 +180,72 @@ static bool runTestCase(const TestContext& context,
 
             fmt::println("HEAVY-COUNT: {}", heavyPrefix.size());
             if (K <= 1024) {
-                fmt::println("MEAN: {}", averageWeight);
-                fmt::println("WEIGHTS");
-                for (std::size_t i = 0; i < weights.size(); ++i) {
-                  fmt::println("[{}]: {}", i, weights[i]);
-                }
-                fmt::println("PARTITION:");
-                for (std::size_t i = 0; i < std::max(partitionIndices.light().size(), partitionIndices.heavy().size()); ++i) {
-                    fmt::println("[{}]: {}    {}", i, i < partitionIndices.heavy().size() ? partitionIndices.heavy()[i] : -1,
-                                 i < partitionIndices.light().size() ? partitionIndices.light()[i] : -1);
-                }
-                fmt::println("PREFIX:");
-                for (std::size_t i = 0; i < std::max(lightPrefix.size(), heavyPrefix.size()); ++i) {
-                    fmt::println("[{}]: {}    {}", i, i < heavyPrefix.size() ? heavyPrefix[i] : -1,
-                                 i < lightPrefix.size() ? lightPrefix[i] : -1);
-                }
+                /* fmt::println("MEAN: {}", averageWeight); */
+                /* fmt::println("WEIGHTS"); */
+                /* for (std::size_t i = 0; i < weights.size(); ++i) { */
+                /*   fmt::println("[{}]: {}", i, weights[i]); */
+                /* } */
+                /* fmt::println("PARTITION:"); */
+                /* for (std::size_t i = 0; i < std::max(partitionIndices.light().size(),
+                 * partitionIndices.heavy().size()); ++i) { */
+                /*     fmt::println("[{}]: {}    {}", i, i < partitionIndices.heavy().size() ?
+                 * partitionIndices.heavy()[i] : -1, */
+                /*                  i < partitionIndices.light().size() ?
+                 * partitionIndices.light()[i] : -1); */
+                /* } */
+                /* fmt::println("PREFIX:"); */
+                /* for (std::size_t i = 0; i < std::max(lightPrefix.size(), heavyPrefix.size());
+                 * ++i) { */
+                /*     fmt::println("[{}]: {}    {}", i, i < heavyPrefix.size() ? heavyPrefix[i] :
+                 * -1, */
+                /*                  i < lightPrefix.size() ? lightPrefix[i] : -1); */
+                /* } */
                 fmt::println("SPLITS");
                 for (std::size_t i = 0; i < results.splits.size(); ++i) {
                     const auto& split = results.splits[i];
                     fmt::println("[{}]: ({},{},{})", i, split.i, split.j, split.spill);
                 }
 
+                std::pmr::vector<float> sampledWeights =
+                    wrs::reference::alias_table_to_normalized_weights<float, glsl::uint,
+                                                                      wrs::pmr_alloc<float>>(
+                        results.aliasTable, resource);
+                std::pmr::vector<float> normalizedWeights = wrs::reference::normalize_weights<float,
+                  wrs::pmr_alloc<float>>(weights, resource);
+
+
                 fmt::println("ALIAS-TABLE:");
                 for (std::size_t i = 0; i < results.aliasTable.size(); ++i) {
                     const auto& entry = results.aliasTable[i];
-                    fmt::println("[{}]: ({},{})", i, entry.p, entry.a);
+                    fmt::println("[{:04}]: ({:12},{:12})       {:12}     ->     {:12}       [{}]", i, entry.p, entry.a,
+
+                        normalizedWeights[i], sampledWeights[i],
+                        normalizedWeights[i] - sampledWeights[i]);
                 }
+
+                std::vector<glsl::uint> samples = wrs::reference::sample_alias_table<float, glsl::uint>(results.aliasTable, 1e9);
+                float rmse = wrs::eval::rmse<float, glsl::uint>(weights, samples);
+                fmt::println("RMSE = {}", rmse);
+
             }
 
-            /* auto err2 = wrs::test::pmr::assert_is_split<float,
-             * glsl::uint>(std::span(results.splits.data() + 1, */
-            /*       results.splits.size() - 1), K, heavyPrefix, lightPrefix, averageWeight,  */
-            /*     0.01, */
-            /*     resource); */
-            /* if (err2) { */
-            /*   SPDLOG_ERROR(err2.message()); */
+            /* auto err2 = wrs::test::pmr::assert_is_split<float, */
+            /* glsl::uint>(std::span(results.splits.data() + 1,  */
+            /*       results.splits.size() - 1), K, heavyPrefix, lightPrefix, averageWeight,   */
+            /*     0.01,  */
+            /*     resource);  */
+            /* if (err2) {  */
+            /*   SPDLOG_ERROR("INVALID-SPLIT\n{}", err2.message());  */
+            /* } else { */
+            /*   SPDLOG_INFO("Splits: OK"); */
             /* } */
 
             auto err = wrs::test::pmr::assert_is_alias_table<float, float, glsl::uint>(
                 weights, results.aliasTable, totalWeight, 0.01, resource);
             if (err) {
                 SPDLOG_ERROR(err.message());
+            } else {
+                SPDLOG_INFO("Alias-Table: OK");
             }
         }
         context.profiler->collect(true, true);

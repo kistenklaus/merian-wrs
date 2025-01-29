@@ -6,8 +6,7 @@ namespace wrs::test::scalar_pack {
 constexpr TestCase TEST_CASES[] = {
     //
     {
-        .weightType = WEIGHT_TYPE_FLOAT,
-        .workgroupSize = 512,
+        .config = {},
         .weightCount = static_cast<glsl::uint>(1024),
         .distribution = Distribution::PSEUDO_RANDOM_UNIFORM,
         .splitCount = static_cast<glsl::uint>(1024) / 2,

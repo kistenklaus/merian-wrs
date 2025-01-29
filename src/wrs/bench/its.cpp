@@ -3,22 +3,14 @@
 #include "merian/vk/memory/resource_allocator.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/its/ITS.hpp"
-#include "src/wrs/algorithm/its/sampling/InverseTransformSampling.hpp"
 #include "src/wrs/eval/logscale.hpp"
 #include "src/wrs/export/csv.hpp"
 #include "src/wrs/gen/weight_generator.h"
-#include "src/wrs/layout/BufferView.hpp"
-#include <algorithm>
 #include <cmath>
 #include <fmt/base.h>
-#include <ratio>
 #include <string>
 
-constexpr wrs::glsl::uint PREFIX_SUM_WORKGROUP_SIZE = 512;
-constexpr wrs::glsl::uint PREFIX_SUM_ROWS = 8;
-constexpr wrs::glsl::uint PREFIX_SUM_PARALLEL_LOOKBACK_DEPTH = 32;
-constexpr wrs::glsl::uint SAMPLING_WORKGROUP_SIZE = 512;
-constexpr wrs::glsl::uint COOPERATIVE_SAMPLING_SIZE = 4096;
+constexpr wrs::ITSConfig config = {};
 
 constexpr wrs::glsl::uint WEIGHT_COUNT = 1024 * 2048;
 constexpr wrs::glsl::uint MIN_SAMPLES_COUNT = 1e3;
@@ -38,20 +30,14 @@ void wrs::bench::its::write_bench_results(const merian::ContextHandle& context) 
     query_pool->reset(); // LOL THIS WAS HARD TO FIND shared_ptr also defines a reset function =^).
     profiler->set_query_pool(query_pool);
 
-    wrs::ITS its{context,
-                 PREFIX_SUM_WORKGROUP_SIZE,
-                 PREFIX_SUM_ROWS,
-                 PREFIX_SUM_PARALLEL_LOOKBACK_DEPTH,
-                 SAMPLING_WORKGROUP_SIZE,
-                 COOPERATIVE_SAMPLING_SIZE};
+    wrs::ITS its{context, config};
 
     using Buffers = wrs::ITS::Buffers;
-    Buffers local =
-        Buffers::allocate(alloc, merian::MemoryMappingType::NONE, WEIGHT_COUNT, MAX_SAMPLES_COUNT,
-                          PREFIX_SUM_WORKGROUP_SIZE * PREFIX_SUM_ROWS);
+    Buffers local = Buffers::allocate(alloc, merian::MemoryMappingType::NONE, WEIGHT_COUNT,
+                                      MAX_SAMPLES_COUNT, config.prefixSumConfig.partitionSize());
     Buffers stage =
         Buffers::allocate(alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, WEIGHT_COUNT,
-                          MAX_SAMPLES_COUNT, PREFIX_SUM_WORKGROUP_SIZE * PREFIX_SUM_ROWS);
+                          MAX_SAMPLES_COUNT, config.prefixSumConfig.partitionSize());
 
     std::vector<float> weights =
         wrs::generate_weights(Distribution::SEEDED_RANDOM_UNIFORM, WEIGHT_COUNT);

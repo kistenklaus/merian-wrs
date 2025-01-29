@@ -43,7 +43,7 @@ psa_rmse_curve(EvalCase eval,
     return rmseCurve;
 }
 
-void wrs::eval::write_psa_rmse_curves() {
+void wrs::eval::write_psa_ref_rmse_curves() {
 
     SPDLOG_INFO("Writing PSA RMSE curves to csv file (this may take a while)");
 
@@ -56,97 +56,97 @@ void wrs::eval::write_psa_rmse_curves() {
             .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
             .weightType = WEIGHT_TYPE_FLOAT,
         },
-        {
-            .name = "double-1024x2048-uniform-65536",
-            .weightCount = 1024 * 2048,
-            .splitCount = (1024 * 2048) / 32,
-            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .weightType = WEIGHT_TYPE_DOUBLE,
-        },
-        {
-            .name = "float-1024x2048-uniform-16384",
-            .weightCount = 1024 * 2048,
-            .splitCount = (1024 * 2048) / 128,
-            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .weightType = WEIGHT_TYPE_FLOAT,
-        },
-        {
-            .name = "double-1024x2048-uniform-16384",
-            .weightCount = 1024 * 2048,
-            .splitCount = (1024 * 2048) / 128,
-            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .weightType = WEIGHT_TYPE_DOUBLE,
-        },
-        {
-            .name = "float-1024x2048-normal-65536",
-            .weightCount = 1024 * 2048,
-            .splitCount = (1024 * 2048) / 32,
-            .distribution = Distribution::SEEDED_RANDOM_NORMAL,
-            .weightType = WEIGHT_TYPE_FLOAT,
-        },
-        {
-            .name = "double-1024x2048-normal-65536",
-            .weightCount = 1024 * 2048,
-            .splitCount = (1024 * 2048) / 32,
-            .distribution = Distribution::SEEDED_RANDOM_NORMAL,
-            .weightType = WEIGHT_TYPE_DOUBLE,
-        },
-        {
-            .name = "float-1024x2048-exponential-65536",
-            .weightCount = 1024 * 2048,
-            .splitCount = (1024 * 2048) / 32,
-            .distribution = Distribution::SEEDED_RANDOM_EXPONENTIAL,
-            .weightType = WEIGHT_TYPE_FLOAT,
-        },
-        {
-            .name = "double-1024x2048-exponential-65536",
-            .weightCount = 1024 * 2048,
-            .splitCount = (1024 * 2048) / 32,
-            .distribution = Distribution::SEEDED_RANDOM_EXPONENTIAL,
-            .weightType = WEIGHT_TYPE_DOUBLE,
-        },
-        {
-            .name = "float-1024x128-uniform-4096",
-            .weightCount = 1024 * 128,
-            .splitCount = 1024 / 32,
-            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .weightType = WEIGHT_TYPE_FLOAT,
-        },
-        {
-            .name = "double-1024x128-uniform-4096",
-            .weightCount = 1024 * 128,
-            .splitCount = 1024 / 32,
-            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .weightType = WEIGHT_TYPE_DOUBLE,
-        },
-        {
-            .name = "float-1024-uniform-32",
-            .weightCount = 1024,
-            .splitCount = 1024 / 32,
-            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .weightType = WEIGHT_TYPE_FLOAT,
-        },
-        {
-            .name = "double-1024-uniform-32",
-            .weightCount = 1024,
-            .splitCount = 1024 / 32,
-            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .weightType = WEIGHT_TYPE_DOUBLE,
-        },
-        {
-            .name = "float-2048-uniform-64",
-            .weightCount = 1024,
-            .splitCount = 1024 / 32,
-            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .weightType = WEIGHT_TYPE_FLOAT,
-        },
-        {
-            .name = "double-2048-uniform-64",
-            .weightCount = 1024,
-            .splitCount = 1024 / 32,
-            .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-            .weightType = WEIGHT_TYPE_DOUBLE,
-        },
+        /* { */
+        /*     .name = "double-1024x2048-uniform-65536", */
+        /*     .weightCount = 1024 * 2048, */
+        /*     .splitCount = (1024 * 2048) / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+        /*     .weightType = WEIGHT_TYPE_DOUBLE, */
+        /* }, */
+        /* { */
+        /*     .name = "float-1024x2048-uniform-16384", */
+        /*     .weightCount = 1024 * 2048, */
+        /*     .splitCount = (1024 * 2048) / 128, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+        /*     .weightType = WEIGHT_TYPE_FLOAT, */
+        /* }, */
+        /* { */
+        /*     .name = "double-1024x2048-uniform-16384", */
+        /*     .weightCount = 1024 * 2048, */
+        /*     .splitCount = (1024 * 2048) / 128, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+        /*     .weightType = WEIGHT_TYPE_DOUBLE, */
+        /* }, */
+        /* { */
+        /*     .name = "float-1024x2048-normal-65536", */
+        /*     .weightCount = 1024 * 2048, */
+        /*     .splitCount = (1024 * 2048) / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_NORMAL, */
+        /*     .weightType = WEIGHT_TYPE_FLOAT, */
+        /* }, */
+        /* { */
+        /*     .name = "double-1024x2048-normal-65536", */
+        /*     .weightCount = 1024 * 2048, */
+        /*     .splitCount = (1024 * 2048) / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_NORMAL, */
+        /*     .weightType = WEIGHT_TYPE_DOUBLE, */
+        /* }, */
+        /* { */
+        /*     .name = "float-1024x2048-exponential-65536", */
+        /*     .weightCount = 1024 * 2048, */
+        /*     .splitCount = (1024 * 2048) / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_EXPONENTIAL, */
+        /*     .weightType = WEIGHT_TYPE_FLOAT, */
+        /* }, */
+        /* { */
+        /*     .name = "double-1024x2048-exponential-65536", */
+        /*     .weightCount = 1024 * 2048, */
+        /*     .splitCount = (1024 * 2048) / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_EXPONENTIAL, */
+        /*     .weightType = WEIGHT_TYPE_DOUBLE, */
+        /* }, */
+        /* { */
+        /*     .name = "float-1024x128-uniform-4096", */
+        /*     .weightCount = 1024 * 128, */
+        /*     .splitCount = 1024 / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+        /*     .weightType = WEIGHT_TYPE_FLOAT, */
+        /* }, */
+        /* { */
+        /*     .name = "double-1024x128-uniform-4096", */
+        /*     .weightCount = 1024 * 128, */
+        /*     .splitCount = 1024 / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+        /*     .weightType = WEIGHT_TYPE_DOUBLE, */
+        /* }, */
+        /* { */
+        /*     .name = "float-1024-uniform-32", */
+        /*     .weightCount = 1024, */
+        /*     .splitCount = 1024 / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+        /*     .weightType = WEIGHT_TYPE_FLOAT, */
+        /* }, */
+        /* { */
+        /*     .name = "double-1024-uniform-32", */
+        /*     .weightCount = 1024, */
+        /*     .splitCount = 1024 / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+        /*     .weightType = WEIGHT_TYPE_DOUBLE, */
+        /* }, */
+        /* { */
+        /*     .name = "float-2048-uniform-64", */
+        /*     .weightCount = 1024, */
+        /*     .splitCount = 1024 / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+        /*     .weightType = WEIGHT_TYPE_FLOAT, */
+        /* }, */
+        /* { */
+        /*     .name = "double-2048-uniform-64", */
+        /*     .weightCount = 1024, */
+        /*     .splitCount = 1024 / 32, */
+        /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+        /*     .weightType = WEIGHT_TYPE_DOUBLE, */
+        /* }, */
     };
     constexpr std::size_t CASE_COUNT = sizeof(EVAL_CASES) / sizeof(EvalCase);
     constexpr std::size_t S = 1e9;

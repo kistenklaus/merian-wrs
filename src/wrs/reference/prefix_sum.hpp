@@ -18,9 +18,6 @@ template <arithmetic T,
 std::vector<T, Allocator> prefix_sum(const Range& elements, const Allocator& alloc = {}) {
     std::vector<T, Allocator> prefix(elements.begin(), elements.end(), alloc);
     const uint64_t N = elements.size();
-    // Inital not work efficient algorithm:
-    // - Reasonable numerical stability errors should not accumulate that much
-    // - Problem: Result is not guaranteed to be monotone when working with floating point numbers
 
     // Initialize Kahan summation variables
     T sum = 0.0f;

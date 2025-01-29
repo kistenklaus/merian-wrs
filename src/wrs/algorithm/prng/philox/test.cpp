@@ -1,6 +1,7 @@
 #include "./test.hpp"
 #include "./Philox.hpp"
 #include "merian/vk/utils/profiler.hpp"
+#include "src/renderdoc.hpp"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
@@ -11,7 +12,6 @@
 #include <spdlog/spdlog.h>
 #include <tuple>
 #include <vector>
-#include "src/renderdoc.hpp"
 
 using namespace wrs;
 using namespace wrs::test;
@@ -20,62 +20,59 @@ using Algorithm = Philox;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
-    glsl::uint workgroupSize;
+    PhiloxConfig config;
     glsl::uint sampleCount;
     uint32_t iterations;
 };
 
 static constexpr TestCase TEST_CASES[] = {
     //
-      TestCase{
-        .workgroupSize = 512,
-        .sampleCount = 1024 * 2048,
+    TestCase{
+        .config = {},
+        .sampleCount = static_cast<glsl::uint>(1e6),
         .iterations = 1,
-      },
+    },
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
 
+    glsl::uint maxSampleCount = 0;
+    for (auto testCase : TEST_CASES) {
+        maxSampleCount = std::max(maxSampleCount, testCase.sampleCount);
+    }
 
-  glsl::uint maxSampleCount = 0;
-  for (auto testCase : TEST_CASES) {
-    maxSampleCount = std::max(maxSampleCount, testCase.sampleCount);
-  }
+    Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
+                                      maxSampleCount);
+    Buffers local =
+        Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE, maxSampleCount);
 
-  Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
-      maxSampleCount);
-  Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE,
-      maxSampleCount);
-
-  return std::make_tuple(local, stage);
+    return std::make_tuple(local, stage);
 }
 
 static void uploadTestCase(const vk::CommandBuffer cmd,
-                                   const Buffers& buffers,
-                                   const Buffers& stage,
-                                   std::pmr::memory_resource* resource) {
+                           const Buffers& buffers,
+                           const Buffers& stage,
+                           std::pmr::memory_resource* resource) {}
 
-}
-
-static void downloadToStage(vk::CommandBuffer cmd,
-                          Buffers& buffers,
-                          Buffers& stage,
-                          std::size_t sampleCount) {
-  Buffers::SamplesView stageView{stage.samples, sampleCount};
-  Buffers::SamplesView localView{buffers.samples, sampleCount};
-  localView.copyTo(cmd, stageView);
-  stageView.expectHostRead(cmd);
+static void
+downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t sampleCount) {
+    Buffers::SamplesView stageView{stage.samples, sampleCount};
+    Buffers::SamplesView localView{buffers.samples, sampleCount};
+    localView.copyTo(cmd, stageView);
+    stageView.expectHostRead(cmd);
 }
 
 struct Results {
-  std::pmr::vector<float> samples;
+    std::pmr::vector<glsl::uint> samples;
 };
-static Results downloadFromStage(Buffers& stage, std::pmr::memory_resource* resource, std::size_t sampleCount) {
-  Buffers::SamplesView stageView{stage.samples, sampleCount};
-  std::pmr::vector<float> samples = stageView.download<float, std::pmr::polymorphic_allocator<float>>(resource);
-	return Results {
-    .samples = std::move(samples),
-  };
+static Results
+downloadFromStage(Buffers& stage, std::pmr::memory_resource* resource, std::size_t sampleCount) {
+    Buffers::SamplesView stageView{stage.samples, sampleCount};
+    std::pmr::vector<glsl::uint> samples =
+        stageView.download<glsl::uint, wrs::pmr_alloc<glsl::uint>>(resource);
+    return Results{
+        .samples = std::move(samples),
+    };
 };
 
 static bool runTestCase(const TestContext& context,
@@ -83,11 +80,11 @@ static bool runTestCase(const TestContext& context,
                         Buffers& buffers,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
-    std::string testName =
-        fmt::format("{{workgroupSize={},sampleCount={}}}", testCase.workgroupSize,testCase.sampleCount);
+    std::string testName = fmt::format("{{workgroupSize={},sampleCount={}}}",
+                                       testCase.config.workgroupSize, testCase.sampleCount);
     SPDLOG_INFO("Running test case:{}", testName);
 
-   	Algorithm kernel{context.context, testCase.workgroupSize};
+    Algorithm kernel{context.context, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -124,7 +121,7 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.sampleCount);
+            kernel.run(cmd, buffers, testCase.sampleCount, 1024);
         }
 
         // 5. Download results to stage
@@ -153,7 +150,7 @@ static bool runTestCase(const TestContext& context,
             SPDLOG_DEBUG("Testing results");
 
             for (float s : results.samples) {
-              /* fmt::println("Sample: {}", s); */
+                /* fmt::println("Sample: {}", s); */
             }
             // TODO
         }

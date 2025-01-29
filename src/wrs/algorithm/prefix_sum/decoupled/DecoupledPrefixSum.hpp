@@ -12,9 +12,9 @@
 #include "src/wrs/layout/StaticString.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
+#include <cstddef>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
-#include <cstddef>
 
 #include "merian/vk/memory/resource_allocator.hpp"
 
@@ -33,30 +33,53 @@ struct DecoupledPrefixSumBuffers {
     using PrefixSumView = layout::BufferView<PrefixSumLayout>;
 
     merian::BufferHandle decoupledStates;
-    using _DecoupledStateLayout = layout::StructLayout<storageQualifier, 
-          layout::Attribute<float, layout::StaticString("aggregate")>,
-          layout::Attribute<float, layout::StaticString("prefix")>,
-          layout::Attribute<glsl::uint, layout::StaticString("state")>>;
-    using _DecoupledStatesArrayLayout = layout::ArrayLayout<_DecoupledStateLayout, storageQualifier>;
-    using DecoupledStatesLayout = layout::StructLayout<storageQualifier,
-          layout::Attribute<glsl::uint, layout::StaticString("counter")>,
-          layout::Attribute<_DecoupledStatesArrayLayout, layout::StaticString("batches")>>;
+    using _DecoupledStateLayout =
+        layout::StructLayout<storageQualifier,
+                             layout::Attribute<float, layout::StaticString("aggregate")>,
+                             layout::Attribute<float, layout::StaticString("prefix")>,
+                             layout::Attribute<glsl::uint, layout::StaticString("state")>>;
+    using _DecoupledStatesArrayLayout =
+        layout::ArrayLayout<_DecoupledStateLayout, storageQualifier>;
+    using DecoupledStatesLayout = layout::StructLayout<
+        storageQualifier,
+        layout::Attribute<glsl::uint, layout::StaticString("counter")>,
+        layout::Attribute<_DecoupledStatesArrayLayout, layout::StaticString("batches")>>;
     using DecoupledStatesView = layout::BufferView<DecoupledStatesLayout>;
 
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
-                                    merian::MemoryMappingType memoryMapping, std::size_t N,
-                                    std::size_t partitionSize);
+                         merian::MemoryMappingType memoryMapping,
+                         std::size_t N,
+                         std::size_t partitionSize);
+};
+
+class DecoupledPrefixSumConfig {
+  public:
+    glsl::uint workgroupSize;
+    glsl::uint rows;
+    glsl::uint parallelLookbackDepth;
+
+    constexpr DecoupledPrefixSumConfig() : workgroupSize(512), rows(8), parallelLookbackDepth(32) {}
+    constexpr explicit DecoupledPrefixSumConfig(glsl::uint workgroupSize,
+                                                glsl::uint rows,
+                                                glsl::uint parallelLookbackDepth)
+        : workgroupSize(workgroupSize), rows(rows), parallelLookbackDepth(parallelLookbackDepth) {}
+
+    inline constexpr glsl::uint partitionSize() const {
+      return workgroupSize * rows;
+    }
 };
 
 class DecoupledPrefixSum {
     struct PushConstants {
         glsl::uint N;
     };
+
   public:
     using Buffers = DecoupledPrefixSumBuffers;
 
-    explicit DecoupledPrefixSum(const merian::ContextHandle& context, glsl::uint workgroupSize,
-        glsl::uint rows, glsl::uint parallelLookbackDepth) : m_partitionSize(workgroupSize * rows){
+    explicit DecoupledPrefixSum(const merian::ContextHandle& context,
+          DecoupledPrefixSumConfig config = {})
+        : m_partitionSize(config.workgroupSize * config.rows) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -78,11 +101,13 @@ class DecoupledPrefixSum {
                 .build_pipeline_layout();
 
         merian::SpecializationInfoBuilder specInfoBuilder;
-        specInfoBuilder.add_entry(workgroupSize);
-        specInfoBuilder.add_entry(rows);
-        specInfoBuilder.add_entry(context->physical_device.physical_device_subgroup_properties.subgroupSize);
-        assert(context->physical_device.physical_device_subgroup_properties.subgroupSize >= parallelLookbackDepth);
-        specInfoBuilder.add_entry(parallelLookbackDepth);
+        specInfoBuilder.add_entry(config.workgroupSize);
+        specInfoBuilder.add_entry(config.rows);
+        specInfoBuilder.add_entry(
+            context->physical_device.physical_device_subgroup_properties.subgroupSize);
+        assert(context->physical_device.physical_device_subgroup_properties.subgroupSize >=
+               config.parallelLookbackDepth);
+        specInfoBuilder.add_entry(config.parallelLookbackDepth);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
@@ -91,16 +116,15 @@ class DecoupledPrefixSum {
     void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
 
         m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.prefixSum, buffers.decoupledStates);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
-                                                          .N = N
-        });
+        m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.prefixSum,
+                                        buffers.decoupledStates);
+        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
         const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
         cmd.dispatch(workgroupCount, 1, 1);
     }
 
     inline glsl::uint getPartitionSize() const {
-      return m_partitionSize;
+        return m_partitionSize;
     }
 
   private:
@@ -108,4 +132,4 @@ class DecoupledPrefixSum {
     glsl::uint m_partitionSize;
 };
 
-}
+} // namespace wrs

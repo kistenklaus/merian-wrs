@@ -39,21 +39,31 @@ struct ITSBuffers {
                          std::size_t decoupledPartitionSize);
 };
 
+class ITSConfig {
+  public:
+    DecoupledPrefixSumConfig prefixSumConfig;
+    InverseTransformSamplingConfig samplingConfig;
+
+    constexpr ITSConfig() : prefixSumConfig{}, samplingConfig{} {}
+    explicit constexpr ITSConfig(DecoupledPrefixSumConfig prefixSumConfig,
+                                 InverseTransformSamplingConfig samplingConfig)
+        : prefixSumConfig(prefixSumConfig), samplingConfig(samplingConfig) {}
+};
+
 class ITS {
   public:
     using Buffers = ITSBuffers;
 
     explicit ITS(const merian::ContextHandle& context,
-                 glsl::uint prefixWorkgroupSize = 512,
-                 glsl::uint prefixRows = 8,
-                 glsl::uint prefixLookbackDepth = 32,
-                 glsl::uint samplingWorkgroupSize = 512,
-                 glsl::uint cooperativeSamplingSize = 4096)
-        : m_prefixSumKernel(context, prefixWorkgroupSize, prefixRows, prefixLookbackDepth),
-          m_samplingKernel(context, samplingWorkgroupSize, cooperativeSamplingSize) {}
+                 ITSConfig config = {})
+        : m_prefixSumKernel(context, config.prefixSumConfig),
+          m_samplingKernel(context, config.samplingConfig) {}
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N, glsl::uint S,
-        std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
+    void run(const vk::CommandBuffer cmd,
+             const Buffers& buffers,
+             glsl::uint N,
+             glsl::uint S,
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
         using PrefixBuffers = DecoupledPrefixSum::Buffers;
         PrefixBuffers prefixBuffers;
         prefixBuffers.elements = buffers.weights;
@@ -67,25 +77,25 @@ class ITS {
                                                               prefixPartitionCount};
 
         if (profiler.has_value()) {
-          profiler.value()->start("Prepare");
-          profiler.value()->cmd_start(cmd, "Prepare");
+            profiler.value()->start("Prepare");
+            profiler.value()->cmd_start(cmd, "Prepare");
         }
         decoupledStateView.zero(cmd);
         if (profiler.has_value()) {
-          profiler.value()->end();
-          profiler.value()->cmd_end(cmd);
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
         }
         decoupledStateView.expectComputeRead(cmd);
 
         if (profiler.has_value()) {
-          profiler.value()->start("Prefix Sum");
-          profiler.value()->cmd_start(cmd, "Prefix Sum");
+            profiler.value()->start("Prefix Sum");
+            profiler.value()->cmd_start(cmd, "Prefix Sum");
         }
         m_prefixSumKernel.run(cmd, prefixBuffers, N);
 
         if (profiler.has_value()) {
-          profiler.value()->end();
-          profiler.value()->cmd_end(cmd);
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
         }
 
         cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
@@ -99,13 +109,13 @@ class ITS {
         samplingBuffers.samples = buffers.samples;
 
         if (profiler.has_value()) {
-          profiler.value()->start("Sampling");
-          profiler.value()->cmd_start(cmd, "Sampling");
+            profiler.value()->start("Sampling");
+            profiler.value()->cmd_start(cmd, "Sampling");
         }
         m_samplingKernel.run(cmd, samplingBuffers, N, S);
         if (profiler.has_value()) {
-          profiler.value()->end();
-          profiler.value()->cmd_end(cmd);
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
         }
     }
 

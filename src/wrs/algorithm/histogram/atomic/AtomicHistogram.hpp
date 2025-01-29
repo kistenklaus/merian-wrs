@@ -1,15 +1,17 @@
 #pragma once
 
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
-#include "merian/vk/memory/memory_allocator.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
+#include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
+#include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
+#include <concepts>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
 
@@ -17,58 +19,59 @@
 
 namespace wrs {
 
-struct PhiloxBuffers {
-    using Self = PhiloxBuffers;
+struct AtomicHistogramBuffers {
+    using Self = AtomicHistogramBuffers;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
     merian::BufferHandle samples;
     using SamplesLayout = layout::ArrayLayout<glsl::uint, storageQualifier>;
     using SamplesView = layout::BufferView<SamplesLayout>;
 
+    merian::BufferHandle histogram;
+    using HistogramLayout = layout::ArrayLayout<glsl::uint64, storageQualifier>;
+    using HistogramView = layout::BufferView<HistogramLayout>;
+
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
                          merian::MemoryMappingType memoryMapping,
-                         glsl::uint sampleCount) {
+                         glsl::uint N,
+                         glsl::uint S) {
         Self buffers;
         if (memoryMapping == merian::MemoryMappingType::NONE) {
-            buffers.samples = alloc->createBuffer(SamplesLayout::size(sampleCount),
-                                                  vk::BufferUsageFlagBits::eStorageBuffer |
-                                                      vk::BufferUsageFlagBits::eTransferSrc,
-                                                  merian::MemoryMappingType::NONE);
+            buffers.samples = alloc->createBuffer(
+                SamplesLayout::size(S), vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping);
+            buffers.histogram = alloc->createBuffer(HistogramLayout::size(N),
+                                                    vk::BufferUsageFlagBits::eStorageBuffer |
+                                                        vk::BufferUsageFlagBits::eTransferSrc,
+                                                    memoryMapping);
+
         } else {
-            buffers.samples =
-                alloc->createBuffer(SamplesLayout::size(sampleCount),
-                                    vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            buffers.samples = nullptr;
+            buffers.histogram = alloc->createBuffer(
+                HistogramLayout::size(N), vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
         }
         return buffers;
     }
 };
 
-class PhiloxConfig {
-  public:
-    glsl::uint workgroupSize;
-
-    constexpr PhiloxConfig() : workgroupSize(512) {}
-    explicit constexpr PhiloxConfig(glsl::uint workgroupSize) : workgroupSize(workgroupSize) {}
-};
-
-class Philox {
+class AtomicHistogram {
     struct PushConstants {
-        glsl::uint seed;
-        glsl::uint N;
+        glsl::uint offset;
+        glsl::uint count;
     };
 
   public:
-    using Buffers = PhiloxBuffers;
+    using Buffers = AtomicHistogramBuffers;
 
-    explicit Philox(const merian::ContextHandle& context, PhiloxConfig config = {})
-        : m_workgroupSize(config.workgroupSize) {
+    explicit AtomicHistogram(const merian::ContextHandle& context, glsl::uint workgroupSize = 512)
+        : m_workgroupSize(workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
-                .add_binding_storage_buffer()
+                .add_binding_storage_buffer() // samples
+                .add_binding_storage_buffer() // histogram
                 .build_push_descriptor_layout(context);
 
-        const std::string shaderPath = "src/wrs/algorithm/prng/philox/philox.comp";
+        const std::string shaderPath = "src/wrs/algorithm/histogram/atomic/shader.comp";
 
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
@@ -81,25 +84,20 @@ class Philox {
                 .build_pipeline_layout();
 
         merian::SpecializationInfoBuilder specInfoBuilder;
-        specInfoBuilder.add_entry(config.workgroupSize);
+        specInfoBuilder.add_entry(m_workgroupSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd,
-             const Buffers& buffers,
-             glsl::uint sampleCount,
-             glsl::uint N,
-             glsl::uint seed = 12345u) {
+    void
+    run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint offset, glsl::uint count) {
 
         m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.samples);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
-                                                          .seed = seed,
-                                                          .N = N,
-                                                      });
-        const uint32_t workgroupCount = (sampleCount + m_workgroupSize - 1) / m_workgroupSize;
+        m_pipeline->push_descriptor_set(cmd, buffers.samples, buffers.histogram);
+        m_pipeline->push_constant<PushConstants>(cmd,
+                                                 PushConstants{.offset = offset, .count = count});
+        const uint32_t workgroupCount = (count + m_workgroupSize - 1) / m_workgroupSize;
         cmd.dispatch(workgroupCount, 1, 1);
     }
 

@@ -43,15 +43,16 @@ class SampleAliasTable {
     struct PushConstants {
         glsl::uint N;
         glsl::uint S;
+        glsl::uint seed;
     };
 
   public:
     using Buffers = SampleAliasTableBuffers;
 
-    explicit SampleAliasTable(const merian::ContextHandle& context, glsl::uint workgroupSize);
+    explicit SampleAliasTable(const merian::ContextHandle& context, glsl::uint workgroupSize = 512);
 
     void run(const vk::CommandBuffer cmd, const Buffers& buffers,
-        std::size_t N, std::size_t S);
+        std::size_t N, std::size_t S, glsl::uint seed = 12345u);
 
   private:
     merian::PipelineHandle m_pipeline;

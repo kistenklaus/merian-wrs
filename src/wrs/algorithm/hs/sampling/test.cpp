@@ -2,7 +2,6 @@
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
 #include "src/wrs/algorithm/hs/HSTRepr.hpp"
-#include "src/wrs/algorithm/pack/simd/SimdPack.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"

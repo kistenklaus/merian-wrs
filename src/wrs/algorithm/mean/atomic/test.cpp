@@ -1,7 +1,6 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
-#include "src/wrs/algorithm/pack/simd/SimdPack.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
@@ -30,9 +29,7 @@ using Algorithm = AtomicMean;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
-    glsl::uint workgroupSize;
-    glsl::uint rows;
-    glsl::uint N;
+    AtomicMeanRunInfo runInfo;
     Distribution dist;
     uint32_t iterations;
 };
@@ -40,26 +37,15 @@ struct TestCase {
 static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
-        .workgroupSize = 512,
-        .rows = 8,
-        .N = 1024 * 2048,
+        .runInfo =
+            {
+                .config = {},
+                .N = static_cast<glsl::uint>(1e7),
+            },
         .dist = wrs::Distribution::SEEDED_RANDOM_UNIFORM,
         .iterations = 1,
     },
 };
-
-static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
-    glsl::uint maxN = 0;
-    for (const auto& testCase : TEST_CASES) {
-        maxN = std::max(maxN, testCase.N);
-    }
-
-    Buffers stage =
-        Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, maxN);
-    Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE, maxN);
-
-    return std::make_tuple(local, stage);
-}
 
 static void uploadTestCase(const vk::CommandBuffer cmd,
                            const Buffers& buffers,
@@ -97,18 +83,19 @@ static bool runTestCase(const TestContext& context,
                         Buffers& buffers,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
-    std::string testName =
-        fmt::format("{{workgroupSize={},N={}}}", testCase.workgroupSize, testCase.N);
+
+    std::string testName = fmt::format("{{workgroupSize={},N={}}}",
+                                       testCase.runInfo.config.workgroupSize, testCase.runInfo.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.workgroupSize, testCase.rows};
+    Algorithm kernel{context.context, testCase.runInfo.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
         MERIAN_PROFILE_SCOPE(context.profiler, testName);
         context.queue->wait_idle();
         if (testCase.iterations > 1) {
-            if (testCase.N > 1e6) {
+            if (testCase.runInfo.N > 1e6) {
                 SPDLOG_INFO(
                     fmt::format("Testing iterations {} out of {}", it + 1, testCase.iterations));
             } else {
@@ -119,7 +106,8 @@ static bool runTestCase(const TestContext& context,
 
         // 1. Generate input
         context.profiler->start("Generate test input");
-        const auto elements = wrs::pmr::generate_weights<float>(testCase.dist, testCase.N, resource);
+        const auto elements =
+            wrs::pmr::generate_weights<float>(testCase.dist, testCase.runInfo.N, resource);
         context.profiler->end();
 
         // 2. Begin recoding
@@ -139,7 +127,7 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.N);
+            kernel.run(cmd, buffers, testCase.runInfo.N);
         }
 
         // 5. Download results to stage
@@ -182,7 +170,15 @@ void wrs::test::atomic_mean::test(const merian::ContextHandle& context) {
     const TestContext testContext = setupTestContext(context);
 
     SPDLOG_DEBUG("Allocating buffers");
-    auto [buffers, stage] = allocateBuffers(testContext);
+    auto buffers =
+        Buffers::allocate(testContext.alloc, merian::MemoryMappingType::NONE,
+                          std::views::transform(TEST_CASES, [](const TestCase& testCase) {
+                              return testCase.runInfo;
+                          }));
+    auto stage = Buffers::allocate(testContext.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
+                                   std::views::transform(TEST_CASES, [](const TestCase& testCase) {
+                                       return testCase.runInfo;
+                                   }));
 
     wrs::memory::StackResource stackResource{4096 * 2048};
     wrs::memory::FallbackResource fallbackResource{&stackResource};

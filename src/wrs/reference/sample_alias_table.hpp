@@ -44,7 +44,7 @@ template <std::floating_point P,
           std::integral I,
           wrs::typed_allocator<I> Allocator = std::allocator<I>>
 std::vector<I, Allocator>
-sample_alias_table(wrs::ImmutableAliasTableReference<P, I> aliasTable, std::size_t S, const Allocator& alloc) {
+sample_alias_table(wrs::ImmutableAliasTableReference<P, I> aliasTable, std::size_t S, const Allocator& alloc = {}) {
     std::vector<I, Allocator> samples{S, alloc};
     sample_alias_table_inplace<P, I>(aliasTable, samples);
     return samples;

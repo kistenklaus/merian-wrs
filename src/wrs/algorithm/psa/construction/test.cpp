@@ -30,18 +30,11 @@ struct TestCase {
 
 constexpr TestCase TEST_CASES[] = {
     TestCase{
-        .weightCount = static_cast<std::size_t>(1024 * 2048),
-        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-        .config = PSACConfig::defaultV(),
+        .weightCount = static_cast<std::size_t>(1e7),
+        .distribution = Distribution::PSEUDO_RANDOM_UNIFORM,
+        .config = {},
         .iterations = 1,
     },
-
-    /* TestCase{ */
-    /*     .weightCount = static_cast<std::size_t>(256), */
-    /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
-    /*     .config = PSACConfig::defaultV(), */
-    /*     .iterations = 1, */
-    /* }, */
 };
 
 static void uploadWeights(vk::CommandBuffer cmd,
@@ -58,21 +51,14 @@ static void uploadWeights(vk::CommandBuffer cmd,
 static void zeroDecoupledStates(const vk::CommandBuffer cmd,
                                 const Buffers& buffers,
                                 const std::size_t weightCount,
-                                std::size_t meanPartitionSize,
                                 std::size_t prefixPartitionSize) {
-    const std::size_t meanWorkgroupCount =
-        (weightCount + meanPartitionSize - 1) / meanPartitionSize;
     const std::size_t prefixWorkgroupCount =
         (weightCount + prefixPartitionSize - 1) / prefixPartitionSize;
-    Buffers::MeanDecoupledStateView meanStateView{buffers.meanDecoupledStates, meanWorkgroupCount};
-    meanStateView.zero(cmd);
-    meanStateView.expectComputeRead(cmd);
     Buffers::PartitionDecoupledStateView partitionStateView{buffers.partitionDecoupledState,
                                                             prefixWorkgroupCount};
     partitionStateView.zero(cmd);
     partitionStateView.expectComputeRead(cmd);
 }
-
 
 static void downloadAliasTableToStage(vk::CommandBuffer cmd,
                                       const Buffers& buffers,
@@ -85,10 +71,10 @@ static void downloadAliasTableToStage(vk::CommandBuffer cmd,
     stageView.expectHostRead(cmd);
 }
 
-static void downloadSplitsToStage(vk::CommandBuffer cmd, 
-    const Buffers& buffers, 
-    const Buffers& stage,
-    const std::size_t splitCount) {
+static void downloadSplitsToStage(vk::CommandBuffer cmd,
+                                  const Buffers& buffers,
+                                  const Buffers& stage,
+                                  const std::size_t splitCount) {
     Buffers::SplitsView stageView{stage.splits, splitCount};
     Buffers::SplitsView localView{buffers.splits, splitCount};
     localView.expectComputeWrite();
@@ -156,9 +142,8 @@ static bool runTestCase(const wrs::test::TestContext& context,
             SPDLOG_DEBUG("Uploading weights...");
             uploadWeights(cmd, buffers, stage, weights);
 
-            const std::size_t meanPartitionSize = psac.getMeanPartitionSize();
             const std::size_t prefixPartitionSize = psac.getPrefixPartitionSize();
-            zeroDecoupledStates(cmd, buffers, N, meanPartitionSize, prefixPartitionSize);
+            zeroDecoupledStates(cmd, buffers, N, prefixPartitionSize);
         }
 
         // 4. Run test case
@@ -208,13 +193,18 @@ static bool runTestCase(const wrs::test::TestContext& context,
                 if (testCase.weightCount < 1024) {
                     fmt::println("SPLITS");
                     for (std::size_t i = 0; i < splits.size(); ++i) {
-                      fmt::println("[{}]: ({},{},{})", i, splits[i].i, splits[i].j, splits[i].spill);
+                        fmt::println("[{}]: ({},{},{})", i, splits[i].i, splits[i].j,
+                                     splits[i].spill);
                     }
                     /*for (std::size_t i = 0; i < aliasTable.size(); ++i) {*/
                     /*    fmt::println("[{}]: ({},{})", i, aliasTable[i].p, aliasTable[i].a);*/
                     /*}*/
                 }
             }
+            /* std::vector<glsl::uint> samples = */
+            /*     wrs::reference::sample_alias_table<float, glsl::uint>(aliasTable, 1e9); */
+            /* float rmse = wrs::eval::rmse<float, glsl::uint>(weights, samples); */
+            /* fmt::println("S = {}, RMSE = {}", 1e9, rmse); */
         }
 
         context.profiler->collect(true, true);
@@ -238,10 +228,9 @@ void test(const merian::ContextHandle& context) {
         std::size_t splitCount = (testCase.weightCount + splitSize - 1) / splitSize;
         maxSplitCount = std::max(maxSplitCount, splitCount);
         maxPrefixPartitionSize =
-            std::max(maxPrefixPartitionSize,
-                     testCase.config.prefixSumWorkgroupSize * testCase.config.prefixSumRows);
-        maxMeanPartitionSize = std::max(maxMeanPartitionSize, testCase.config.meanWorkgroupSize *
-                                                                  testCase.config.meanRows);
+            std::max(maxPrefixPartitionSize, testCase.config.prefixPartitionConfig.partitionSize());
+        maxMeanPartitionSize =
+            std::max(maxMeanPartitionSize, testCase.config.meanConfig.partitionSize());
     }
 
     auto buffers =

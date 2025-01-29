@@ -1,7 +1,6 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
-#include "src/wrs/algorithm/pack/simd/SimdPack.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
@@ -62,19 +61,14 @@ static constexpr TestCase TEST_CASES[] = {
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
 
     glsl::uint maxWeightCount = 0;
-    glsl::uint maxMeanPartitionSize = 0;
     glsl::uint maxPrefixPartitionSize = 0;
     glsl::uint maxSplitCount = 0;
     glsl::uint maxSampleCount = 0;
 
     for (const auto& testCase : TEST_CASES) {
         maxWeightCount = std::max(maxWeightCount, testCase.N);
-        maxMeanPartitionSize =
-            std::max(maxMeanPartitionSize,
-                     testCase.config.psac.meanWorkgroupSize * testCase.config.psac.meanRows);
         maxPrefixPartitionSize =
-            std::max(maxPrefixPartitionSize, testCase.config.psac.prefixSumWorkgroupSize *
-                                                 testCase.config.psac.prefixSumRows);
+            std::max(maxPrefixPartitionSize, testCase.config.psac.prefixPartitionConfig.partitionSize());
         std::size_t splitSize = testCase.config.psac.splitSize;
         glsl::uint splitCount = (testCase.N + splitSize - 1) / splitSize;
         maxSplitCount = std::max(maxSplitCount, splitCount);
@@ -82,10 +76,10 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
     }
 
     Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
-                                      maxWeightCount, maxMeanPartitionSize, maxPrefixPartitionSize,
+                                      maxWeightCount, maxPrefixPartitionSize,
                                       maxSplitCount, maxSampleCount);
     Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE,
-                                      maxWeightCount, maxMeanPartitionSize, maxPrefixPartitionSize,
+                                      maxWeightCount, maxPrefixPartitionSize,
                                       maxSplitCount, maxSampleCount);
 
     return std::make_tuple(local, stage);

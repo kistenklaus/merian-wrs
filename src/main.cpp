@@ -1,6 +1,8 @@
 #include "merian/vk/context.hpp"
 
+#include "src/wrs/algorithm/prng/philox/test.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
+#include "src/wrs/algorithm/its/sampling/test.hpp"
 #include "merian/vk/extension/extension_vk_float_atomics.hpp"
 #include "src/wrs/algorithm/hs/HSTRepr.hpp"
 #include "src/wrs/algorithm/hs/explode/test.hpp"
@@ -11,9 +13,12 @@
 #include "src/wrs/algorithm/mean/atomic/test.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test.hpp"
 #include "src/wrs/algorithm/pack/scalar/test.hpp"
-#include "src/wrs/algorithm/pack/simd/test.hpp"
 #include "src/wrs/algorithm/prefix_sum/decoupled/test.hpp"
 #include "src/wrs/algorithm/split/scalar/test.hpp"
+#include "src/wrs/buffer_view/BufferView.hpp"
+#include "src/wrs/eval/its_eval.hpp"
+#include "src/wrs/eval/philox_eval.hpp"
+#include "src/wrs/eval/psa_ref_eval.hpp"
 
 #include "merian/vk/extension/extension_vk_core.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
@@ -28,6 +33,7 @@
 #include "src/wrs/bench/psa.hpp"
 #include "src/wrs/eval/hst_eval.hpp"
 #include "src/wrs/eval/hst_std_eval.hpp"
+#include "src/wrs/eval/psa_eval.hpp"
 
 #include <dlfcn.h>
 #include <fmt/base.h>
@@ -42,7 +48,8 @@ int main() {
 
     // Setup Vulkan context
     const auto core = std::make_shared<merian::ExtensionVkCore>(
-        std::set<std::string>{"vk12/vulkanMemoryModel", "vk12/vulkanMemoryModelDeviceScope"});
+        std::set<std::string>{"vk12/vulkanMemoryModel", "vk12/vulkanMemoryModelDeviceScope",
+                              "vk12/shaderBufferInt64Atomics"});
 
     const auto floatAtomics =
         std::make_shared<merian::ExtensionVkFloatAtomics>(std::set<std::string>{
@@ -69,51 +76,19 @@ int main() {
         throw std::runtime_error("Failed to create context!!!");
     }
 
-    wrs::test::atomic_mean::test(context);
-
-    /* wrs::test::its::test(context); */
-    /* wrs::test::splitpack::test(context); */
-
-    /* wrs::test::hstc::test(context); */
-    /* wrs::test::hs_svo::test(context); */
-    /* wrs::test::hst_sampling::test(context); */
-    /* wrs::test::hs_explode::test(context); */
-    /* wrs::test::hs::test(context); */
-
-    /* wrs::eval::write_hst_rmse_curves(context); */
-    /* wrs::eval::write_hst_std_rmse_curves(); */
-
-    /* wrs::bench::hst::write_bench_results(context); */
-
-    /* wrs::test::decoupled_prefix_partition::test(context); */
-
-    /* wrs::bench::its::write_bench_results(context); */
-
-    /* wrs::test::psa::test(context); */
-
-    /* wrs::bench::psa::write_bench_results(context); */
-
-    /* wrs::test::psac::test(context); */
-
-    // wrs::eval::write_its_rmse_curves(context);
-
-    /*wrs::eval::write_sweeping_rmse_curves();*/
-    /*wrs::eval::write_std_rmse_curves();*/
-    /* wrs::eval::write_psa_rmse_curves(context); */
-    /* wrs::eval::write_std_rmse_curves(); */
-    /* wrs::eval::write_psa_rmse_curves(); */
-    // wrs::test::testTests();
-    /* wrs::test::decoupled_mean::test(context);  */
-    //
-
-    /* wrs::test::scalar_split::test(context); */
-
-    /* wrs::test::scalar_pack::test(context); */
-
-    /* wrs::test::simd_pack::test(context); */
+    wrs::foo();
     /* wrs::test::philox::test(context); */
-    /* wrs::test::its::test(context); */
-    /* wrs::test::sample_alias::test(context); */
+    /* wrs::test::its_sampling::test(context); */
 
-    /* wrs::test::decoupled_prefix_sum::test(context); */
+
+    /* wrs::eval::write_philox_rmse_curve(context); */
+    /* wrs::eval::write_its_rmse_curves(context); */
+
+    /* wrs::test::splitpack::test(context); */
+    /* wrs::test::psac::test(context); */
+    /* wrs::eval::write_psa_rmse_curves(context); */
+
+
+    /* wrs::test::atomic_mean::test(context); */
 }
+
