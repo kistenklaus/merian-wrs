@@ -1,0 +1,261 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint SUBGROUP_SIZE = 32;
+
+struct Split {
+    uint i;
+    uint j;
+    float spill;
+};
+
+struct AliasTableEntry {
+    float p;
+    uint a;
+};
+
+layout(set = 0, binding = 0) readonly buffer in_partitions {
+    uint heavyCountG;
+    uint heavyCountG1;
+    uint heavyCountG2;
+    uint heavyCountG3;
+    uint heavyLightIndices[];
+};
+
+layout(set = 0, binding = 0) readonly buffer in_partitionsVec {
+    uint _heavyCountGVe;
+    uint _heavyCountGVe2;
+    uint _heavyCountGVe3;
+    uint _heavyCountGVe4;
+    uvec4 heavyLightIndicesVec4[];
+};
+
+layout(set = 0, binding = 1) readonly buffer in_weights {
+    float weights[];
+};
+
+layout(set = 0, binding = 2) readonly buffer in_mean {
+    float mean;
+};
+
+layout(set = 0, binding = 3) readonly buffer in_splits {
+    Split splits[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer out_aliastable {
+    AliasTableEntry table[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint size;
+    uint K;
+} pc;
+
+
+uint lastLightIndex;
+
+const uint PRELOAD_BUFFER_SIZE = 4;
+struct PreloadBuffer {
+  uint globalIndex;
+  uint globalIndexEnd;
+  uint localIndex;
+
+  uint preloadBuffer[PRELOAD_BUFFER_SIZE];
+};
+
+
+void heavy_preload_reload(inout PreloadBuffer preload) {
+  uvec4 heavyIndicies = heavyLightIndicesVec4[preload.globalIndex >> 2];
+  preload.preloadBuffer[3] = heavyIndicies.x;
+  preload.preloadBuffer[2] = heavyIndicies.y;
+  preload.preloadBuffer[1] = heavyIndicies.z;
+  preload.preloadBuffer[0] = heavyIndicies.w;
+  preload.localIndex = 3;
+}
+
+void heavy_preload_buffer_init(uint start, uint end, out PreloadBuffer preload) {
+  preload.globalIndex = start;
+  preload.globalIndexEnd = end;
+  // align accesses
+  uint count = 4 - (start & 3);
+  for (uint i = 0; i < count; ++i) {
+    preload.preloadBuffer[count - 1 - i] = heavyLightIndices[preload.globalIndex + i];
+  }
+  preload.localIndex = count - 1;
+}
+
+bool heavy_preload_has_next(inout PreloadBuffer preload) {
+  return preload.globalIndex <= preload.globalIndexEnd;
+}
+
+uint heavy_preload_next(inout PreloadBuffer preload) {
+  uint ret = preload.preloadBuffer[preload.localIndex]; 
+  preload.globalIndex += 1;
+  if (preload.localIndex == 0) {
+    heavy_preload_reload(preload);
+  }else {
+    preload.localIndex -= 1;
+  }
+  return ret;
+}
+
+uint heavy_preload_peek(inout PreloadBuffer preload) {
+  return preload.preloadBuffer[preload.localIndex]; 
+}
+
+
+void light_preload_reload(inout PreloadBuffer preload) {
+  uvec4 heavyIndicies = heavyLightIndicesVec4[(lastLightIndex - preload.globalIndex) >> 2];
+  preload.preloadBuffer[3] = heavyIndicies.w;
+  preload.preloadBuffer[2] = heavyIndicies.z;
+  preload.preloadBuffer[1] = heavyIndicies.y;
+  preload.preloadBuffer[0] = heavyIndicies.x;
+  preload.localIndex = 3;
+}
+
+void light_preload_buffer_init(uint start, uint end, out PreloadBuffer preload) {
+  preload.globalIndex = start;
+  preload.globalIndexEnd = end;
+
+  uint count = ((lastLightIndex - start) & 3) + 1;
+  for (uint i = 0; i < count; ++i) {
+    preload.preloadBuffer[count - 1 - i] = heavyLightIndices[lastLightIndex - (preload.globalIndex + i)];
+  }
+  preload.localIndex = count - 1;
+}
+
+bool light_preload_has_next(inout PreloadBuffer preload) {
+  return preload.globalIndex < preload.globalIndexEnd;
+}
+
+uint light_preload_next(inout PreloadBuffer preload) {
+  uint ret = preload.preloadBuffer[preload.localIndex]; 
+  preload.globalIndex += 1;
+  if (preload.localIndex == 0) {
+    light_preload_reload(preload);
+  }else {
+    preload.localIndex -= 1;
+  }
+  return ret;
+}
+
+uint light_preload_peek(inout PreloadBuffer preload) {
+  return preload.preloadBuffer[preload.localIndex]; 
+}
+
+
+
+
+void pack(uint i0, uint i1, uint j0, uint j1, float spill,
+float averageWeight,
+uint lightCount, uint heavyCount) {
+    uint i = i0;
+    uint j = j0;
+
+
+    PreloadBuffer heavyPreload;
+    heavy_preload_buffer_init(j0, j1, heavyPreload);
+
+    PreloadBuffer lightPreload;
+    light_preload_buffer_init(i0, i1, lightPreload);
+
+    uint h = heavy_preload_next(heavyPreload);
+
+
+    float w = spill;
+    if (w == 0.0f) {
+        w = weights[h];
+    }
+
+
+    int x = 0;
+    while (light_preload_has_next(lightPreload) || heavy_preload_has_next(heavyPreload)) {
+        bool packHeavy;
+        // Checking bounds before the numerical comparision avoids
+        // Floating point inaccuracies while comparing!
+        if (!heavy_preload_has_next(heavyPreload)) {
+            // Only light buckets left.
+            packHeavy = false;
+        } else if (i == i1 || i == lightCount) {
+            // Only heavy buckets left.
+            packHeavy = true;
+        } else {
+            packHeavy = w <= averageWeight;
+        }
+        uint weightIdx;
+        if (packHeavy) {
+            weightIdx = heavy_preload_next(heavyPreload);
+        } else {
+            weightIdx = light_preload_next(lightPreload);
+        }
+        float weight = weights[weightIdx];
+        float p;
+        uint idx, a;
+        if (packHeavy) {
+            // Pack heavy bucket!
+            p = w / averageWeight;
+            a = weightIdx;
+            idx = h;
+            j += 1;
+            h = weightIdx;
+        } else {
+            // Pack light bucket
+            p = weight / averageWeight;
+            a = h;
+            idx = weightIdx;
+            i += 1;
+        }
+        table[idx].p = p;
+        table[idx].a = a;
+        w = (w + weight) - averageWeight;
+    }
+    if (j1 == heavyCount - 1) {
+        // Last heavy element overal has to be handled seperately otherwise,
+        // we access heavyIndices out of bound.
+        // Maybe this would actually be fine because of our layout. Then the residual of the
+        // last element which should always be zero, but numerical instabilities would be
+        // reassigned to the last light element, both are probably fine, but here we choose to
+        // redirect to not have the last heavy element redirect to anything makes it easier to debug!
+        table[h].p = 1.0f;
+        table[h].a = h;
+    }
+}
+
+void main(void) {
+    uint k = gl_GlobalInvocationID.x;
+    if (k >= pc.K) {
+        return;
+    }
+    float spill;
+    uint i0, j0;
+    if (k == 0) {
+        i0 = 0;
+        j0 = 0;
+        spill = 0;
+    } else {
+        i0 = splits[k - 1].i;
+        j0 = splits[k - 1].j;
+        spill = splits[k - 1].spill;
+    }
+    uint i1 = splits[k].i;
+    uint j1 = splits[k].j;
+    float averageWeight = mean;
+    const uint N = pc.size;
+    const uint heavyCount = heavyCountG;
+    const uint lightCount = N - heavyCount;
+    lastLightIndex = N - 1;
+
+    // if (heavyLightIndices[0] != heavyLightIndicesVec4[0].x) {
+    //   return;
+    // }
+
+    pack(i0, i1, j0, j1, spill, averageWeight, lightCount, heavyCount);
+}

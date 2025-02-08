@@ -1,0 +1,204 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint SUBGROUP_SIZE = 32;
+layout(constant_id = 2) const uint LOG2_SUBGROUP_SIZE = 32;
+layout(constant_id = 3) const uint SPLIT_SIZE = 128;
+const uint ELEMENTS_PER_INVOCATION = (SPLIT_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+const uint MAX_SUBGROUPS_PER_WORKGROUP = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+
+struct Split {
+    uint i;
+    uint j;
+    float spill;
+};
+
+struct AliasTableEntry {
+    float p;
+    uint a;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer in_partitions {
+    uint heavyCount;
+    uint heavyLight[]; // offset 4
+} g_partitionIndicies;
+
+layout(set = 0, binding = 1) readonly buffer in_weights {
+    float weights[];
+} g_distribution;
+
+layout(set = 0, binding = 2) readonly buffer in_mean {
+    float mean;
+} g_meta;
+
+layout(set = 0, binding = 3) readonly buffer in_splits {
+    Split splits[];
+} g_subproblems;
+
+layout(set = 0, binding = 4) writeonly buffer out_aliastable {
+    AliasTableEntry table[];
+} g_result;
+
+layout(push_constant) uniform PushConstant {
+    uint size;
+    uint K;
+} pc;
+
+void pack(uint i0, uint i1, uint j0, uint j1, float spill,
+    float averageWeight, uint lastLightIndex,
+    uint lightCount, uint heavyCount) {
+
+    // init Heavy
+    j1 += 1;
+    uint j = j0 + gl_SubgroupInvocationID;
+    uint jx = 0;
+    int remainingHeavy = int(j1 - j0);
+    uint h2;
+    float hw;
+    if (j < j1) {
+        h2 = g_partitionIndicies.heavyLight[j];
+        hw = g_distribution.weights[h2]; // not really a coallesed access
+    }
+
+    // init light
+    // i1 = i1
+    uint i = i0 + gl_SubgroupInvocationID;
+    uint ix = 0;
+    int remainingLight = int(i1 - i0);
+    uint l2;
+    float lw;
+    if (i < i1) {
+        l2 = g_partitionIndicies.heavyLight[lastLightIndex - i];
+        lw = g_distribution.weights[l2];
+    }
+
+    float w = spill;
+    uint h;
+    if (w == 0.0f) {
+        uvec2 temp = subgroupBroadcast(uvec2(h2, floatBitsToUint(hw)), jx);
+        h = temp.x;
+        w = uintBitsToFloat(temp.y);
+    } else {
+        h = subgroupBroadcast(h2, jx);
+    }
+    jx += 1;
+    remainingHeavy -= 1;
+
+    bool hasLight = remainingLight > 0;
+    bool hasHeavy = remainingHeavy > 0;
+    float invAverageWeight = 1.0f / averageWeight;
+    while (hasLight || hasHeavy) {
+        // Checking bounds before the numerical comparision avoids
+        // Floating point inaccuracies while comparing!
+        bool packHeavy = hasHeavy && (w <= averageWeight);
+        uint weightIdx;
+        float weight;
+        {
+            uvec2 v;
+            uint owner;
+            if (packHeavy) {
+                v = uvec2(h2, floatBitsToUint(hw));
+                owner = jx++;
+                remainingHeavy--;
+            } else {
+                v = uvec2(l2, floatBitsToUint(lw));
+                owner = ix++;
+                remainingLight--;
+            }
+            v = subgroupBroadcast(v, owner);
+            weightIdx = v.x;
+            weight = uintBitsToFloat(v.y);
+
+            if (owner == (SUBGROUP_SIZE - 1)) {
+                if (packHeavy) {
+                    j += SUBGROUP_SIZE;
+                    jx = 0;
+                    if (j < j1) {
+                        h2 = g_partitionIndicies.heavyLight[j];
+                        hw = g_distribution.weights[h2];
+                    }
+                } else {
+                    i += SUBGROUP_SIZE;
+                    ix = 0;
+                    if (i < i1) {
+                        l2 = g_partitionIndicies.heavyLight[lastLightIndex - i];
+                        lw = g_distribution.weights[l2];
+                    }
+                }
+            }
+        }
+        // weight = g_distribution.weights[weightIdx];
+        float p;
+        uint idx, a;
+
+        if (gl_SubgroupInvocationID == 0) {
+            if (packHeavy) {
+                // Pack heavy bucket!
+                p = w * invAverageWeight;
+                a = weightIdx;
+                idx = h;
+                h = weightIdx;
+            } else {
+                // Pack light bucket
+                p = weight * invAverageWeight;
+                a = h;
+                idx = weightIdx;
+            }
+
+            g_result.table[idx].p = p;
+            g_result.table[idx].a = a;
+        }
+
+        hasLight = remainingLight > 0;
+        hasHeavy = remainingHeavy > 0;
+        w += weight - averageWeight;
+    }
+    if (j1 == heavyCount) {
+        // Last heavy element overal has to be handled seperately otherwise,
+        // we access heavyIndices out of bound.
+        // Maybe this would actually be fine because of our layout. Then the residual of the
+        // last element which should always be zero, but numerical instabilities would be
+        // reassigned to the last light element, both are probably fine, but here we choose to
+        // redirect to not have the last heavy element redirect to anything makes it easier to debug!
+        if (gl_SubgroupInvocationID == 0) {
+            g_result.table[h].p = 1.0f;
+            g_result.table[h].a = h;
+        }
+    }
+}
+
+void main(void) {
+    uint k = gl_SubgroupID + gl_WorkGroupID.x * MAX_SUBGROUPS_PER_WORKGROUP;
+    if (k >= pc.K) {
+        return;
+    }
+    float spill;
+    uint i0, j0;
+    if (k == 0) {
+        i0 = 0;
+        j0 = 0;
+        spill = 0;
+    } else {
+        i0 = g_subproblems.splits[k - 1].i;
+        j0 = g_subproblems.splits[k - 1].j;
+        spill = g_subproblems.splits[k - 1].spill;
+    }
+    const uint i1 = g_subproblems.splits[k].i;
+    const uint j1 = g_subproblems.splits[k].j;
+    const float averageWeight = g_meta.mean;
+    const uint N = pc.size;
+    const uint heavyCount = g_partitionIndicies.heavyCount;
+    const uint lightCount = N - heavyCount;
+    const uint lastLightIndex = N - 1;
+
+    // pack(min(i0, i1), max(i0, i1), min(j0,j1), max(j0, j1), spill, averageWeight, lastLightIndex, lightCount, heavyCount);
+    pack(i0, i1, j0, j1, spill, averageWeight, lastLightIndex, lightCount, heavyCount);
+}

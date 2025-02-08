@@ -90,7 +90,7 @@ class SplitPack {
                 .add_binding_storage_buffer() // debug
                 .build_push_descriptor_layout(context);
 
-        const std::string shaderPath = "src/wrs/algorithm/splitpack/shader.comp";
+        const std::string shaderPath = "src/wrs/algorithm/splitpack/shader_using_weights.comp";
 
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(

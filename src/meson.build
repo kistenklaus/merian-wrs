@@ -18,6 +18,14 @@ src_files += files('wrs/algorithm/pack/scalar/ScalarPack.cpp')
 
 src_files += files('wrs/eval/philox_eval.cpp')
 
+src_files += files('wrs/algorithm/pack/subgroup/SubgroupPack.cpp')
+src_files += files('wrs/algorithm/pack/subgroup/test.cpp')
+src_files += files('wrs/algorithm/pack/subgroup/test.lsp.cpp')
+
+src_files += files('wrs/algorithm/prefix_sum/block_wise/block_scan/test.cpp')
+
+src_files += files('wrs/algorithm/prefix_sum/block_wise/test.cpp')
+
 
 src_files += files('wrs/eval/psa_eval.cpp')
 

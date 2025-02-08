@@ -25,6 +25,9 @@ struct ScalarPackBuffers {
     using PartitionIndicesLayout =
         layout::StructLayout<storageQualifier,
                              layout::Attribute<glsl::uint, "heavyCount">,
+                             layout::Attribute<glsl::uint, "heavyCount1">,
+                             layout::Attribute<glsl::uint, "heavyCount2">,
+                             layout::Attribute<glsl::uint, "heavyCount3">,
                              layout::Attribute<glsl::uint*, "heavyLightIndices">>;
     using PartitionIndicesView = layout::BufferView<PartitionIndicesLayout>;
 
@@ -87,7 +90,7 @@ class ScalarPack {
                 .add_binding_storage_buffer()
                 .build_push_descriptor_layout(context);
 
-        std::string shaderPath = "src/wrs/algorithm/pack/scalar/float.comp";
+        std::string shaderPath = "src/wrs/algorithm/pack/scalar/preload_float.comp";
 
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
@@ -101,6 +104,7 @@ class ScalarPack {
 
         merian::SpecializationInfoBuilder specInfoBuilder;
         specInfoBuilder.add_entry<glsl::uint>(config.workgroupSize);
+        specInfoBuilder.add_entry<glsl::uint>(context->physical_device.physical_device_subgroup_properties.subgroupSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);

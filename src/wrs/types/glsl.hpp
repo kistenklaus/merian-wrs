@@ -54,6 +54,14 @@ template <scalar_like T, StorageQualifier Storage> constexpr std::size_t primiti
     return 4;
 }
 
+template <scalar_like T> constexpr std::size_t primitive_alignment(glsl::StorageQualifier) {
+    return 4;
+}
+template <scalar_like T> constexpr std::size_t primitive_size(glsl::StorageQualifier) {
+    return 4;
+}
+
+
 template <scalar_like T, StorageQualifier Storage>
 constexpr bool has_contiguous_primitive_array_storage() {
     switch (Storage) {
@@ -68,6 +76,13 @@ template <int64_like T, StorageQualifier Storage> constexpr std::size_t primitiv
     return 8;
 }
 template <int64_like T, StorageQualifier Storage> constexpr std::size_t primitive_size() {
+    return 8;
+}
+
+template <int64_like T> constexpr std::size_t primitive_alignment(glsl::StorageQualifier) {
+    return 8;
+}
+template <int64_like T> constexpr std::size_t primitive_size(glsl::StorageQualifier) {
     return 8;
 }
 
@@ -88,6 +103,13 @@ template <vec2_like T, StorageQualifier Storage> constexpr std::size_t primitive
     return 8;
 }
 
+template <vec2_like T> constexpr std::size_t primitive_alignment(glsl::StorageQualifier) {
+    return 8;
+}
+template <vec2_like T> constexpr std::size_t primitive_size(glsl::StorageQualifier) {
+    return 8;
+}
+
 template <vec2_like T, StorageQualifier Storage>
 constexpr bool has_contiguous_primitive_array_storage() {
     switch (Storage) {
@@ -105,6 +127,13 @@ template <vec3_like T, StorageQualifier Storage> constexpr std::size_t primitive
     return 12;
 }
 
+template <vec3_like T> constexpr std::size_t primitive_alignment(glsl::StorageQualifier) {
+    return 16;
+}
+template <vec3_like T> constexpr std::size_t primitive_size(glsl::StorageQualifier) {
+    return 12;
+}
+
 template <vec3_like T, StorageQualifier Storage>
 constexpr bool has_contiguous_primitive_array_storage() {
     switch (Storage) {
@@ -119,6 +148,13 @@ template <vec4_like T, StorageQualifier Storage> constexpr std::size_t primitive
     return 16;
 }
 template <vec4_like T, StorageQualifier Storage> constexpr std::size_t primitive_size() {
+    return 16;
+}
+
+template <vec4_like T> constexpr std::size_t primitive_alignment(glsl::StorageQualifier) {
+    return 16;
+}
+template <vec4_like T> constexpr std::size_t primitive_size(glsl::StorageQualifier) {
     return 16;
 }
 

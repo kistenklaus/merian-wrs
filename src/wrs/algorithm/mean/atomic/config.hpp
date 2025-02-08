@@ -1,7 +1,7 @@
 #pragma once
 
 #include "src/wrs/types/glsl.hpp"
-#include <vulkan/vulkan_handles.hpp>
+
 namespace wrs {
 
 class AtomicMeanConfig {

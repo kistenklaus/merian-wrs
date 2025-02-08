@@ -9,7 +9,7 @@ static constexpr TestCase TEST_CASES[] = {
         .workgroupSize = 512,
         .weightCount = static_cast<glsl::uint>(1024 * 2048),
         .distribution = Distribution::PSEUDO_RANDOM_UNIFORM,
-        .splitCount = static_cast<glsl::uint>(1024 * 2048) / 2,
+        .splitCount = static_cast<glsl::uint>(1024 * 2048) / 16,
         .iterations = 1,
     },
     //

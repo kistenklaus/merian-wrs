@@ -4,6 +4,7 @@
 #extension GL_KHR_memory_scope_semantics : enable
 #extension GL_EXT_scalar_block_layout    : enable
 #extension GL_KHR_shader_subgroup_vote : enable
+#extension GL_ARB_gpu_shader_int64 : enable
 #pragma use_vulkan_memory_model
 
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
@@ -57,11 +58,12 @@ bool lightPrefixAt(uint i, out float lightPrefix) {
 // computes the ceiling division of a * b by c
 // assumes that a > c > b
 uint ceilMulDiv(uint a, uint b, uint c) {
-    uint div = a / c;
-    uint rem = a % c;
-    uint safe_part = div * b;
-    uint rem_part = (rem * b + c - 1) / c;
-    return safe_part + rem_part;
+    return uint((uint64_t(a) * uint64_t(b) + c - 1) / c);
+    // uint div = a / c;
+    // uint rem = a % c;
+    // uint safe_part = div * b;
+    // uint rem_part = (rem * b + c - 1) / c;
+    // return safe_part + rem_part;
 }
 
 Split computeSplit(uint k, uint N, uint K, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {

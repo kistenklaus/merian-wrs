@@ -18,8 +18,8 @@
 
 namespace wrs {
 
-struct ITSBuffers {
-    using Self = ITSBuffers;
+struct WorkEfficientPrefixSumBuffers {
+    using Self = WorkEfficientPrefixSumBuffers;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
@@ -34,14 +34,14 @@ struct ITSBuffers {
     }
 };
 
-class Algorithm {
+class WorkEfficientPrefixSum {
     struct PushConstants {
         glsl::uint X;
     };
   public:
-    using Buffers = ITSBuffers;
+    using Buffers = WorkEfficientPrefixSumBuffers;
 
-    explicit Algorithm(const merian::ContextHandle& context, glsl::uint workgroupSize) : m_workgroupSize(workgroupSize){
+    explicit WorkEfficientPrefixSum(const merian::ContextHandle& context, glsl::uint workgroupSize) : m_workgroupSize(workgroupSize){
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()

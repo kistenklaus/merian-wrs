@@ -1,0 +1,85 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+#extension GL_KHR_shader_subgroup_shuffle_relative : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint ROWS = 8;
+layout(constant_id = 2) const uint SUBGROUP_SIZE = 32;
+const uint MAX_SUBGROUPS_PER_WORKGROUP = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+
+layout(constant_id = 3) const uint SEQUENTIAL_COMBINE_LENGTH = 32;
+
+layout(set = 0, binding = 0) readonly buffer in_BlockScan {
+    float blockScan[];
+};
+
+layout(set = 0, binding = 1) buffer inout_ElementScan {
+    float elementScan[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint N;
+} pc;
+
+const uint SUBBLOCK_SIZE = WORKGROUP_SIZE * ROWS;
+const uint SUBGROUP_SUBBLOCK_SIZE = SUBGROUP_SIZE * ROWS;
+const uint BLOCK_SIZE = SUBBLOCK_SIZE * SEQUENTIAL_COMBINE_LENGTH;
+
+uint N;
+
+uint base;
+float a[ROWS];
+
+void globalMemoryRead(uint blockID) {
+    base = blockID * SUBBLOCK_SIZE;
+
+    uint ix = base + gl_LocalInvocationID.x;
+    #pragma unroll
+    for (uint i = 0; i < ROWS; ++i, ix += SUBGROUP_SIZE) {
+        a[i] = elementScan[ix];
+    }
+}
+
+void globalMemoryWrite() {
+    uint ix = base + gl_LocalInvocationID.x;
+    #pragma unroll
+    for (uint i = 0; i < ROWS; ++i, ix += SUBGROUP_SIZE) {
+        elementScan[ix] = a[i];
+    }
+}
+
+void combineScans(float exclusive) {
+    #pragma unroll // hopefully performed as a vec4 add if ROWS = 4.
+    for (uint i = 0; i < ROWS; ++i) {
+        a[i] += exclusive;
+    }
+}
+
+void sequentialBlockScan(uint blockID, float exclusive) {
+    globalMemoryRead(blockID);
+
+    combineScans(exclusive);
+
+    globalMemoryWrite();
+}
+
+void main(void) {
+    N = pc.N;
+    uint blockBase = gl_WorkGroupID.x * SEQUENTIAL_COMBINE_LENGTH;
+
+    const float blockExclusivePrefix = (gl_WorkGroupID.x == 0) ? 0.0f : blockScan[gl_WorkGroupID.x - 1];
+
+    for (uint i = 0; i < SEQUENTIAL_COMBINE_LENGTH; ++i) {
+        const uint blockID = blockBase + i;
+        sequentialBlockScan(blockID, blockExclusivePrefix);
+    }
+}

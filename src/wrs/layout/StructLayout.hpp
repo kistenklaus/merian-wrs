@@ -2,6 +2,7 @@
 
 #include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/PrimitiveLayout.hpp"
+#include <vulkan/vulkan.hpp>
 #include "src/wrs/layout/StaticString.hpp"
 #include "src/wrs/layout/layout_traits.hpp"
 #include "src/wrs/types/glsl.hpp"

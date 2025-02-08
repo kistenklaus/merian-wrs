@@ -89,7 +89,7 @@ template <wrs::arithmetic T, std::floating_point P, std::integral I, wrs::generi
             ss << "\t\t-OVERSAMPLED_WEIGHT : worstCase = "<< maxOversample << "\n";
         }
 
-        constexpr std::size_t MAX_LOG = 3;
+        constexpr std::size_t MAX_LOG = 10;
         for (const auto& error : errors | std::views::take(MAX_LOG)) {
             error.appendMessageToStringStream(ss, N);
         }

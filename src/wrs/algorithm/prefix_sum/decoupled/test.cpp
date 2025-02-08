@@ -1,6 +1,7 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
+#include "src/wrs/algorithm/prefix_sum/block_wise/block_scan/BlockScan.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
@@ -22,7 +23,7 @@
 
 #include "./DecoupledPrefixSum.hpp"
 
-namespace wrs::test::decoupled_prefix_sum {
+namespace wrs::test::decoupled_prefix {
 
 using namespace wrs;
 using namespace wrs::test;
@@ -41,8 +42,13 @@ struct TestCase {
 
 static constexpr TestCase TEST_CASES[] = {
     TestCase{
-        .config = {},
-        .N = 1024 * 2048,
+        .config = DecoupledPrefixSumConfig(512,
+                                           4,
+                                           32,
+                                           BlockScanVariant::SUBGROUP_INTRINSIC |
+                                               BlockScanVariant::WORKGROUP_SUBGROUP_SCAN,
+                                           1),
+        .N = static_cast<glsl::uint>(1024 * 2048),
         .distribution = Distribution::UNIFORM,
         .iterations = 1,
     },
@@ -155,8 +161,11 @@ static bool runTestCase(const TestContext& context,
 
         // 4. Run test case
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
-            SPDLOG_DEBUG("Execute algorithm");
+            glsl::uint workgroupCount = (testCase.N + testCase.config.partitionSize() - 1) /
+                                        testCase.config.partitionSize();
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd,
+                                     fmt::format("Execute algorithm [{}]", workgroupCount));
+            SPDLOG_DEBUG("Execute algorithm ({})", workgroupCount);
             kernel.run(cmd, buffers, testCase.N);
         }
 
@@ -193,7 +202,7 @@ static bool runTestCase(const TestContext& context,
                     fmt::println("[{}] = {}", i, results.prefixSum[i]);
                 }
             }
-
+            
             if (err) {
                 SPDLOG_ERROR("Invalid prefix: \n{}", err.message());
             }
@@ -237,4 +246,4 @@ void test(const merian::ContextHandle& context) {
     }
 }
 
-} // namespace wrs::test::decoupled_prefix_sum
+} // namespace wrs::test::decoupled_prefix

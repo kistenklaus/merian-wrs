@@ -1,0 +1,230 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint SUBGROUP_SIZE = 32;
+
+layout(constant_id = 2) const uint THREADS_PER_SUBPROBLEM = 16;
+layout(constant_id = 3) const uint LOG2_THREADS_PER_SUBPROBLEM = 4;
+
+layout(constant_id = 4) const uint SPLIT_SIZE = 128;
+// const uint ELEMENTS_PER_INVOCATION = (SPLIT_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+const uint MAX_SUBGROUPS_PER_WORKGROUP = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+const uint SUBPROBLEMS_PER_SUBGROUP = SUBGROUP_SIZE / THREADS_PER_SUBPROBLEM;
+const uint MAX_INVOC_PER_SUBGROUP = SUBPROBLEMS_PER_SUBGROUP * THREADS_PER_SUBPROBLEM;
+const uint MAX_SUBPROBLEMS_PER_WORKGROUP = MAX_SUBGROUPS_PER_WORKGROUP * SUBPROBLEMS_PER_SUBGROUP;
+
+struct Split {
+    uint i;
+    uint j;
+    float spill;
+};
+
+struct AliasTableEntry {
+    float p;
+    uint a;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer in_partitionIndices {
+    uint heavyCount;
+    uint heavyLight[]; // offset 4
+} g_partitionIndicies;
+
+layout(set = 0, binding = 1) readonly buffer in_weights {
+    float weights[];
+} g_distribution;
+
+layout(set = 0, binding = 2) readonly buffer in_mean {
+    float mean;
+} g_meta;
+
+layout(set = 0, binding = 3) readonly buffer in_splits {
+    Split splits[];
+} g_subproblems;
+
+layout(set = 0, binding = 4) writeonly buffer out_aliastable {
+    AliasTableEntry table[];
+} g_result;
+
+layout(set = 0, binding = 5) readonly buffer in_partition {
+    float heavyLight[];
+} g_partition;
+
+layout(push_constant) uniform PushConstant {
+    uint size;
+    uint K;
+} pc;
+
+void pack(uint i0, uint i1, uint j0, uint j1, float spill,
+    float averageWeight, uint lastLightIndex,
+    uint lightCount, uint heavyCount) {}
+
+void main(void) {
+    if (gl_SubgroupInvocationID >= MAX_INVOC_PER_SUBGROUP) {
+      return;
+    }
+
+    uint subproblemID = gl_SubgroupInvocationID / THREADS_PER_SUBPROBLEM;
+    uint k = subproblemID + gl_SubgroupID * SUBPROBLEMS_PER_SUBGROUP + gl_WorkGroupID.x * MAX_SUBPROBLEMS_PER_WORKGROUP;
+
+    if (k >= pc.K) {
+        return;
+    }
+    float spill;
+    uint i0, j0;
+    if (k == 0) {
+        i0 = 0;
+        j0 = 0;
+        spill = 0;
+    } else {
+        i0 = g_subproblems.splits[k - 1].i;
+        j0 = g_subproblems.splits[k - 1].j;
+        spill = g_subproblems.splits[k - 1].spill;
+    }
+    uint i1 = g_subproblems.splits[k].i;
+    uint j1 = g_subproblems.splits[k].j;
+
+    const float averageWeight = g_meta.mean;
+    const uint N = pc.size;
+    const uint heavyCount = g_partitionIndicies.heavyCount;
+    const uint lightCount = N - heavyCount;
+    const uint lastLightIndex = N - 1;
+
+    const uint baseInvoc = (gl_SubgroupInvocationID / THREADS_PER_SUBPROBLEM) * THREADS_PER_SUBPROBLEM;
+    const uint relativeSubInvoc = gl_SubgroupInvocationID - baseInvoc;
+
+    // =========== PACKING ===========
+
+    // init Heavy
+    j1 += 1;
+    uint j = j0 + relativeSubInvoc;
+    uint jx = 0;
+    int remainingHeavy = int(j1 - j0);
+    uint h2;
+    float hw;
+    AliasTableEntry he;
+    if (j < j1) {
+        h2 = g_partitionIndicies.heavyLight[j];
+        hw = g_partition.heavyLight[j];
+    }
+
+    // init light
+    uint i = i0 + relativeSubInvoc;
+    uint ix = 0;
+    int remainingLight = int(i1 - i0);
+    uint l2;
+    float lw;
+    AliasTableEntry le;
+    if (i < i1) {
+        l2 = g_partitionIndicies.heavyLight[lastLightIndex - i];
+        lw = g_partition.heavyLight[lastLightIndex - i];
+    }
+
+    float w = spill;
+    uint h;
+    if (k == 0) {
+        uvec2 temp = subgroupBroadcast(uvec2(h2, floatBitsToUint(hw)), baseInvoc + jx);
+        h = temp.x;
+        w = uintBitsToFloat(temp.y);
+    } else {
+        h = subgroupBroadcast(h2, baseInvoc + jx);
+    }
+    jx += 1;
+    remainingHeavy -= 1;
+
+    bool hasLight = remainingLight > 0;
+    bool hasHeavy = remainingHeavy > 0;
+    bool packHeavy;
+    while (hasLight || hasHeavy) {
+        // Checking bounds before the numerical comparision avoids
+        // Floating point inaccuracies while comparing!
+        packHeavy = hasHeavy && (w <= averageWeight);
+        uint weightIdx;
+        float weight;
+        uvec2 v;
+        uint owner;
+        if (packHeavy) {
+            v = uvec2(h2, floatBitsToUint(hw));
+            owner = jx++;
+            remainingHeavy--;
+        } else {
+            v = uvec2(l2, floatBitsToUint(lw));
+            owner = ix++;
+            remainingLight--;
+        }
+        v = subgroupBroadcast(v, baseInvoc + owner);
+
+        if (packHeavy) {
+            // Pack heavy bucket!
+            if (relativeSubInvoc == jx - 2) {
+                he.a = v.x;
+                he.p = w / averageWeight;
+            }
+
+            h = v.x;
+        } else {
+            // Pack light bucket
+            // float p = weight / averageWeight;
+            // uint a = h;
+            // uint idx = weightIdx;
+
+            if (relativeSubInvoc == ix - 1) {
+              le.p = uintBitsToFloat(v.y) / averageWeight;
+              le.a = h;
+            }
+        }
+
+        if (owner == (THREADS_PER_SUBPROBLEM - 1)) {
+            if (packHeavy) {
+                if (relativeSubInvoc < (THREADS_PER_SUBPROBLEM - 1)) {
+                    g_result.table[h2] = he;
+                }
+                j += THREADS_PER_SUBPROBLEM - 1;
+                jx = 1;
+                if (j < j1) {
+                    h2 = g_partitionIndicies.heavyLight[j];
+                    hw = g_partition.heavyLight[j];
+                }
+            } else {
+                if (relativeSubInvoc < (THREADS_PER_SUBPROBLEM)) {
+                  g_result.table[l2] = le;
+                }
+                i += THREADS_PER_SUBPROBLEM;
+                ix = 0;
+                if (i < i1) {
+                    l2 = g_partitionIndicies.heavyLight[lastLightIndex - i];
+                    lw = g_partition.heavyLight[lastLightIndex - i];
+                }
+            }
+        }
+
+        hasLight = remainingLight > 0;
+        hasHeavy = remainingHeavy > 0;
+        w += uintBitsToFloat(v.y) - averageWeight;
+    }
+    if (relativeSubInvoc < ix) {
+      g_result.table[l2] = le;
+    }
+
+    if (relativeSubInvoc < jx - 1) {
+        g_result.table[h2] = he;
+    }
+
+    if (j1 == heavyCount) {
+        // Last heavy element overal has to be handled seperately otherwise,
+        // we access heavyIndices out of bound.
+        // Maybe this would actually be fine because of our layout. Then the residual of the
+        // last element which should always be zero, but numerical instabilities would be
+        // reassigned to the last light element, both are probably fine, but here we choose to
+        // redirect to not have the last heavy element redirect to anything makes it easier to debug!
+        g_result.table[h].p = 1.0f;
+        g_result.table[h].a = h;
+    }
+}

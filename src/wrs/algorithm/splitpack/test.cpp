@@ -46,7 +46,7 @@ static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
         .workgroupSize = 512,
-        .N = 1024,
+        .N = 1024 * 2048,
         .dist = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
         .splitSize = 2,
         .iterations = 1,

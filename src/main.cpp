@@ -1,21 +1,25 @@
 #include "merian/vk/context.hpp"
 
-#include "src/wrs/algorithm/prng/philox/test.hpp"
+#include "src/wrs/algorithm/prefix_sum/block_wise/block_scan/test.hpp"
+#include "src/wrs/algorithm/pack/scalar/test.hpp"
+#include "src/wrs/algorithm/pack/subgroup/test.hpp"
+#include "src/wrs/algorithm/prefix_sum/block_wise/test.hpp"
+#include "src/wrs/algorithm/prefix_sum/decoupled/test.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
-#include "src/wrs/algorithm/its/sampling/test.hpp"
 #include "merian/vk/extension/extension_vk_float_atomics.hpp"
 #include "src/wrs/algorithm/hs/HSTRepr.hpp"
 #include "src/wrs/algorithm/hs/explode/test.hpp"
 #include "src/wrs/algorithm/hs/hstc/test.hpp"
 #include "src/wrs/algorithm/hs/sampling/test.hpp"
 #include "src/wrs/algorithm/hs/svo/test.hpp"
+#include "src/wrs/algorithm/its/sampling/test.hpp"
 #include "src/wrs/algorithm/its/test.hpp"
 #include "src/wrs/algorithm/mean/atomic/test.hpp"
 #include "src/wrs/algorithm/mean/decoupled/test.hpp"
 #include "src/wrs/algorithm/pack/scalar/test.hpp"
 #include "src/wrs/algorithm/prefix_sum/decoupled/test.hpp"
+#include "src/wrs/algorithm/prng/philox/test.hpp"
 #include "src/wrs/algorithm/split/scalar/test.hpp"
-#include "src/wrs/buffer_view/BufferView.hpp"
 #include "src/wrs/eval/its_eval.hpp"
 #include "src/wrs/eval/philox_eval.hpp"
 #include "src/wrs/eval/psa_ref_eval.hpp"
@@ -37,6 +41,7 @@
 
 #include <dlfcn.h>
 #include <fmt/base.h>
+#include <iostream>
 #include <memory>
 #include <set>
 #include <spdlog/spdlog.h>
@@ -76,10 +81,20 @@ int main() {
         throw std::runtime_error("Failed to create context!!!");
     }
 
-    wrs::foo();
+    /* wrs::test::block_wise::test(context); */
+
+    /* wrs::bench::psa::write_bench_results(context); */
+    /* wrs::test::decoupled_prefix_partition::test(context); */
+    wrs::test::block_wise::block_scan::test(context);
+    /* wrs::test::decoupled_prefix::test(context); */
+
+    /* wrs::test::subgroup_pack::test(context); */
+    /* wrs::test::scalar_split::test(context); */
+    /* wrs::test::scalar_pack::test(context); */
+    /* wrs::test::decoupled_prefix::test(context); */
+
     /* wrs::test::philox::test(context); */
     /* wrs::test::its_sampling::test(context); */
-
 
     /* wrs::eval::write_philox_rmse_curve(context); */
     /* wrs::eval::write_its_rmse_curves(context); */
@@ -88,7 +103,5 @@ int main() {
     /* wrs::test::psac::test(context); */
     /* wrs::eval::write_psa_rmse_curves(context); */
 
-
     /* wrs::test::atomic_mean::test(context); */
 }
-

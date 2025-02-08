@@ -6,10 +6,10 @@ namespace wrs::test::scalar_pack {
 constexpr TestCase TEST_CASES[] = {
     //
     {
-        .config = {},
-        .weightCount = static_cast<glsl::uint>(1024),
+        .config = ScalarPackConfig(32),
+        .weightCount = static_cast<glsl::uint>(1024 * 2048),
         .distribution = Distribution::PSEUDO_RANDOM_UNIFORM,
-        .splitCount = static_cast<glsl::uint>(1024) / 2,
+        .splitCount = static_cast<glsl::uint>(1024 * 2048) / 16,
         .iterations = 1,
     },
     /*{*/

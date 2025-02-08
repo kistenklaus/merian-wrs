@@ -6,6 +6,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "src/wrs/algorithm/prefix_sum/block_wise/block_scan/BlockScan.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
@@ -54,18 +55,30 @@ struct DecoupledPrefixSumBuffers {
 
 class DecoupledPrefixSumConfig {
   public:
-    glsl::uint workgroupSize;
-    glsl::uint rows;
-    glsl::uint parallelLookbackDepth;
+    const glsl::uint workgroupSize;
+    const glsl::uint rows;
+    const glsl::uint parallelLookbackDepth;
 
-    constexpr DecoupledPrefixSumConfig() : workgroupSize(512), rows(8), parallelLookbackDepth(32) {}
-    constexpr explicit DecoupledPrefixSumConfig(glsl::uint workgroupSize,
-                                                glsl::uint rows,
-                                                glsl::uint parallelLookbackDepth)
-        : workgroupSize(workgroupSize), rows(rows), parallelLookbackDepth(parallelLookbackDepth) {}
+    const BlockScanVariant blockScanVariant;
+    const glsl::uint sequentialScanLength;
+
+    constexpr DecoupledPrefixSumConfig()
+        : workgroupSize(512), rows(8), parallelLookbackDepth(32),
+          blockScanVariant(BlockScanVariant::SUBGROUP_INTRINSIC |
+                           BlockScanVariant::WORKGROUP_SUBGROUP_SCAN),
+          sequentialScanLength(1) {}
+    constexpr explicit DecoupledPrefixSumConfig(
+        glsl::uint workgroupSize,
+        glsl::uint rows,
+        glsl::uint parallelLookbackDepth,
+        BlockScanVariant blockScanVariant = BlockScanVariant::SUBGROUP_INTRINSIC |
+                                            BlockScanVariant::WORKGROUP_SUBGROUP_SCAN,
+        glsl::uint sequentialScanLength = 2)
+        : workgroupSize(workgroupSize), rows(rows), parallelLookbackDepth(parallelLookbackDepth),
+          blockScanVariant(blockScanVariant), sequentialScanLength(sequentialScanLength) {}
 
     inline constexpr glsl::uint partitionSize() const {
-      return workgroupSize * rows;
+        return workgroupSize * rows * 2 * sequentialScanLength;
     }
 };
 
@@ -78,8 +91,8 @@ class DecoupledPrefixSum {
     using Buffers = DecoupledPrefixSumBuffers;
 
     explicit DecoupledPrefixSum(const merian::ContextHandle& context,
-          DecoupledPrefixSumConfig config = {})
-        : m_partitionSize(config.workgroupSize * config.rows) {
+                                DecoupledPrefixSumConfig config = {})
+        : m_partitionSize(config.partitionSize()) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -105,6 +118,9 @@ class DecoupledPrefixSum {
         specInfoBuilder.add_entry(config.rows);
         specInfoBuilder.add_entry(
             context->physical_device.physical_device_subgroup_properties.subgroupSize);
+        specInfoBuilder.add_entry(static_cast<glsl::uint>(config.blockScanVariant));
+        specInfoBuilder.add_entry(config.sequentialScanLength);
+
         assert(context->physical_device.physical_device_subgroup_properties.subgroupSize >=
                config.parallelLookbackDepth);
         specInfoBuilder.add_entry(config.parallelLookbackDepth);
