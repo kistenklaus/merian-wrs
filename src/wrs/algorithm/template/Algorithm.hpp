@@ -18,8 +18,8 @@
 
 namespace wrs {
 
-struct WorkEfficientPrefixSumBuffers {
-    using Self = WorkEfficientPrefixSumBuffers;
+struct DecoupledPartitionBuffers {
+    using Self = DecoupledPartitionBuffers;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
@@ -34,14 +34,14 @@ struct WorkEfficientPrefixSumBuffers {
     }
 };
 
-class WorkEfficientPrefixSum {
+class DecoupledPartition {
     struct PushConstants {
         glsl::uint X;
     };
   public:
-    using Buffers = WorkEfficientPrefixSumBuffers;
+    using Buffers = DecoupledPartitionBuffers;
 
-    explicit WorkEfficientPrefixSum(const merian::ContextHandle& context, glsl::uint workgroupSize) : m_workgroupSize(workgroupSize){
+    explicit DecoupledPartition(const merian::ContextHandle& context, glsl::uint workgroupSize) : m_workgroupSize(workgroupSize){
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()

@@ -13,3 +13,4 @@ imgui.ini
 .idea
 
 *.csv
+*.sh

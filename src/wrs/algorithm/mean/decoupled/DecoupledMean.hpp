@@ -23,7 +23,7 @@
 namespace wrs {
 
 struct DecoupledMeanBuffers {
-    using element_type = wrs::glsl::float_t;
+    using element_type = wrs::glsl::f32;
     // ELEMENTS
     merian::BufferHandle elements;
     static constexpr glsl::StorageQualifier elementStorageQualifier =

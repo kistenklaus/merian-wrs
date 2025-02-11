@@ -22,7 +22,7 @@ namespace wrs {
 
 struct DecoupledPrefixPartitionBuffers {
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
-    using element_type = glsl::float_t;
+    using element_type = glsl::f32;
     /**
      * Buffer, which contains all elements
      * over which the partition and the

@@ -10,7 +10,9 @@
 #include "src/wrs/reference/reduce.hpp"
 #include "src/wrs/reference/split.hpp"
 #include "src/wrs/test/is_alias_table.hpp"
+#include "src/wrs/test/is_partition.hpp"
 #include "src/wrs/test/is_prefix.hpp"
+#include "src/wrs/test/is_stable_partition.hpp"
 #include "src/wrs/test/test.hpp"
 #include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
@@ -19,18 +21,19 @@
 #include <fmt/format.h>
 #include <ranges>
 #include <spdlog/spdlog.h>
+#include <stdexcept>
 #include <tuple>
 
-#include "./BlockWiseScan.hpp"
+#include "./BlockWisePartition.hpp"
 
 using namespace wrs;
 using namespace wrs::test;
 
-using Algorithm = BlockWiseScan;
+using Algorithm = BlockWisePartition;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
-    BlockWiseScanConfig config;
+    BlockWisePartitionConfig config;
     glsl::uint N;
     Distribution dist;
     uint32_t iterations;
@@ -39,22 +42,23 @@ struct TestCase {
 static const TestCase TEST_CASES[] = {
     //
     TestCase{
-        .config = BlockWiseScanConfig(
-            BlockScanConfig(256, // workgroups size
-                            2,   // rows
-                            BlockScanVariant::RAKING | BlockScanVariant::SUBGROUP_SCAN_SHFL |
-                                BlockScanVariant::EXCLUSIVE,
-                            2, // sequential block scan length
-                            true),
+        .config = 
+          BlockWisePartitionConfig(
+            PartitionBlockScanConfig(512,
+                                     2,
+                                     2,
+                                     BlockScanVariant::RANKED |
+                                         BlockScanVariant::EXCLUSIVE |
+                                         BlockScanVariant::SUBGROUP_SCAN_INTRINSIC),
             BlockScanConfig(512,
-                            4,
-                            BlockScanVariant::RANKED | BlockScanVariant::SUBGROUP_SCAN_SHFL |
-                                BlockScanVariant::EXCLUSIVE,
-                            4,
-                            false),
-            BlockCombineConfig(512, 2, 1, 2)),
-        .N = static_cast<glsl::uint>(1024 * 2048),
-        .dist = wrs::Distribution::UNIFORM,
+                            2,
+                            BlockScanVariant::RANKED | BlockScanVariant::EXCLUSIVE |
+                                BlockScanVariant::SUBGROUP_SCAN_SHFL,
+                            2,
+                            true),
+            PartitionCombineConfig(512, 4, 1, 1)),
+        .N = static_cast<glsl::uint>((1e6)),
+        .dist = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
         .iterations = 1,
     },
 };
@@ -80,12 +84,22 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
 static void uploadTestCase(const vk::CommandBuffer cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
-                           std::span<const float> elements) {
-    Buffers::ElementsView stageView{stage.elements, elements.size()};
-    Buffers::ElementsView localView{buffers.elements, elements.size()};
-    stageView.upload(elements);
-    stageView.copyTo(cmd, localView);
-    localView.expectComputeRead(cmd);
+                           std::span<const float> elements,
+                           float pivot) {
+    {
+        Buffers::ElementsView stageView{stage.elements, elements.size()};
+        Buffers::ElementsView localView{buffers.elements, elements.size()};
+        stageView.upload(elements);
+        stageView.copyTo(cmd, localView);
+        localView.expectComputeRead(cmd);
+    }
+    {
+        Buffers::PivotView stageView{stage.pivot};
+        Buffers::PivotView localView{buffers.pivot};
+        stageView.upload(pivot);
+        stageView.copyTo(cmd, localView);
+        localView.expectComputeRead(cmd);
+    }
 }
 
 static void downloadToStage(vk::CommandBuffer cmd,
@@ -94,15 +108,36 @@ static void downloadToStage(vk::CommandBuffer cmd,
                             glsl::uint N,
                             glsl::uint partitionCount) {
     {
-        Buffers::PrefixSumView stageView{stage.prefixSum, N};
-        Buffers::PrefixSumView localView{buffers.prefixSum, N};
+        Buffers::IndicesView stageView{stage.indices, N};
+        Buffers::IndicesView localView{buffers.indices, N};
         localView.expectComputeWrite();
         localView.copyTo(cmd, stageView);
         stageView.expectHostRead(cmd);
     }
     {
-        Buffers::ReductionsView stageView{stage.reductions, partitionCount};
-        Buffers::ReductionsView localView{buffers.reductions, partitionCount};
+        Buffers::BlockIndicesView stageView{stage.blockIndices, partitionCount};
+        Buffers::BlockIndicesView localView{buffers.blockIndices, partitionCount};
+        localView.expectComputeWrite();
+        localView.copyTo(cmd, stageView);
+        stageView.expectHostRead(cmd);
+    }
+    {
+        Buffers::HeavyCountView stageView{stage.heavyCount};
+        Buffers::HeavyCountView localView{buffers.heavyCount};
+        localView.expectComputeWrite();
+        localView.copyTo(cmd, stageView);
+        stageView.expectHostRead(cmd);
+    }
+    {
+        Buffers::PartitionIndicesView stageView{stage.partitionIndices, N};
+        Buffers::PartitionIndicesView localView{buffers.partitionIndices, N};
+        localView.expectComputeWrite();
+        localView.copyTo(cmd, stageView);
+        stageView.expectHostRead(cmd);
+    }
+    {
+        Buffers::PartitionView stageView{stage.partition, N};
+        Buffers::PartitionView localView{buffers.partition, N};
         localView.expectComputeWrite();
         localView.copyTo(cmd, stageView);
         stageView.expectHostRead(cmd);
@@ -110,23 +145,41 @@ static void downloadToStage(vk::CommandBuffer cmd,
 }
 
 struct Results {
-    std::pmr::vector<float> reductions;
-    std::pmr::vector<float> prefixSum;
+    std::pmr::vector<glsl::uint> indices;
+    std::pmr::vector<glsl::uint> blockCount;
+
+    std::pmr::vector<glsl::uint> partitionIndices;
+
+    std::pmr::vector<float> partition;
+    glsl::uint heavyCount;
 };
 static Results downloadFromStage(Buffers& stage,
                                  glsl::uint N,
                                  glsl::uint partitionCount,
                                  std::pmr::memory_resource* resource) {
 
-    Buffers::PrefixSumView stagePrefixView{stage.prefixSum, N};
-    auto prefixSums = stagePrefixView.download<float, wrs::pmr_alloc<float>>(resource);
+    Buffers::IndicesView stagePrefixView{stage.indices, N};
+    auto indices = stagePrefixView.download<glsl::uint, wrs::pmr_alloc<glsl::uint>>(resource);
 
-    Buffers::ReductionsView stageReductionView{stage.reductions, partitionCount};
-    auto reductions = stageReductionView.download<float, wrs::pmr_alloc<float>>(resource);
+    Buffers::BlockIndicesView stageReductionView{stage.blockIndices, partitionCount};
+    auto blockCount = stageReductionView.download<glsl::uint, wrs::pmr_alloc<glsl::uint>>(resource);
+
+    Buffers::HeavyCountView stageHeavyCountView{stage.heavyCount};
+    glsl::uint heavyCount = stageHeavyCountView.download<glsl::uint>();
+
+    Buffers::PartitionIndicesView stagePartiitonIndicesView{stage.partitionIndices, N};
+    auto partitionIndices =
+        stagePartiitonIndicesView.download<glsl::uint, wrs::pmr_alloc<glsl::uint>>(resource);
+
+    Buffers::PartitionView stagePartitionView{stage.partition, N};
+    auto partition = stagePartitionView.download<float, wrs::pmr_alloc<float>>(resource);
 
     return Results{
-        .reductions = std::move(reductions),
-        .prefixSum = std::move(prefixSums),
+        .indices = std::move(indices),
+        .blockCount = std::move(blockCount),
+        .partitionIndices = std::move(partitionIndices),
+        .partition = std::move(partition),
+        .heavyCount = heavyCount,
     };
 };
 
@@ -135,10 +188,14 @@ static bool runTestCase(const TestContext& context,
                         Buffers& buffers,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
-    std::string testName =
-        fmt::format("{{blockSize={},seq={},N={}}}", testCase.config.blockSize(),
-                    testCase.config.elementScanConfig.sequentialScanLength, testCase.N);
+    std::string testName = fmt::format("{{blockSize={},N={}}}",
+                                       testCase.config.elementScanConfig.blockSize(), testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
+
+    if (testCase.config.maxElementCount() < testCase.N) {
+        throw std::runtime_error(
+            fmt::format("N={} is to large max={}", testCase.N, testCase.config.maxElementCount()));
+    }
 
     Algorithm kernel{context.context, testCase.config};
 
@@ -163,6 +220,7 @@ static bool runTestCase(const TestContext& context,
         context.profiler->start("Generate test input");
         std::pmr::vector<float> elements =
             wrs::pmr::generate_weights<float>(testCase.dist, testCase.N, resource);
+        const float pivot = 0.5;
         context.profiler->end();
 
         // 2. Begin recoding
@@ -175,12 +233,12 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
             SPDLOG_DEBUG("Uploading test case...");
-            uploadTestCase(cmd, buffers, stage, elements);
+            uploadTestCase(cmd, buffers, stage, elements, pivot);
         }
 
         // 4. Run test case
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, fmt::format("Execute algorithm"));
             SPDLOG_DEBUG("Execute algorithm");
             kernel.run(cmd, buffers, testCase.N, context.profiler);
         }
@@ -210,22 +268,42 @@ static bool runTestCase(const TestContext& context,
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
 
-            const auto err = wrs::test::pmr::assert_is_inclusive_prefix<float>(
-                elements, results.prefixSum, resource);
-            if (err) {
-                fmt::println("Prefix sum is not perfect:\n{}", err.message());
-            }
-
             if (testCase.N <= 1024) {
-                fmt::println("PrefixSum:");
-                for (std::size_t i = 0; i < results.prefixSum.size(); ++i) {
-                    fmt::println("[{}]: {}", i, results.prefixSum[i]);
+                fmt::println("BLOCK-WISE-PREFIX-SUMS:");
+                for (std::size_t i = 0; i < results.indices.size(); ++i) {
+                    fmt::println("[{}]: {} -> {}", i, elements[i] > pivot ? 1 : 0,
+                                 results.indices[i]);
+                }
+
+                fmt::println("BLOCK-REDUCTIONS:");
+                for (std::size_t i = 0; i < results.blockCount.size(); ++i) {
+                    fmt::println("[{}]: {}", i, results.blockCount[i]);
+                }
+
+                fmt::println("PARTITION-INDICES:");
+                for (std::size_t i = 0; i < results.partitionIndices.size(); ++i) {
+                    fmt::println("[{}]: {}", i, results.partitionIndices[i]);
+                }
+
+                fmt::println("PARTITION:");
+                for (std::size_t i = 0; i < results.partition.size(); ++i) {
+                    fmt::println("[{}]: {}", i, results.partition[i]);
                 }
             }
+            fmt::println("HeavyCount: {}", results.heavyCount);
 
-            fmt::println("BlockScan:");
-            for (std::size_t i = 0; i < results.reductions.size(); ++i) {
-                fmt::println("[{}]: {}", i, results.reductions[i]);
+            if (testCase.N < (1 << 24)) {
+                const std::span<float> heavy{results.partition.begin(), results.heavyCount};
+
+                const std::span<float> light{results.partition.begin() + results.heavyCount,
+                                             testCase.N - results.heavyCount};
+                std::reverse(light.begin(), light.end());
+
+                auto err = wrs::test::pmr::assert_is_stable_partition<float>(heavy, light, elements,
+                                                                             pivot, resource);
+                if (err) {
+                    SPDLOG_ERROR("Invalid partition: \n{}", err.message());
+                }
             }
         }
         context.profiler->collect(true, true);
@@ -233,7 +311,7 @@ static bool runTestCase(const TestContext& context,
     return failed;
 }
 
-void wrs::test::block_wise::test(const merian::ContextHandle& context) {
+void wrs::test::block_wise_partition::test(const merian::ContextHandle& context) {
     SPDLOG_INFO("Testing Work efficient prefix sum algorithm");
 
     const TestContext testContext = setupTestContext(context);

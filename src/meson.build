@@ -22,9 +22,18 @@ src_files += files('wrs/algorithm/pack/subgroup/SubgroupPack.cpp')
 src_files += files('wrs/algorithm/pack/subgroup/test.cpp')
 src_files += files('wrs/algorithm/pack/subgroup/test.lsp.cpp')
 
-src_files += files('wrs/algorithm/prefix_sum/block_wise/block_scan/test.cpp')
+src_files += files('wrs/algorithm/prefix_sum/block_scan/test.cpp')
 
 src_files += files('wrs/algorithm/prefix_sum/block_wise/test.cpp')
+
+src_files += files('wrs/algorithm/partition/block_wise/block_scan/test.cpp')
+
+src_files += files('wrs/algorithm/partition/block_wise/test.cpp')
+
+src_files += files('wrs/algorithm/partition/decoupled/test.cpp')
+src_files += files('wrs/algorithm/partition/decoupled/DecoupledPartition.cpp')
+
+src_files += files('wrs/bench/partition.cpp')
 
 
 src_files += files('wrs/eval/psa_eval.cpp')

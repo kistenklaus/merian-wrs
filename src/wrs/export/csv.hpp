@@ -1,5 +1,6 @@
 #include "src/wrs/why.hpp"
 #include <array>
+#include <fmt/base.h>
 #include <fmt/format.h> // Include fmt library for formatting
 #include <fstream>
 #include <iostream>
@@ -76,21 +77,31 @@ template <std::size_t HeaderCount> class CSVWriter {
     }
 
     template <typename T> void unsafePushValue(const T value, bool lastEntry) {
-      std::size_t estimatedEntrySize = fmt::formatted_size("{}", value) + 1;
-      if (buffer.size() + estimatedEntrySize >= bufferLimit) {
-        flushBuffer();
-      }
-      buffer.append(fmt::format("{}", value));
-      if (!lastEntry) {
-        buffer.push_back(separator);
-      }
+        std::size_t estimatedEntrySize = fmt::formatted_size("{}", value) + 1;
+        if (buffer.size() + estimatedEntrySize >= bufferLimit) {
+            flushBuffer();
+        }
+        buffer.append(fmt::format("{}", value));
+        if (!lastEntry) {
+            buffer.push_back(separator);
+        }
+    }
+
+    void unsafePushNull(bool lastEntry) {
+        std::size_t estimatedEntrySize = 0;
+        if (buffer.size() + estimatedEntrySize >= bufferLimit) {
+            flushBuffer();
+        }
+        if (!lastEntry) {
+            buffer.push_back(separator);
+        }
     }
 
     void unsafeEndRow() {
-      if (buffer.size() + 1 >= bufferLimit) {
-        flushBuffer();
-      }
-      buffer.push_back('\n');
+        if (buffer.size() + 1 >= bufferLimit) {
+            flushBuffer();
+        }
+        buffer.push_back('\n');
     }
 
   private:

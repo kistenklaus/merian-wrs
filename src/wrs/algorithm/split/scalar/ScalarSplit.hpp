@@ -27,7 +27,7 @@ namespace wrs {
 
 struct ScalarSplitBuffers {
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
-    using weight_type = glsl::float_t;
+    using weight_type = glsl::f32;
 
     /**
      * Buffer which contains the prefix sums over both the heavy and light

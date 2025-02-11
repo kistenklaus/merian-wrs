@@ -1,0 +1,31 @@
+#ifndef SHFL_SCAN_COMP_GUARD
+#define SHFL_SCAN_COMP_GUARD
+
+#extension GL_KHR_shader_subgroup_shuffle_relative : require
+#extension GL_KHR_shader_subgroup_ballot : require
+
+float shfl_subgroup_inclusive_scan_float(float x) {
+    const uint invoc = gl_SubgroupInvocationID.x;
+    #pragma unroll
+    for (uint shift = 1; shift < gl_SubgroupSize; shift <<= 1) {
+        float o = subgroupShuffleUp(x, shift);
+        if (invoc >= shift) {
+            x += o;
+        }
+    }
+    return x;
+}
+
+uint shfl_subgroup_inclusive_scan_uint(uint x) {
+    const uint invoc = gl_SubgroupInvocationID.x;
+    #pragma unroll
+    for (uint shift = 1; shift < gl_SubgroupSize; shift <<= 1) {
+        uint o = subgroupShuffleUp(x, shift);
+        if (invoc >= shift) {
+            x += o;
+        }
+    }
+    return x;
+}
+
+#endif

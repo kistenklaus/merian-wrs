@@ -1,47 +1,22 @@
 #include "merian/vk/context.hpp"
 
-#include "src/wrs/algorithm/prefix_sum/block_wise/block_scan/test.hpp"
-#include "src/wrs/algorithm/pack/scalar/test.hpp"
-#include "src/wrs/algorithm/pack/subgroup/test.hpp"
+#include "src/wrs/algorithm/partition/block_wise/block_scan/test.hpp"
+#include "src/wrs/algorithm/partition/block_wise/test.hpp"
+#include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
+#include "src/wrs/algorithm/partition/decoupled/test.hpp"
+#include "src/wrs/algorithm/prefix_sum/block_scan/test.hpp"
 #include "src/wrs/algorithm/prefix_sum/block_wise/test.hpp"
-#include "src/wrs/algorithm/prefix_sum/decoupled/test.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_float_atomics.hpp"
-#include "src/wrs/algorithm/hs/HSTRepr.hpp"
-#include "src/wrs/algorithm/hs/explode/test.hpp"
-#include "src/wrs/algorithm/hs/hstc/test.hpp"
-#include "src/wrs/algorithm/hs/sampling/test.hpp"
-#include "src/wrs/algorithm/hs/svo/test.hpp"
-#include "src/wrs/algorithm/its/sampling/test.hpp"
-#include "src/wrs/algorithm/its/test.hpp"
-#include "src/wrs/algorithm/mean/atomic/test.hpp"
-#include "src/wrs/algorithm/mean/decoupled/test.hpp"
-#include "src/wrs/algorithm/pack/scalar/test.hpp"
-#include "src/wrs/algorithm/prefix_sum/decoupled/test.hpp"
-#include "src/wrs/algorithm/prng/philox/test.hpp"
-#include "src/wrs/algorithm/split/scalar/test.hpp"
-#include "src/wrs/eval/its_eval.hpp"
-#include "src/wrs/eval/philox_eval.hpp"
-#include "src/wrs/eval/psa_ref_eval.hpp"
 
 #include "merian/vk/extension/extension_vk_core.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
-#include "src/wrs/algorithm/hs/test.hpp"
-#include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
-#include "src/wrs/algorithm/psa/construction/test.hpp"
-#include "src/wrs/algorithm/psa/test.hpp"
-#include "src/wrs/algorithm/splitpack/test.hpp"
-#include "src/wrs/bench/hst.hpp"
-#include "src/wrs/bench/its.hpp"
-#include "src/wrs/bench/psa.hpp"
-#include "src/wrs/eval/hst_eval.hpp"
-#include "src/wrs/eval/hst_std_eval.hpp"
-#include "src/wrs/eval/psa_eval.hpp"
+#include "src/wrs/algorithm/prefix_sum/decoupled/test.hpp"
+#include "src/wrs/bench/partition.hpp"
 
 #include <dlfcn.h>
 #include <fmt/base.h>
-#include <iostream>
 #include <memory>
 #include <set>
 #include <spdlog/spdlog.h>
@@ -81,11 +56,18 @@ int main() {
         throw std::runtime_error("Failed to create context!!!");
     }
 
+
+    wrs::bench::partition::write_bench_results(context);
+    /* wrs::test::decoupled_prefix_partition::test(context); */
+    /* wrs::test::decoupled_partition::test(context); */
+    /* wrs::test::block_wise_partition::test(context); */
+    /* wrs::test::partition::block_scan::test(context); */
+
     /* wrs::test::block_wise::test(context); */
 
     /* wrs::bench::psa::write_bench_results(context); */
     /* wrs::test::decoupled_prefix_partition::test(context); */
-    wrs::test::block_wise::block_scan::test(context);
+    /* wrs::test::block_scan::test(context); */
     /* wrs::test::decoupled_prefix::test(context); */
 
     /* wrs::test::subgroup_pack::test(context); */

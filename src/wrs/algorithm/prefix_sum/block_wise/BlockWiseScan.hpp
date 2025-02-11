@@ -1,7 +1,7 @@
 #pragma once
 
 #include "merian/vk/utils/profiler.hpp"
-#include "src/wrs/algorithm/prefix_sum/block_wise/block_scan/BlockScan.hpp"
+#include "src/wrs/algorithm/prefix_sum/block_scan/BlockScan.hpp"
 #include "src/wrs/algorithm/prefix_sum/block_wise/combine/BlockCombine.hpp"
 #include "src/wrs/types/glsl.hpp"
 namespace wrs {
@@ -60,19 +60,13 @@ struct BlockWiseScanConfig {
     const BlockCombineConfig blockCombineConfig;
 
     constexpr BlockWiseScanConfig()
-        : elementScanConfig(512,
-                            2,
-                            BlockScanVariant::SUBGROUP_INTRINSIC |
-                                BlockScanVariant::WORKGROUP_SUBGROUP_SCAN,
-                            2,
-                            true),
-          blockScanConfig(512,
-                          1,
-                          BlockScanVariant::SUBGROUP_INTRINSIC |
-                              BlockScanVariant::WORKGROUP_SUBGROUP_SCAN,
-                          1,
-                          false),
-          blockCombineConfig(elementScanConfig) {};
+        : elementScanConfig(512, 2, BlockScanVariant::RAKING, 2, true),
+          blockScanConfig(512, 1, BlockScanVariant::RAKING, 1, false),
+          blockCombineConfig(elementScanConfig) {
+        assert(elementScanConfig.blockSize() == blockCombineConfig.blockSize());
+        assert((blockScanConfig.variant & BlockScanVariant::EXCLUSIVE) ==
+               BlockScanVariant::EXCLUSIVE);
+    };
 
     constexpr explicit BlockWiseScanConfig(BlockScanConfig elementScanConfig,
                                            BlockScanConfig blockScanConfig)
@@ -83,7 +77,11 @@ struct BlockWiseScanConfig {
                                            BlockScanConfig blockScanConfig,
                                            BlockCombineConfig combineConfig)
         : elementScanConfig(elementScanConfig), blockScanConfig(blockScanConfig),
-          blockCombineConfig(combineConfig) {}
+          blockCombineConfig(combineConfig) {
+        assert(elementScanConfig.blockSize() == blockCombineConfig.blockSize());
+        assert((blockScanConfig.variant & BlockScanVariant::EXCLUSIVE) ==
+               BlockScanVariant::EXCLUSIVE);
+    }
 
     inline glsl::uint blockSize() const {
         return elementScanConfig.blockSize();
@@ -98,11 +96,16 @@ class BlockWiseScan {
   public:
     using Buffers = BlockWiseScanBuffers;
 
+    using BlockScanKernel = BlockScan<float>;
+    using CombineKernel = BlockCombine<float>;
+
     BlockWiseScan(const merian::ContextHandle& context, BlockWiseScanConfig config = {})
         : m_elementScan(context, config.elementScanConfig),
-          m_combine(context, BlockCombineConfig(config.elementScanConfig)),
+          m_combine(context, config.blockCombineConfig),
           m_blockScan(context, config.blockScanConfig) {
         assert(config.elementScanConfig.writeBlockReductions);
+        assert((config.blockScanConfig.variant & BlockScanVariant::EXCLUSIVE) ==
+               BlockScanVariant::EXCLUSIVE);
     }
 
     void run(vk::CommandBuffer cmd,
@@ -134,7 +137,8 @@ class BlockWiseScan {
                                                                vk::AccessFlagBits::eShaderRead),
                             {});
 
-        const glsl::uint blockCount = (N + m_elementScan.blockSize() - 1) / m_elementScan.blockSize();
+        const glsl::uint blockCount =
+            (N + m_elementScan.blockSize() - 1) / m_elementScan.blockSize();
         assert(blockCount <= m_blockScan.blockSize());
 
         // Inplace scan over block reductions.
@@ -165,7 +169,7 @@ class BlockWiseScan {
             {});
 
         // Combine scan over blocks with scan over elements
-        BlockCombineBuffers blockCombineBuffers;
+        CombineKernel::Buffers blockCombineBuffers;
         blockCombineBuffers.blockScan = buffers.reductions;
         blockCombineBuffers.elementScan = buffers.prefixSum;
 
@@ -182,9 +186,9 @@ class BlockWiseScan {
     }
 
   private:
-    BlockScan m_elementScan;
-    BlockCombine m_combine;
-    BlockScan m_blockScan;
+    BlockScanKernel m_elementScan;
+    CombineKernel m_combine;
+    BlockScanKernel m_blockScan;
 };
 
 } // namespace wrs

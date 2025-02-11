@@ -25,7 +25,7 @@
 using namespace wrs;
 using namespace wrs::test;
 
-using Algorithm = BlockScan;
+using Algorithm = BlockScan<float>;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
@@ -35,19 +35,140 @@ struct TestCase {
     uint32_t iterations;
 };
 
-static constexpr TestCase TEST_CASES[] = {
+static constexpr BlockScanVariant VARIANT = BlockScanVariant::RANKED_STRIDED;
+
+static const TestCase TEST_CASES[] = {
     //
     TestCase{
-        .config = BlockScanConfig(32,
-                                  1,
-                                  wrs::BlockScanVariant::SUBGROUP_INTRINSIC |
-                                      wrs::BlockScanVariant::WORKGROUP_SUBGROUP_SCAN,
-                                  1,
-                                  true),
-        .N = static_cast<glsl::uint>(1024),
+        .config = BlockScanConfig(512, 8, VARIANT | BlockScanVariant::EXCLUSIVE, 1, true),
+        .N = static_cast<glsl::uint>(1024 * 2048),
         .dist = wrs::Distribution::UNIFORM,
         .iterations = 1,
     },
+    /*  */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(64, 2, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(64, 4, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(64, 2, VARIANT, 2, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(64, 4, VARIANT, 4, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, // 128 raking */
+    /*  */
+    /* // 128 raking */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(128, 1, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /*  */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(128, 2, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(128, 4, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(128, 2, VARIANT, 2, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(128, 4, VARIANT, 4, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /*  */
+    /* // 256 raking */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(256, 1, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /*  */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(256, 2, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(256, 4, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(256, 2, VARIANT, 2, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(256, 4, VARIANT, 4, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /*  */
+    /* // 512 raking */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(512, 1, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /*  */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(512, 2, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(512, 4, VARIANT, 1, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(512, 2, VARIANT, 2, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = BlockScanConfig(512, 4, VARIANT, 4, true), */
+    /*     .N = static_cast<glsl::uint>((1 << 21)), */
+    /*     .dist = wrs::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
@@ -127,8 +248,8 @@ static bool runTestCase(const TestContext& context,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
     std::string testName =
-        fmt::format("{{workgroupSize={},rows={},N={}}}", testCase.config.workgroupSize,
-                    testCase.config.rows, testCase.N);
+        fmt::format("{{workgroupSize={},rows={},seq={},N={}}}", testCase.config.workgroupSize,
+                    testCase.config.rows, testCase.config.sequentialScanLength, testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
     Algorithm kernel{context.context, testCase.config};
@@ -171,7 +292,9 @@ static bool runTestCase(const TestContext& context,
 
         // 4. Run test case
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
+            glsl::uint workgroupCount = (testCase.N + kernel.blockSize() - 1) / kernel.blockSize();
+            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd,
+                                     fmt::format("Execute algorithm [{}]", workgroupCount));
             SPDLOG_DEBUG("Execute algorithm");
             kernel.run(cmd, buffers, testCase.N);
         }
@@ -203,19 +326,20 @@ static bool runTestCase(const TestContext& context,
 
             glsl::uint blockSize = testCase.config.blockSize();
             for (uint p = 0; p < partitionCount; ++p) {
-               std::span<const float> subElements =
-                   std::span(elements.begin() + p * blockSize, blockSize);
-               std::span<const float> subPrefixSum =
-                   std::span(results.prefixSum.begin() + p * blockSize, blockSize);
-               auto err = wrs::test::assert_is_inclusive_prefix<float, wrs::pmr_alloc<void>>(
-                   subElements, subPrefixSum, resource);
-               if (err) {
-                 for (uint i = 0; i < subElements.size(); ++i) {
-                   fmt::println("[{}]: {}   ->   {}", i + p * blockSize, subElements[i], subPrefixSum[i]);
-                 }
-                 fmt::println("Error:\n {}", err.message());
-                 break;
-               }
+                std::span<const float> subElements =
+                    std::span(elements.begin() + p * blockSize, blockSize);
+                std::span<const float> subPrefixSum =
+                    std::span(results.prefixSum.begin() + p * blockSize, blockSize);
+                auto err = wrs::test::assert_is_inclusive_prefix<float, wrs::pmr_alloc<void>>(
+                    subElements, subPrefixSum, resource);
+                if (err) {
+                    for (uint i = 0; i < subElements.size(); ++i) {
+                        fmt::println("[{}]: {}   ->   {}", i + p * blockSize, subElements[i],
+                                     subPrefixSum[i]);
+                    }
+                    fmt::println("Error:\n {}", err.message());
+                    break;
+                }
             }
 
             if (testCase.N <= 1024) {
@@ -226,17 +350,16 @@ static bool runTestCase(const TestContext& context,
 
                 fmt::println("BLOCK-REDUCTIONS:");
                 for (std::size_t i = 0; i < results.reductions.size(); ++i) {
-                  fmt::println("[{}]: {}", i, results.reductions[i]);
+                    fmt::println("[{}]: {}", i, results.reductions[i]);
                 }
             }
-
         }
         context.profiler->collect(true, true);
     }
     return failed;
 }
 
-void wrs::test::block_wise::block_scan::test(const merian::ContextHandle& context) {
+void wrs::test::block_scan::test(const merian::ContextHandle& context) {
     SPDLOG_INFO("Testing Work efficient prefix sum algorithm");
 
     const TestContext testContext = setupTestContext(context);

@@ -1,104 +1,123 @@
 #pragma once
 
-#include "src/wrs/algorithm/prefix_sum/block_wise/block_scan/BlockScan.hpp"
-namespace wrs {
+#include "src/wrs/algorithm/prefix_sum/block_scan/BlockScan.hpp"
+#include "src/wrs/types/glsl.hpp"
+#include <fmt/base.h>
+  namespace wrs {
 
-struct BlockCombineBuffers {
-    using Self = BlockScanBuffers;
-    static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
+  template <typename T> struct BlockCombineBuffers {
+      using Self = BlockCombineBuffers;
+      static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
-    merian::BufferHandle blockScan;
-    using ReductionsLayout = layout::ArrayLayout<float, storageQualifier>;
-    using ReductionsView = layout::BufferView<ReductionsLayout>;
+      merian::BufferHandle blockScan;
+      using ReductionsLayout = layout::ArrayLayout<T, storageQualifier>;
+      using ReductionsView = layout::BufferView<ReductionsLayout>;
 
-    merian::BufferHandle elementScan;
-    using PrefixSumLayout = layout::ArrayLayout<float, storageQualifier>;
-    using PrefixSumView = layout::BufferView<PrefixSumLayout>;
-};
+      merian::BufferHandle elementScan;
+      using PrefixSumLayout = layout::ArrayLayout<T, storageQualifier>;
+      using PrefixSumView = layout::BufferView<PrefixSumLayout>;
+  };
 
-struct BlockCombineConfig {
-    glsl::uint workgroupSize;
-    glsl::uint rows;
-    glsl::uint sequentialCombineLength;
+  struct BlockCombineConfig {
+      glsl::uint workgroupSize;
+      glsl::uint rows;
+      glsl::uint sequentialCombineLength;
+      glsl::uint blocksPerWorkgroup;
 
-    constexpr BlockCombineConfig(glsl::uint workgroupSize,
-                                 glsl::uint rows,
-                                 glsl::uint sequentialCombineLength,
-                                 std::optional<glsl::uint> blockSizeCheck = std::nullopt)
-        : workgroupSize(workgroupSize), rows(rows),
-          sequentialCombineLength(sequentialCombineLength) {
-        if (blockSizeCheck.has_value()) {
-            assert(blockSizeCheck.value() == partitionSize());
-        }
-    }
+      constexpr BlockCombineConfig(glsl::uint workgroupSize,
+                                   glsl::uint rows,
+                                   glsl::uint sequentialCombineLength,
+                                   glsl::uint blocksPerWorkgroup,
+                                   std::optional<glsl::uint> blockSizeCheck = std::nullopt)
+          : workgroupSize(workgroupSize), rows(rows),
+            sequentialCombineLength(sequentialCombineLength), blocksPerWorkgroup(blocksPerWorkgroup) {
+          if (blockSizeCheck.has_value()) {
+              assert(blockSizeCheck.value() == blockSize());
+          }
+      }
 
-    constexpr BlockCombineConfig(BlockScanConfig blockScanConfig)
-        : workgroupSize(blockScanConfig.workgroupSize),
-          rows(blockScanConfig.rows * 2 * blockScanConfig.sequentialScanLength),
-          sequentialCombineLength(1) {}
+      constexpr BlockCombineConfig(BlockScanConfig blockScanConfig)
+          : workgroupSize(blockScanConfig.workgroupSize), rows(blockScanConfig.rows),
+            sequentialCombineLength(blockScanConfig.sequentialScanLength), blocksPerWorkgroup(1) {}
 
-    inline glsl::uint partitionSize() const {
-        return workgroupSize * rows * sequentialCombineLength;
-    }
-};
+      inline glsl::uint blockSize() const {
+          return workgroupSize * rows * sequentialCombineLength;
+      }
 
-class BlockCombine {
-    struct PushConstants {
-        glsl::uint N;
-    };
+      inline glsl::uint tileSize() const {
+          return blockSize() * blocksPerWorkgroup;
+      }
+  };
 
-  public:
-    using Buffers = BlockCombineBuffers;
+  template <typename T = float> class BlockCombine {
+      struct PushConstants {
+          glsl::uint N;
+      };
 
-    explicit BlockCombine(const merian::ContextHandle& context, BlockCombineConfig config)
-        : m_partitionSize(config.partitionSize()) {
+    public:
+      using Buffers = BlockCombineBuffers<T>;
 
-        const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
-            merian::DescriptorSetLayoutBuilder()
-                .add_binding_storage_buffer() // reductions
-                .add_binding_storage_buffer() // prefix sum
-                .build_push_descriptor_layout(context);
+      explicit BlockCombine(const merian::ContextHandle& context, BlockCombineConfig config)
+          : m_tileSize(config.tileSize()) {
 
-        const std::string shaderPath =
-            "src/wrs/algorithm/prefix_sum/block_wise/combine/shader.comp";
+          const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
+              merian::DescriptorSetLayoutBuilder()
+                  .add_binding_storage_buffer() // reductions
+                  .add_binding_storage_buffer() // prefix sum
+                  .build_push_descriptor_layout(context);
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+          const std::string shaderPath =
+              "src/wrs/algorithm/prefix_sum/block_wise/combine/shader.comp";
 
-        const merian::PipelineLayoutHandle pipelineLayout =
-            merian::PipelineLayoutBuilder(context)
-                .add_descriptor_set_layout(descriptorSet0Layout)
-                .add_push_constant<PushConstants>()
-                .build_pipeline_layout();
+          std::map<std::string, std::string> defines;
 
-        merian::SpecializationInfoBuilder specInfoBuilder;
-        specInfoBuilder.add_entry(config.workgroupSize);
-        specInfoBuilder.add_entry(config.rows);
-        specInfoBuilder.add_entry(
-            context->physical_device.physical_device_subgroup_properties.subgroupSize);
-        specInfoBuilder.add_entry(config.sequentialCombineLength);
-        const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
+          if constexpr (std::is_same_v<glsl::f32, T>) {
+              defines["USE_FLOAT"];
+          } else if constexpr (std::is_same_v<glsl::uint, T>) {
+              defines["USE_UINT"];
+          } else {
+              throw std::runtime_error("unsupported block combine base type");
+          }
 
-        m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
-    }
+          const merian::ShaderModuleHandle shader =
+              context->shader_compiler->find_compile_glsl_to_shadermodule(
+                  context, shaderPath, vk::ShaderStageFlagBits::eCompute, {}, defines);
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
+          const merian::PipelineLayoutHandle pipelineLayout =
+              merian::PipelineLayoutBuilder(context)
+                  .add_descriptor_set_layout(descriptorSet0Layout)
+                  .add_push_constant<PushConstants>()
+                  .build_pipeline_layout();
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.blockScan, buffers.elementScan);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
-        const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
-        cmd.dispatch(workgroupCount, 1, 1);
-    }
+          merian::SpecializationInfoBuilder specInfoBuilder;
+          specInfoBuilder.add_entry(config.workgroupSize);
+          specInfoBuilder.add_entry(config.rows);
+          specInfoBuilder.add_entry(
+              context->physical_device.physical_device_subgroup_properties.subgroupSize);
+          specInfoBuilder.add_entry(config.sequentialCombineLength);
+          specInfoBuilder.add_entry(config.blocksPerWorkgroup);
+          const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
-    inline glsl::uint blockSize() const {
-        return m_partitionSize;
-    }
+          m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
+      }
 
-  private:
-    merian::PipelineHandle m_pipeline;
-    glsl::uint m_partitionSize;
-};
+      void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
 
-} // namespace wrs
+          m_pipeline->bind(cmd);
+          m_pipeline->push_descriptor_set(cmd, buffers.blockScan, buffers.elementScan);
+          m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
+          const uint32_t workgroupCount = (N + m_tileSize - 1) / m_tileSize;
+          fmt::println("Combine : {}", workgroupCount);
+          cmd.dispatch(workgroupCount, 1, 1);
+      }
+
+      inline glsl::uint blockSize() const {
+          return m_tileSize;
+      }
+
+    private:
+      merian::PipelineHandle m_pipeline;
+      glsl::uint m_tileSize;
+  };
+
+  } // namespace wrs

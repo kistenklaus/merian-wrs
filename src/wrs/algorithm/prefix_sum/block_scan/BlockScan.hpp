@@ -14,6 +14,7 @@
 #include <fmt/base.h>
 #include <fmt/format.h>
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
 #include <vulkan/vulkan_handles.hpp>
 
@@ -21,20 +22,20 @@
 
 namespace wrs {
 
-struct BlockScanBuffers {
+template <typename T = float> struct BlockScanBuffers {
     using Self = BlockScanBuffers;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
     merian::BufferHandle elements;
-    using ElementsLayout = layout::ArrayLayout<float, storageQualifier>;
+    using ElementsLayout = layout::ArrayLayout<T, storageQualifier>;
     using ElementsView = layout::BufferView<ElementsLayout>;
 
     merian::BufferHandle reductions; // optional buffer if nullptr no reductions are written!
-    using ReductionsLayout = layout::ArrayLayout<float, storageQualifier>;
+    using ReductionsLayout = layout::ArrayLayout<T, storageQualifier>;
     using ReductionsView = layout::BufferView<ReductionsLayout>;
 
     merian::BufferHandle prefixSum;
-    using PrefixSumLayout = layout::ArrayLayout<float, storageQualifier>;
+    using PrefixSumLayout = layout::ArrayLayout<T, storageQualifier>;
     using PrefixSumView = layout::BufferView<PrefixSumLayout>;
 
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
@@ -70,15 +71,34 @@ struct BlockScanBuffers {
 };
 
 enum class BlockScanVariant : glsl::uint {
-    WORKGROUP_HILLIS_STEEL = 1,
-    WORKGROUP_SUBGROUP_SCAN = 1,
-    SUBGROUP_INTRINSIC = 0x100,
-    SUBGROUP_HILLIS_STEEL = 0x200,
+    RAKING = 1,
+    RANKED = 2,
+    SUBGROUP_SCAN_SHFL = 4,
+    EXCLUSIVE = 8,
+    INCLUSIVE = 16,
+    STRIDED = 32,
+    RANKED_STRIDED = RANKED | STRIDED,
+    SUBGROUP_SCAN_INTRINSIC = 64,
 };
 
 inline constexpr BlockScanVariant operator|(BlockScanVariant a, BlockScanVariant b) noexcept {
     using Base = std::underlying_type_t<BlockScanVariant>;
     return static_cast<BlockScanVariant>(static_cast<Base>(a) | static_cast<Base>(b));
+}
+
+inline constexpr BlockScanVariant operator&(BlockScanVariant a, BlockScanVariant b) noexcept {
+    using Base = std::underlying_type_t<BlockScanVariant>;
+    return static_cast<BlockScanVariant>(static_cast<Base>(a) & static_cast<Base>(b));
+}
+
+inline constexpr bool operator==(BlockScanVariant a, BlockScanVariant b) noexcept {
+    using Base = std::underlying_type_t<BlockScanVariant>;
+    return static_cast<Base>(a) == static_cast<Base>(b);
+}
+
+inline constexpr bool operator!=(BlockScanVariant a, BlockScanVariant b) noexcept {
+    using Base = std::underlying_type_t<BlockScanVariant>;
+    return static_cast<Base>(a) != static_cast<Base>(b);
 }
 
 struct BlockScanConfig {
@@ -89,8 +109,8 @@ struct BlockScanConfig {
     const bool writeBlockReductions;
 
     constexpr BlockScanConfig()
-        : workgroupSize(512), rows(8), variant(BlockScanVariant::SUBGROUP_INTRINSIC),
-          sequentialScanLength(1), writeBlockReductions(true) {}
+        : workgroupSize(512), rows(8), variant(BlockScanVariant::RAKING), sequentialScanLength(1),
+          writeBlockReductions(true) {}
     explicit constexpr BlockScanConfig(glsl::uint workgroupSize,
                                        glsl::uint rows,
                                        BlockScanVariant variant,
@@ -100,17 +120,17 @@ struct BlockScanConfig {
           sequentialScanLength(sequentialScanLength), writeBlockReductions(writeBlockReductions) {}
 
     constexpr glsl::uint blockSize() const {
-        return workgroupSize * rows * 2 * sequentialScanLength;
+        return workgroupSize * rows * sequentialScanLength;
     }
 };
 
-class BlockScan {
+template <typename T = float> class BlockScan {
     struct PushConstants {
         glsl::uint N;
     };
 
   public:
-    using Buffers = BlockScanBuffers;
+    using Buffers = BlockScanBuffers<T>;
 
     explicit BlockScan(const merian::ContextHandle& context, BlockScanConfig config = {})
         : m_blockSize(config.blockSize()) {
@@ -122,13 +142,51 @@ class BlockScan {
                 .add_binding_storage_buffer() // prefix sum
                 .build_push_descriptor_layout(context);
 
-        const std::string shaderPath =
-            "src/wrs/algorithm/prefix_sum/block_wise/block_scan/shader.comp";
+        const std::string shaderPath = "src/wrs/algorithm/prefix_sum/block_scan/shader.comp";
+
+        std::map<std::string, std::string> defines;
+        if ((config.variant & BlockScanVariant::RANKED) == BlockScanVariant::RANKED) {
+            defines["BLOCK_SCAN_USE_RANKED"];
+        } else if ((config.variant & BlockScanVariant::RAKING) == BlockScanVariant::RAKING) {
+            defines["BLOCK_SCAN_USE_RAKING"];
+        }
+        if ((config.variant & BlockScanVariant::SUBGROUP_SCAN_SHFL) ==
+            BlockScanVariant::SUBGROUP_SCAN_SHFL) {
+            defines["SUBGROUP_SCAN_USE_SHFL"];
+        }
+        if ((config.variant & BlockScanVariant::EXCLUSIVE) == BlockScanVariant::EXCLUSIVE) {
+            defines["EXCLUSIVE"];
+
+            if ((config.variant & BlockScanVariant::STRIDED) == BlockScanVariant::STRIDED) {
+              throw std::runtime_error("Unsupported variant [STRIDED | EXCLUSIVE]");
+            }
+        }
+        if ((config.variant & BlockScanVariant::INCLUSIVE) == BlockScanVariant::INCLUSIVE) {
+            const auto it = defines.find("EXCLUSIVE");
+            if (it != defines.end()) {
+                defines.erase(it);
+            }
+        }
+
+        if ((config.variant & BlockScanVariant::STRIDED) == BlockScanVariant::STRIDED) {
+          if ((config.variant & BlockScanVariant::RAKING) == BlockScanVariant::RAKING) {
+            throw std::runtime_error("Unsupported variant");
+          }
+          defines["STRIDED"];
+        }
+
+        if constexpr (std::is_same_v<T, glsl::f32>) {
+            defines["USE_FLOAT"];
+        } else if constexpr (std::is_same_v<T, glsl::uint>) {
+            defines["USE_UINT"];
+        } else {
+            throw std::runtime_error("unsupported type for BlockScans");
+        }
 
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
                 context, shaderPath, vk::ShaderStageFlagBits::eCompute,
-                {"src/wrs/algorithm/include/"});
+                {"src/wrs/algorithm/include/"}, defines);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)

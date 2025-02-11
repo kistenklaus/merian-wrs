@@ -23,7 +23,7 @@ namespace wrs {
 
 struct SubgroupPackBuffers {
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
-    using weight_type = glsl::float_t;
+    using weight_type = glsl::f32;
 
     merian::BufferHandle partitionIndices; // bind = 0
     using PartitionIndicesLayout =

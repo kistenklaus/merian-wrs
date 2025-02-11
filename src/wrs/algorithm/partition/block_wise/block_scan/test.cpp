@@ -1,6 +1,5 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
-#include "src/renderdoc.hpp"
 #include "src/wrs/algorithm/prefix_sum/block_scan/BlockScan.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
@@ -18,51 +17,52 @@
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
+#include <ranges>
 #include <spdlog/spdlog.h>
 #include <tuple>
 
-#include "./DecoupledPrefixSum.hpp"
-
-namespace wrs::test::decoupled_prefix {
+#include "./PartitionBlockScan.hpp"
 
 using namespace wrs;
 using namespace wrs::test;
 
-using Algorithm = DecoupledPrefixSum;
+using Algorithm = PartitionBlockScan;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
-    DecoupledPrefixSumConfig config;
-
+    PartitionBlockScanConfig config;
     glsl::uint N;
-    Distribution distribution;
-
+    Distribution dist;
     uint32_t iterations;
 };
 
-static TestCase TEST_CASES[] = {
+static constexpr BlockScanVariant VARIANT = BlockScanVariant::RANKED_STRIDED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC
+    | BlockScanVariant::EXCLUSIVE;
+
+static const TestCase TEST_CASES[] = {
+    //
     TestCase{
-        .config = DecoupledPrefixSumConfig(512, 8, 32, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::SUBGROUP_SCAN_SHFL),
-        .N = static_cast<glsl::uint>((1 << 28)),
-        .distribution = Distribution::UNIFORM,
+        .config = PartitionBlockScanConfig(512, 1, 1, VARIANT),
+        .N = static_cast<glsl::uint>((1 << 10)),
+        .dist = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
         .iterations = 1,
     },
 };
 
-std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
-
-    glsl::uint maxElementCount = 0;
-    glsl::uint maxPartitionSize = 0;
-
-    for (auto testCase : TEST_CASES) {
-        maxElementCount = std::max(maxElementCount, testCase.N);
-        glsl::uint partitionSize = testCase.config.partitionSize();
-        maxPartitionSize = std::max(maxPartitionSize, partitionSize);
+static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
+    glsl::uint maxN = 0;
+    glsl::uint maxPartitionCount = 0;
+    for (const auto& testCase : TEST_CASES) {
+        maxN = std::max(maxN, testCase.N);
+        glsl::uint partitionCount =
+            (testCase.N + testCase.config.blockSize() - 1) / testCase.config.blockSize();
+        maxPartitionCount = std::max(maxPartitionCount, partitionCount);
     }
+
     Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
-                                      maxElementCount, maxPartitionSize);
-    Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE,
-                                      maxElementCount, maxPartitionSize);
+                                      maxN, maxPartitionCount);
+    Buffers local =
+        Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE, maxN, maxPartitionCount);
 
     return std::make_tuple(local, stage);
 }
@@ -71,7 +71,7 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
                            std::span<const float> elements,
-                           std::size_t partitionSize) {
+                           float pivot) {
     {
         Buffers::ElementsView stageView{stage.elements, elements.size()};
         Buffers::ElementsView localView{buffers.elements, elements.size()};
@@ -80,31 +80,53 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
         localView.expectComputeRead(cmd);
     }
     {
-        std::size_t partitionCount = (elements.size() + partitionSize - 1) / partitionSize;
-        Buffers::DecoupledStatesView localView{buffers.decoupledStates, partitionCount};
-        localView.zero(cmd);
+        Buffers::PivotView stageView{stage.pivot};
+        Buffers::PivotView localView{buffers.pivot};
+        stageView.upload(pivot);
+        stageView.copyTo(cmd, localView);
         localView.expectComputeRead(cmd);
     }
 }
 
-static void
-downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t N) {
-    Buffers::PrefixSumView stageView{stage.prefixSum, N};
-    Buffers::PrefixSumView localView{buffers.prefixSum, N};
-    localView.copyTo(cmd, stageView);
-    stageView.expectHostRead(cmd);
+static void downloadToStage(vk::CommandBuffer cmd,
+                            Buffers& buffers,
+                            Buffers& stage,
+                            glsl::uint N,
+                            glsl::uint partitionCount) {
+    {
+        Buffers::IndicesView stageView{stage.indices, N};
+        Buffers::IndicesView localView{buffers.indices, N};
+        localView.expectComputeWrite();
+        localView.copyTo(cmd, stageView);
+        stageView.expectHostRead(cmd);
+    }
+    {
+        Buffers::BlockCountView stageView{stage.blockCount, partitionCount};
+        Buffers::BlockCountView localView{buffers.blockCount, partitionCount};
+        localView.expectComputeWrite();
+        localView.copyTo(cmd, stageView);
+        stageView.expectHostRead(cmd);
+    }
 }
 
 struct Results {
-    std::pmr::vector<float> prefixSum;
+    std::pmr::vector<glsl::uint> indices;
+    std::pmr::vector<glsl::uint> blockCount;
 };
-static Results
-downloadFromStage(Buffers& stage, std::size_t N, std::pmr::memory_resource* resource) {
-    Buffers::PrefixSumView stageView{stage.prefixSum, N};
-    auto prefixSum = stageView.download<float, wrs::pmr_alloc<float>>(resource);
+static Results downloadFromStage(Buffers& stage,
+                                 glsl::uint N,
+                                 glsl::uint partitionCount,
+                                 std::pmr::memory_resource* resource) {
+
+    Buffers::IndicesView stagePrefixView{stage.indices, N};
+    auto indices = stagePrefixView.download<glsl::uint, wrs::pmr_alloc<glsl::uint>>(resource);
+
+    Buffers::BlockCountView stageReductionView{stage.blockCount, partitionCount};
+    auto blockCount = stageReductionView.download<glsl::uint, wrs::pmr_alloc<glsl::uint>>(resource);
 
     return Results{
-        .prefixSum = std::move(prefixSum),
+        .indices = std::move(indices),
+        .blockCount = std::move(blockCount),
     };
 };
 
@@ -114,8 +136,8 @@ static bool runTestCase(const TestContext& context,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
     std::string testName =
-        fmt::format("{{workgroupSize={},N={},rows={},lookback={}}}", testCase.config.workgroupSize,
-                    testCase.N, testCase.config.rows, testCase.config.parallelLookbackDepth);
+        fmt::format("{{workgroupSize={},rows={},seq={},N={}}}", testCase.config.workgroupSize,
+                    testCase.config.rows, testCase.config.sequentialScanLength, testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
     Algorithm kernel{context.context, testCase.config};
@@ -134,11 +156,14 @@ static bool runTestCase(const TestContext& context,
             }
         }
 
+        const glsl::uint partitionCount =
+            (testCase.N + testCase.config.blockSize() - 1) / testCase.config.blockSize();
+
         // 1. Generate input
         context.profiler->start("Generate test input");
-        auto weights = wrs::pmr::generate_weights(testCase.distribution, testCase.N);
-        std::size_t partitionSize = testCase.config.partitionSize();
-        // TODO
+        std::pmr::vector<float> elements =
+            wrs::pmr::generate_weights<float>(testCase.dist, testCase.N, resource);
+        const float pivot = 0.5;
         context.profiler->end();
 
         // 2. Begin recoding
@@ -151,16 +176,15 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
             SPDLOG_DEBUG("Uploading test case...");
-            uploadTestCase(cmd, buffers, stage, weights, partitionSize);
+            uploadTestCase(cmd, buffers, stage, elements, pivot);
         }
 
         // 4. Run test case
         {
-            glsl::uint workgroupCount = (testCase.N + testCase.config.partitionSize() - 1) /
-                                        testCase.config.partitionSize();
+            glsl::uint workgroupCount = (testCase.N + kernel.blockSize() - 1) / kernel.blockSize();
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd,
                                      fmt::format("Execute algorithm [{}]", workgroupCount));
-            SPDLOG_DEBUG("Execute algorithm ({})", workgroupCount);
+            SPDLOG_DEBUG("Execute algorithm");
             kernel.run(cmd, buffers, testCase.N);
         }
 
@@ -168,7 +192,7 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
             SPDLOG_DEBUG("Downloading results to stage...");
-            downloadToStage(cmd, buffers, stage, testCase.N);
+            downloadToStage(cmd, buffers, stage, testCase.N, partitionCount);
         }
 
         // 6. Submit to device
@@ -181,25 +205,34 @@ static bool runTestCase(const TestContext& context,
         // 7. Download from stage
         context.profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        Results results = downloadFromStage(stage, testCase.N, resource);
+        Results results = downloadFromStage(stage, testCase.N, partitionCount, resource);
         context.profiler->end();
 
         // 7. Test results
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
-            auto err = wrs::test::pmr::assert_is_inclusive_prefix<float>(weights, results.prefixSum,
-                                                                         resource);
 
-            if (testCase.N <= 1024 * 2048) {
-                for (std::size_t i = 0;
-                     i < std::min(results.prefixSum.size(), static_cast<std::size_t>(1024)); ++i) {
-                    fmt::println("[{}] = {}", i, results.prefixSum[i]);
+            if (testCase.N <= 1024) {
+                fmt::println("INDICES:");
+                uint h = 0;
+                for (std::size_t i = 0; i < results.indices.size(); ++i) {
+                    bool heavy = elements[i] > pivot;
+                    if (heavy) {
+                      if (results.indices[i] != h) {
+                        fmt::println("ERROR");
+                      }
+                      h += 1;
+                    }
+
+                    fmt::println("[{}]: {} -> {}", i, elements[i] > pivot ? 1 : 0,
+                                 results.indices[i]);
                 }
-            }
 
-            if (err) {
-                SPDLOG_ERROR("Invalid prefix: \n{}", err.message());
+                fmt::println("BLOCK-COUNTS:");
+                for (std::size_t i = 0; i < results.blockCount.size(); ++i) {
+                    fmt::println("[{}]: {}", i, results.blockCount[i]);
+                }
             }
         }
         context.profiler->collect(true, true);
@@ -207,8 +240,8 @@ static bool runTestCase(const TestContext& context,
     return failed;
 }
 
-void test(const merian::ContextHandle& context) {
-    SPDLOG_INFO("Testing Decoupled prefix sum algorithm");
+void wrs::test::partition::block_scan::test(const merian::ContextHandle& context) {
+    SPDLOG_INFO("Testing Work efficient prefix sum algorithm");
 
     const TestContext testContext = setupTestContext(context);
 
@@ -223,9 +256,7 @@ void test(const merian::ContextHandle& context) {
 
     uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        renderdoc::startCapture();
         runTestCase(testContext, testCase, buffers, stage, resource);
-        renderdoc::stopCapture();
         stackResource.reset();
     }
 
@@ -240,5 +271,3 @@ void test(const merian::ContextHandle& context) {
                                  sizeof(TEST_CASES) / sizeof(TestCase)));
     }
 }
-
-} // namespace wrs::test::decoupled_prefix

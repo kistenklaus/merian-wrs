@@ -15,7 +15,7 @@
 
 namespace wrs {
 struct PSACBuffers {
-    using weight_type = glsl::float_t;
+    using weight_type = glsl::f32;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
     merian::BufferHandle weights;
@@ -71,7 +71,7 @@ class PSAC {
 
   public:
     using Buffers = PSACBuffers;
-    using weight_t = glsl::float_t;
+    using weight_t = glsl::f32;
 
     explicit PSAC(const merian::ContextHandle& context, PSACConfig config = {})
         : m_mean(context, config.meanConfig),

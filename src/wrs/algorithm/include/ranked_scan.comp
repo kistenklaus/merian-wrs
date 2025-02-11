@@ -1,0 +1,223 @@
+#ifndef RANKED_SCAN_COMP_GUARD
+#define RANKED_SCAN_COMP_GUARD
+
+#include "subgroup_scan.comp"
+
+const uint RANKED_SUBGROUP_COUNT = (gl_WorkGroupSize.x + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+shared float ranked_scatch[SUBGROUP_SIZE];
+
+float ranked_inclusive_scan_float(float x) {
+    float rank0_inclusive = subgroup_inclusive_scan_float(x);
+
+    if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+        ranked_scatch[gl_SubgroupID] = rank0_inclusive;
+    }
+
+    barrier();
+
+    if (gl_SubgroupID == 0) {
+        float rank0_aggregate;
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            rank0_aggregate = ranked_scatch[gl_SubgroupInvocationID];
+        } else {
+            rank0_aggregate = 0;
+        }
+        const float rank1_exclusive = subgroup_exclusive_scan_float(rank0_aggregate);
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            ranked_scatch[gl_SubgroupInvocationID] = rank1_exclusive;
+        }
+    }
+    barrier();
+    const float rank1_exclusive = ranked_scatch[gl_SubgroupID];
+    return rank0_inclusive + rank1_exclusive;
+}
+
+// only subgroupID == 0 writes to aggregate
+float ranked_inclusive_scan_float(float x, out float aggregate) {
+    float rank0_inclusive = subgroup_inclusive_scan_float(x);
+
+    if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+        ranked_scatch[gl_SubgroupID] = rank0_inclusive;
+    }
+
+    barrier();
+
+    if (gl_SubgroupID == 0) {
+        float rank0_aggregate;
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            rank0_aggregate = ranked_scatch[gl_SubgroupInvocationID];
+        } else {
+            rank0_aggregate = 0;
+        }
+        const float rank1_exclusive = subgroup_exclusive_scan_float(rank0_aggregate, aggregate);
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            ranked_scatch[gl_SubgroupInvocationID] = rank1_exclusive;
+        }
+    }
+    barrier();
+    const float rank1_exclusive = ranked_scatch[gl_SubgroupID];
+    return rank0_inclusive + rank1_exclusive;
+}
+
+float ranked_exclusive_scan_float(float x) {
+    float rank0_aggregate;
+    const float rank0_exclusive = subgroup_exclusive_scan_float(x, rank0_aggregate);
+
+    if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+        ranked_scatch[gl_SubgroupID] = rank0_aggregate;
+    }
+
+    barrier();
+
+    if (gl_SubgroupID == 0) {
+        float rank0_aggregate;
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            rank0_aggregate = ranked_scatch[gl_SubgroupInvocationID];
+        } else {
+            rank0_aggregate = 0;
+        }
+        const float rank1_exclusive = subgroup_exclusive_scan_float(rank0_aggregate);
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            ranked_scatch[gl_SubgroupInvocationID] = rank1_exclusive;
+        }
+    }
+    barrier();
+    const float rank1_exclusive = ranked_scatch[gl_SubgroupID];
+    return rank0_exclusive + rank1_exclusive;
+}
+
+float ranked_exclusive_scan_float(float x, out float aggregate) {
+    float rank0_aggregate;
+    float rank0_exclusive = subgroup_exclusive_scan_float(x, rank0_aggregate);
+
+    if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+        ranked_scatch[gl_SubgroupID] = rank0_aggregate;
+    }
+
+    barrier();
+
+    if (gl_SubgroupID == 0) {
+        float rank0_aggregate;
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            rank0_aggregate = ranked_scatch[gl_SubgroupInvocationID];
+        } else {
+            rank0_aggregate = 0;
+        }
+        const float rank1_exclusive = subgroup_exclusive_scan_float(rank0_aggregate, aggregate);
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            ranked_scatch[gl_SubgroupInvocationID] = rank1_exclusive;
+        }
+    }
+    barrier();
+    const float rank1_exclusive = ranked_scatch[gl_SubgroupID];
+    return rank0_exclusive + rank1_exclusive;
+}
+
+uint ranked_inclusive_scan_uint(uint x) {
+    uint rank0_inclusive = subgroup_inclusive_scan_uint(x);
+
+    if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+        ranked_scatch[gl_SubgroupID] = uintBitsToFloat(rank0_inclusive);
+    }
+
+    barrier();
+
+    if (gl_SubgroupID == 0) {
+        uint rank0_aggregate;
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            rank0_aggregate = floatBitsToUint(ranked_scatch[gl_SubgroupInvocationID]);
+        } else {
+            rank0_aggregate = 0;
+        }
+        const uint rank1_exclusive = subgroup_exclusive_scan_uint(rank0_aggregate);
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            ranked_scatch[gl_SubgroupInvocationID] = uintBitsToFloat(rank1_exclusive);
+        }
+    }
+    barrier();
+    const uint rank1_exclusive = floatBitsToUint(ranked_scatch[gl_SubgroupID]);
+    return rank0_inclusive + rank1_exclusive;
+}
+
+// only subgroupID == 0 writes to aggregate
+uint ranked_inclusive_scan_uint(uint x, out uint aggregate) {
+    uint rank0_inclusive = subgroup_inclusive_scan_uint(x);
+
+    if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+        ranked_scatch[gl_SubgroupID] = uintBitsToFloat(rank0_inclusive);
+    }
+
+    barrier();
+
+    if (gl_SubgroupID == 0) {
+        uint rank0_aggregate;
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            rank0_aggregate = floatBitsToUint(ranked_scatch[gl_SubgroupInvocationID]);
+        } else {
+            rank0_aggregate = 0;
+        }
+        const uint rank1_exclusive = subgroup_exclusive_scan_uint(rank0_aggregate, aggregate);
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            ranked_scatch[gl_SubgroupInvocationID] = uintBitsToFloat(rank1_exclusive);
+        }
+    }
+    barrier();
+    const uint rank1_exclusive = floatBitsToUint(ranked_scatch[gl_SubgroupID]);
+    return rank0_inclusive + rank1_exclusive;
+}
+
+uint ranked_exclusive_scan_uint(uint x) {
+    uint rank0_aggregate;
+    const uint rank0_exclusive = subgroup_exclusive_scan_uint(x, rank0_aggregate);
+
+    if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+        ranked_scatch[gl_SubgroupID] = uintBitsToFloat(rank0_aggregate);
+    }
+
+    barrier();
+
+    if (gl_SubgroupID == 0) {
+        uint rank0_aggregate;
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            rank0_aggregate = floatBitsToUint(ranked_scatch[gl_SubgroupInvocationID]);
+        } else {
+            rank0_aggregate = 0;
+        }
+        const uint rank1_exclusive = subgroup_exclusive_scan_uint(rank0_aggregate);
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            ranked_scatch[gl_SubgroupInvocationID] = uintBitsToFloat(rank1_exclusive);
+        }
+    }
+    barrier();
+    const uint rank1_exclusive = floatBitsToUint(ranked_scatch[gl_SubgroupID]);
+    return rank0_exclusive + rank1_exclusive;
+}
+
+uint ranked_exclusive_scan_uint(uint x, out uint aggregate) {
+    uint rank0_aggregate;
+    const uint rank0_exclusive = subgroup_exclusive_scan_uint(x, rank0_aggregate);
+
+    if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+        ranked_scatch[gl_SubgroupID] = uintBitsToFloat(rank0_aggregate);
+    }
+
+    barrier();
+
+    if (gl_SubgroupID == 0) {
+        uint rank0_aggregate;
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            rank0_aggregate = floatBitsToUint(ranked_scatch[gl_SubgroupInvocationID]);
+        } else {
+            rank0_aggregate = 0;
+        }
+        const uint rank1_exclusive = subgroup_exclusive_scan_uint(rank0_aggregate, aggregate);
+        if (gl_SubgroupInvocationID < RANKED_SUBGROUP_COUNT) {
+            ranked_scatch[gl_SubgroupInvocationID] = uintBitsToFloat(rank1_exclusive);
+        }
+    }
+    barrier();
+    const uint rank1_exclusive = floatBitsToUint(ranked_scatch[gl_SubgroupID]);
+    return rank0_exclusive + rank1_exclusive;
+}
+
+#endif

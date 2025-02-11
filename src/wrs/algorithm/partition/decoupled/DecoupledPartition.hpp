@@ -7,32 +7,32 @@
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "src/wrs/algorithm/prefix_sum/block_scan/BlockScan.hpp"
-#include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
-#include "src/wrs/layout/StaticString.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <cstddef>
+#include <concepts>
 #include <memory>
-#include <stdexcept>
 #include <vulkan/vulkan_handles.hpp>
 
 #include "merian/vk/memory/resource_allocator.hpp"
 
 namespace wrs {
 
-struct DecoupledPrefixSumBuffers {
-    using Self = DecoupledPrefixSumBuffers;
+struct DecoupledPartitionBuffers {
+    using Self = DecoupledPartitionBuffers;
     static constexpr auto storageQualifier = glsl::StorageQualifier::std430;
 
+    // ======  INPUT =========
     merian::BufferHandle elements;
     using ElementsLayout = layout::ArrayLayout<float, storageQualifier>;
     using ElementsView = layout::BufferView<ElementsLayout>;
 
-    merian::BufferHandle prefixSum;
-    using PrefixSumLayout = layout::ArrayLayout<float, storageQualifier>;
-    using PrefixSumView = layout::BufferView<PrefixSumLayout>;
+    merian::BufferHandle pivot;
+    using PivotLayout = layout::PrimitiveLayout<float, storageQualifier>;
+    using PivotView = layout::BufferView<PivotLayout>;
+
+    // ======= INTERMEDIATE =============
 
     merian::BufferHandle decoupledStates;
     using _DecoupledStateLayout =
@@ -48,56 +48,66 @@ struct DecoupledPrefixSumBuffers {
         layout::Attribute<_DecoupledStatesArrayLayout, layout::StaticString("batches")>>;
     using DecoupledStatesView = layout::BufferView<DecoupledStatesLayout>;
 
+    // ======== OUTPUT =============
+    merian::BufferHandle partitionIndices;
+    using PartitionIndicesLayout = layout::ArrayLayout<glsl::uint, storageQualifier>;
+    using PartitionIndicesView = layout::BufferView<PartitionIndicesLayout>;
+
+    merian::BufferHandle partition;
+    using PartitionLayout = layout::ArrayLayout<float, storageQualifier>;
+    using PartitionView = layout::BufferView<PartitionLayout>;
+
+    merian::BufferHandle heavyCount;
+    using HeavyCountLayout = layout::PrimitiveLayout<glsl::uint, storageQualifier>;
+    using HeavyCountView = layout::BufferView<HeavyCountLayout>;
+
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
                          merian::MemoryMappingType memoryMapping,
-                         std::size_t N,
-                         std::size_t partitionSize);
+                         glsl::uint N,
+                         glsl::uint blockCount);
 };
 
-class DecoupledPrefixSumConfig {
-  public:
+struct DecoupledPartitionConfig {
     const glsl::uint workgroupSize;
     const glsl::uint rows;
+    const BlockScanVariant blockScanVariant;
     const glsl::uint parallelLookbackDepth;
 
-    const BlockScanVariant blockScanVariant;
+    constexpr DecoupledPartitionConfig(glsl::uint workgroupSize,
+                                       glsl::uint rows,
+                                       BlockScanVariant blockScanVariant,
+                                       glsl::uint parallelLookbackDepth)
+        : workgroupSize(workgroupSize), rows(rows), blockScanVariant(blockScanVariant),
+          parallelLookbackDepth(parallelLookbackDepth) {}
 
-    constexpr DecoupledPrefixSumConfig()
-        : workgroupSize(512), rows(8), parallelLookbackDepth(32),
-          blockScanVariant(BlockScanVariant::RAKING) {}
-    constexpr explicit DecoupledPrefixSumConfig(
-        glsl::uint workgroupSize,
-        glsl::uint rows,
-        glsl::uint parallelLookbackDepth,
-        BlockScanVariant blockScanVariant = BlockScanVariant::RAKING)
-        : workgroupSize(workgroupSize), rows(rows), parallelLookbackDepth(parallelLookbackDepth),
-          blockScanVariant(blockScanVariant) {}
-
-    inline constexpr glsl::uint partitionSize() const {
+    glsl::uint blockSize() const {
         return workgroupSize * rows;
     }
 };
 
-class DecoupledPrefixSum {
+class DecoupledPartition {
     struct PushConstants {
         glsl::uint N;
     };
 
   public:
-    using Buffers = DecoupledPrefixSumBuffers;
+    using Buffers = DecoupledPartitionBuffers;
 
-    explicit DecoupledPrefixSum(const merian::ContextHandle& context,
-                                DecoupledPrefixSumConfig config = {})
-        : m_partitionSize(config.partitionSize()) {
+    explicit DecoupledPartition(const merian::ContextHandle& context,
+                                DecoupledPartitionConfig config)
+        : m_blockSize(config.blockSize()) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
-                .add_binding_storage_buffer()
-                .add_binding_storage_buffer()
-                .add_binding_storage_buffer()
+                .add_binding_storage_buffer() // elements
+                .add_binding_storage_buffer() // pivot
+                .add_binding_storage_buffer() // decoupled states
+                .add_binding_storage_buffer() // partition indices
+                .add_binding_storage_buffer() // partition elements
+                .add_binding_storage_buffer() // heavy count
                 .build_push_descriptor_layout(context);
 
-        const std::string shaderPath = "src/wrs/algorithm/prefix_sum/decoupled/shader.comp";
+        const std::string shaderPath = "src/wrs/algorithm/partition/decoupled/shader.comp";
 
         std::map<std::string, std::string> defines;
         if ((config.blockScanVariant & BlockScanVariant::RANKED) == BlockScanVariant::RANKED) {
@@ -122,11 +132,12 @@ class DecoupledPrefixSum {
             }
         }
         if ((config.blockScanVariant & BlockScanVariant::STRIDED) == BlockScanVariant::STRIDED) {
-          if ((config.blockScanVariant & BlockScanVariant::RAKING) == BlockScanVariant::RAKING) {
-            throw std::runtime_error("Unsupported BlockScanVariant");
-          }
-          defines["STRIDED"];
+            if ((config.blockScanVariant & BlockScanVariant::RAKING) == BlockScanVariant::RAKING) {
+                throw std::runtime_error("Unsupported BlockScanVariant");
+            }
+            defines["STRIDED"];
         }
+        defines["USE_FLOAT"];
 
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
@@ -144,8 +155,6 @@ class DecoupledPrefixSum {
         specInfoBuilder.add_entry(config.rows);
         specInfoBuilder.add_entry(
             context->physical_device.physical_device_subgroup_properties.subgroupSize);
-        assert(context->physical_device.physical_device_subgroup_properties.subgroupSize >=
-               config.parallelLookbackDepth);
         specInfoBuilder.add_entry(config.parallelLookbackDepth);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
@@ -154,21 +163,30 @@ class DecoupledPrefixSum {
 
     void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
 
+        const uint32_t workgroupCount = (N + m_blockSize - 1) / m_blockSize;
+
+        // Didn't find any smart way around this, but zeroing buffers is pretty fast and
+        // most likely hardware accelerated (faster than memory bandwidth)
+        Buffers::DecoupledStatesView decoupledStatesView{buffers.decoupledStates, workgroupCount};
+        decoupledStatesView.zero(cmd);
+        decoupledStatesView.expectComputeRead(cmd);
+
         m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.prefixSum,
-                                        buffers.decoupledStates);
+        m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.pivot,
+                                        buffers.decoupledStates, buffers.partitionIndices,
+                                        buffers.partition, buffers.heavyCount);
         m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
-        const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
+
         cmd.dispatch(workgroupCount, 1, 1);
     }
 
-    inline glsl::uint getPartitionSize() const {
-        return m_partitionSize;
+    inline glsl::uint blockSize() const {
+      return m_blockSize;
     }
 
   private:
     merian::PipelineHandle m_pipeline;
-    glsl::uint m_partitionSize;
+    glsl::uint m_blockSize;
 };
 
 } // namespace wrs

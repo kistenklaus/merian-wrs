@@ -23,7 +23,7 @@ constexpr bool operator&(StorageQualifier lhs, StorageQualifier rhs) {
 using uint = uint32_t;
 using uint64 = uint64_t;
 using sint64 = int64_t;
-using float_t = float;
+using f32 = float;
 using sint = int32_t;
 
 template <typename T>
@@ -36,7 +36,7 @@ template <typename T>
 concept vec4_like = std::is_same_v<T, glm::vec4>;
 
 template <typename T>
-concept scalar_like = std::is_same_v<T, wrs::glsl::float_t> || std::is_same_v<T, wrs::glsl::sint> ||
+concept scalar_like = std::is_same_v<T, wrs::glsl::f32> || std::is_same_v<T, wrs::glsl::sint> ||
                       std::is_same_v<T, wrs::glsl::uint>;
 template <typename T>
 concept int64_like = std::is_same_v<T, wrs::glsl::uint64> || std::is_same_v<T, wrs::glsl::sint64>;

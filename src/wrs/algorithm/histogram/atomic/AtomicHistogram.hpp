@@ -72,6 +72,7 @@ class AtomicHistogram {
                 .build_push_descriptor_layout(context);
 
         const std::string shaderPath = "src/wrs/algorithm/histogram/atomic/shader.comp";
+        
 
         const merian::ShaderModuleHandle shader =
             context->shader_compiler->find_compile_glsl_to_shadermodule(
@@ -91,8 +92,8 @@ class AtomicHistogram {
     }
 
     void
-    run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint offset, glsl::uint count) {
-
+    run(const vk::CommandBuffer& cmd, const Buffers& buffers, glsl::uint offset, glsl::uint count) {
+        
         m_pipeline->bind(cmd);
         m_pipeline->push_descriptor_set(cmd, buffers.samples, buffers.histogram);
         m_pipeline->push_constant<PushConstants>(cmd,

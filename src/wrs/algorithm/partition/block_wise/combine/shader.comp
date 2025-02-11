@@ -27,12 +27,28 @@ layout(constant_id = 4) const uint BLOCKS_PER_WORKGROUP = 1;
 #define MONOID void
 #endif
 
-layout(set = 0, binding = 0) readonly buffer in_BlockScan {
-    MONOID blockScan[];
+layout(set = 0, binding = 0) readonly buffer in_Elements {
+    MONOID elements[];
 };
 
-layout(set = 0, binding = 1) buffer inout_ElementScan {
-    MONOID elementScan[];
+layout(set = 0, binding = 1) readonly buffer in_Pivot {
+    MONOID pivot;
+} con;
+
+layout(set = 0, binding = 2) readonly buffer in_Indices {
+    uint indices[];
+};
+
+layout(set = 0, binding = 3) readonly buffer in_BlockIndices {
+    uint blockIndices[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer out_PartitionIndices {
+    uint partitionIndices[];
+};
+
+layout(set = 0, binding = 5) writeonly buffer out_Partition {
+    MONOID partitionElements[];
 };
 
 layout(push_constant) uniform PushConstant {
@@ -47,30 +63,42 @@ uint N;
 
 void main(void) {
     N = pc.N;
+    const MONOID pivot = con.pivot;
 
     const uint tileBase = gl_WorkGroupID.x * BLOCKS_PER_WORKGROUP;
 
     for (uint t = 0; t < BLOCKS_PER_WORKGROUP; ++t) {
         const uint partBase = (tileBase + t) * PARTITION_SIZE;
 
-        const MONOID blockExclusive = blockScan[gl_WorkGroupID.x];
+        const uint exclusive_h = blockIndices[tileBase + t];
 
         for (uint p = 0; p < SEQUENTIAL_COMBINE_LENGTH; ++p) {
             const uint blockBase = partBase + p * BLOCK_SIZE;
 
+            uint h[ROWS];
             MONOID v[ROWS];
             for (uint ix = blockBase + gl_LocalInvocationID.x, i = 0;
                 i < ROWS; ix += WORKGROUP_SIZE, ++i) {
-                v[i] = elementScan[ix];
+                h[i] = indices[ix];
+                v[i] = elements[ix];
             }
 
             for (uint i = 0; i < ROWS; ++i) {
-                v[i] += blockExclusive;
+                h[i] += exclusive_h;
             }
 
             for (uint ix = blockBase + gl_LocalInvocationID.x, i = 0;
                 i < ROWS; ix += WORKGROUP_SIZE, ++i) {
-                elementScan[ix] = v[i];
+                if (v[i] > pivot) {
+                    uint hx = h[i];
+                    partitionIndices[hx] = ix;
+                    partitionElements[hx] = v[i];
+                } else {
+                    uint l = ix - h[i];
+                    uint lx = (N - 1) - l;
+                    partitionIndices[lx] = ix;
+                    partitionElements[lx] = v[i];
+                }
             }
         }
     }

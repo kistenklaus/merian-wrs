@@ -4,33 +4,36 @@
 #extension GL_KHR_memory_scope_semantics : enable
 // #extension GL_EXT_shader_atomic_float : enable
 #extension GL_KHR_shader_subgroup_vote : enable
-#extension GL_KHR_shader_subgroup_ballot : enable
-#extension GL_KHR_shader_subgroup_shuffle_relative : enable
-#extension GL_KHR_shader_subgroup_shuffle : enable
-
-#extension GL_ARB_shading_language_include : enable
-
+// #extension GL_KHR_shader_subgroup_ballot : enable
 #pragma use_vulkan_memory_model
 
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
-
-layout(constant_id = 0) const uint WORKGROUP_SIZE = 1;
-layout(constant_id = 1) const uint ROWS = 1;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint ROWS = 8;
 layout(constant_id = 2) const uint SUBGROUP_SIZE = 32;
 layout(constant_id = 3) const uint PARALLEL_LOOKBACK_DEPTH = 32;
 
 #include "subgroup_scan.comp"
 #include "block_scan.comp"
 
+const uint MAX_SUBGROUPS_PER_WORKGROUP = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+const uint BLOCK_SIZE = WORKGROUP_SIZE * ROWS;
+
+#ifdef USE_UINT
+#define MONOID uint
+#elif defined(USE_FLOAT)
 #define MONOID float
+#else
+#define MONOID void
+#endif
 
-layout(set = 0, binding = 0) readonly buffer inElements {
-    float elements[];
+layout(set = 0, binding = 0) readonly buffer in_Elements {
+    MONOID elements[];
 };
 
-layout(set = 0, binding = 1) writeonly buffer outPrefixSum {
-    float prefixSum[];
-};
+layout(set = 0, binding = 1) readonly buffer in_Pivot {
+    MONOID pivot;
+} condition;
 
 // enum State BEGIN
 #define state_t uint
@@ -39,163 +42,105 @@ const state_t STATE_AGGREGATE_PUBLISHED = 1;
 const state_t STATE_PREFIX_PUBLISHED = 2;
 // END
 struct DecoupledState {
-    float aggregate;
-    float prefix;
+    uint count;
+    uint inclusiveCount;
     state_t state;
 };
 
-layout(set = 0, binding = 2) coherent buffer DecoupledStates {
+layout(set = 0, binding = 2) coherent buffer intercom_DecoupledStates {
     uint counter;
-    DecoupledState partitions[];
+    DecoupledState blocks[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer out_PartitionIndicies {
+    uint partitionIndices[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer out_PartitionElements {
+    MONOID partitionElements[];
+};
+
+layout(set = 0, binding = 5) writeonly buffer out_HeavyCount {
+    uint heavyCount;
 };
 
 layout(push_constant) uniform PushConstant {
     uint N;
 } pc;
 
-const uint MAX_SUBGROUPS_PER_WORKGROUP = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
-const uint BLOCK_SIZE = WORKGROUP_SIZE * ROWS;
-// ============= BLOCK (PARTITION) SCAN ================
-
+shared uint strided_scatch[MAX_SUBGROUPS_PER_WORKGROUP];
+MONOID pivot;
 uint N;
 
-float v[ROWS];
-float threadExclusive;
+uint h[ROWS];
+MONOID v[ROWS];
+uint threadExclusiveCount;
 
-#ifdef STRIDED
-shared float strided_scatch[MAX_SUBGROUPS_PER_WORKGROUP];
-#endif
-
-void globalMemoryRead(uint blockID) {
+uint blockScan(uint blockID) {
     N = pc.N;
+    pivot = condition.pivot;
+
     const uint blockBase = blockID * BLOCK_SIZE;
-
-    #ifdef STRIDED
-    // ========== STRIDED LOADING ============
-
     const uint base = blockBase + gl_SubgroupID * (ROWS * SUBGROUP_SIZE) + gl_SubgroupInvocationID.x;
+
+    uint exclusiveCount = 0;
+    #pragma unroll
+    for (uint i = 0, ix = base; i < ROWS; ++i, ix += SUBGROUP_SIZE) {
+        v[i] = ix < N ? elements[ix] : 0;
+    }
 
     #pragma unroll
     for (uint i = 0, ix = base; i < ROWS; ++i, ix += SUBGROUP_SIZE) {
-        v[i] = elements[ix];
+        bool condition = v[i] > pivot;
+        uint count;
+        h[i] = subgroup_exclusive_scan_bool(condition, count) + exclusiveCount;
+        exclusiveCount += count;
     }
 
-    #else
-    // ========== VECTOR STYLE LOADING =============
-    const uint base = blockBase + gl_LocalInvocationID.x * ROWS;
-    #pragma unroll
-    for (uint i = 0; i < ROWS; ++i) {
-        v[i] = elements[base + i];
+    if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+        strided_scatch[gl_SubgroupID] = exclusiveCount; // inclusive at this point!
     }
-    #endif
-}
-
-float blockScan() {
-
-    // ============== STRIDED EDGE BLOCK SCAN =================
-    #ifdef STRIDED
-
-    #pragma unroll
-    for (uint i = 0; i < ROWS; ++i) {
-        #ifdef USE_UINT
-        v[i] = subgroup_inclusive_scan_uint(v[i]);
-        #else
-        v[i] = subgroup_inclusive_scan_float(v[i]);
-        #endif
-    }
-    const uint last = SUBGROUP_SIZE - 1;
-    for (uint i = 1; i < ROWS; ++i) {
-        v[i] += subgroupBroadcast(v[i - 1], last);
-    }
-
-    if (gl_SubgroupInvocationID == last) {
-        strided_scatch[gl_SubgroupID] = v[ROWS - 1];
-    }
-
     barrier();
 
     if (gl_SubgroupID == 0) {
-        MONOID subgroupAgg = (gl_SubgroupInvocationID < MAX_SUBGROUPS_PER_WORKGROUP)
-            ? strided_scatch[gl_SubgroupInvocationID] : 0.0;
-        #ifdef USE_UINT
-        MONOID subgroupExclusive = subgroup_inclusive_scan_uint(subgroupAgg);
-        #else
-        MONOID subgroupExclusive = subgroup_inclusive_scan_float(subgroupAgg);
-        #endif
+        uint subgroupCount = (gl_SubgroupInvocationID < MAX_SUBGROUPS_PER_WORKGROUP)
+            ? strided_scatch[gl_SubgroupInvocationID] : 0;
+        uint subgroupExclusiveCount = subgroup_inclusive_scan_uint(subgroupCount);
         if (gl_SubgroupInvocationID < MAX_SUBGROUPS_PER_WORKGROUP) {
-            strided_scatch[gl_SubgroupInvocationID] = subgroupExclusive;
+            strided_scatch[gl_SubgroupInvocationID] = subgroupExclusiveCount;
         }
     }
+
     barrier();
-    
-    float blockAgg;
-    if (gl_LocalInvocationID.x == 0) {
-        blockAgg = strided_scatch[gl_NumSubgroups - 1];
-    }
 
-    threadExclusive = (gl_SubgroupID > 0) ? strided_scatch[gl_SubgroupID - 1] : 0;
-
-    return blockAgg;
-
-    // =================== NONE STRIDED BLOCK SCAN ===============
-    #else
-    // thread scan
-    #ifdef EXCLUSIVE
-    MONOID threadAgg = 0;
-    #pragma unroll
-    for (uint i = 0; i < ROWS; ++i) {
-        float temp = v[i];
-        v[i] = threadAgg;
-        threadAgg += temp;
-    }
-    #else
-    #pragma unroll
-    for (uint i = 1; i < ROWS; ++i) {
-        v[i] += v[i - 1];
-    }
-    MONOID threadAgg = v[ROWS - 1];
-    #endif
-
-    // block scan
-    MONOID blockAgg;
-    #ifdef USE_UINT
-    threadExclusive = block_exclusive_scan_uint(threadAgg, blockAgg);
-    #else
-    threadExclusive = block_exclusive_scan_float(threadAgg, blockAgg);
-    #endif
-
-    return blockAgg;
-    #endif
+    return strided_scatch[gl_NumSubgroups - 1];
 }
 
-void combine(float exclusive) {
-    const float ex = exclusive + threadExclusive;
-    #pragma unroll
-    for (uint i = 0; i < ROWS; ++i) {
-        v[i] += ex;
-    }
-}
+void writePartitionAndIndicies(uint blockID, uint blockExclusiveCount) {
+    const uint subgroupExclusiveCount = (gl_SubgroupID > 0) ? strided_scatch[gl_SubgroupID - 1] : 0;
 
-void globalMemoryWrite(uint blockID) {
+    uint exclusiveCount = subgroupExclusiveCount + blockExclusiveCount;
+
+    for (uint i = 0; i < ROWS; ++i) {
+        h[i] += exclusiveCount;
+    }
+
     const uint blockBase = blockID * BLOCK_SIZE;
-
-    #ifdef STRIDED
     const uint base = blockBase + gl_SubgroupID * (ROWS * SUBGROUP_SIZE) + gl_SubgroupInvocationID.x;
-    #pragma unroll
-    for (uint i = 0, ix = base; i < ROWS; ++i, ix += SUBGROUP_SIZE) {
-        prefixSum[ix] = v[i];
-    }
-    #else
 
-    const uint base = blockBase + gl_LocalInvocationID.x * ROWS;
-    #pragma unroll
-    for (uint i = 0; i < ROWS; ++i) {
-        prefixSum[base + i] = v[i];
+    for (uint i = 0, ix = base; i < ROWS && ix < N; ++i, ix += SUBGROUP_SIZE) {
+        if (v[i] > pivot) {
+            uint hx = h[i];
+            partitionIndices[hx] = ix;
+            partitionElements[hx] = v[i];
+        } else {
+            uint l = ix - h[i];
+            uint lx = (N - 1) - l;
+            partitionIndices[lx] = ix;
+            partitionElements[lx] = v[i];
+        }
     }
-    #endif
 }
-
-// ================ DECOUPLED-LOOKBACK =================
 
 shared uint sh_partID;
 /// Reduces required forward progess guarantees from LOBE to only OBE.
@@ -214,7 +159,7 @@ uint getWorkGroupID() {
 // END
 
 shared uint sh_lookBackState;
-shared float sh_exclusive;
+shared uint sh_exclusive;
 
 bool ballotIsZero(in uvec4 ballot) {
     return (ballot.x | ballot.y | ballot.z | ballot.w) == 0;
@@ -222,14 +167,14 @@ bool ballotIsZero(in uvec4 ballot) {
 
 // see https://research.nvihttps://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-backdia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back for the
 // original paper by NVIDIA.
-float decoupledLookback(in uint partID, in float aggregate) {
+uint decoupledLookback(in uint blockID, in uint count) {
     // == Publish aggregate & state
     if (gl_LocalInvocationID.x == 0) {
         // Non atomic write to coherent values.
-        partitions[partID].aggregate = aggregate;
+        blocks[blockID].count = count;
         state_t state = STATE_AGGREGATE_PUBLISHED;
-        if (partID == 0) {
-            partitions[partID].prefix = aggregate;
+        if (blockID == 0) {
+            blocks[blockID].inclusiveCount = count;
             state = STATE_PREFIX_PUBLISHED;
         }
         // This atomicStore creates a *happens-before* relationship
@@ -238,16 +183,16 @@ float decoupledLookback(in uint partID, in float aggregate) {
         // after a atomic acquire operation of that value.
         // NOTE: gl_SemanticsMakeAvailable is only required if aggregate and prefix
         // are stored in a seperate storage buffer.
-        atomicStore(partitions[partID].state, state, gl_ScopeQueueFamily,
+        atomicStore(blocks[blockID].state, state, gl_ScopeQueueFamily,
             gl_StorageSemanticsBuffer, gl_SemanticsRelease);
     }
     // == Decoupled lookback
-    float exclusive = 0;
+    uint exclusive = 0;
     uint i = 0;
     const uint MAX_IT = 100000;
-    if (partID != 0) {
+    if (blockID != 0) {
         if (gl_SubgroupID == 0) {
-            uint lookBackBase = partID - 1;
+            uint lookBackBase = blockID - 1;
 
             while (true) {
                 bool invocActive = gl_SubgroupInvocationID <= lookBackBase && gl_SubgroupInvocationID < PARALLEL_LOOKBACK_DEPTH;
@@ -256,7 +201,7 @@ float decoupledLookback(in uint partID, in float aggregate) {
                 bool done = false;
                 if (invocActive) {
                     uint lookBackIdx = lookBackBase - gl_SubgroupInvocationID;
-                    predecessorState = atomicLoad(partitions[lookBackIdx].state,
+                    predecessorState = atomicLoad(blocks[lookBackIdx].state,
                             gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
 
                     const bool notReady = predecessorState == STATE_NOT_READY;
@@ -268,25 +213,22 @@ float decoupledLookback(in uint partID, in float aggregate) {
                         if (ballotIsZero(doneBallot)) {
                             steps = PARALLEL_LOOKBACK_DEPTH;
                         } else {
-                            // TODO should be +1 to reflect the amount of steps
                             const uint stepsUntilPrefix = subgroupBallotFindLSB(doneBallot) + 1;
                             steps = stepsUntilPrefix;
                         }
                     } else {
                         done = false;
-                        // TODO should be +1 to reflect the amount of steps
                         const uint stepsUntilNotReady = subgroupBallotFindLSB(notReadyBallot) + 1;
                         steps = stepsUntilNotReady - 1;
                     }
                     if (gl_SubgroupInvocationID.x < steps) {
-                        float acc;
+                        uint acc;
                         if (done) {
-                            acc = partitions[lookBackIdx].prefix;
+                            acc = blocks[lookBackIdx].inclusiveCount;
                         } else {
-                            acc = partitions[lookBackIdx].aggregate;
+                            acc = blocks[lookBackIdx].count;
                         }
                         acc = subgroupAdd(acc);
-                        vec2(0, 0);
                         if (subgroupElect()) {
                             lookBackBase -= steps;
                             exclusive += acc;
@@ -304,13 +246,13 @@ float decoupledLookback(in uint partID, in float aggregate) {
                 }
             }
             if (subgroupElect()) {
-                float inclusive = exclusive + aggregate;
-                partitions[partID].prefix = inclusive;
+                uint inclusive = exclusive + count;
+                blocks[blockID].inclusiveCount = inclusive;
                 sh_exclusive = exclusive;
             }
 
             if (subgroupElect()) {
-                atomicStore(partitions[partID].state, STATE_PREFIX_PUBLISHED,
+                atomicStore(blocks[blockID].state, STATE_PREFIX_PUBLISHED,
                     gl_ScopeQueueFamily, gl_StorageSemanticsBuffer,
                     gl_SemanticsRelease | gl_SemanticsMakeAvailable);
             }
@@ -322,18 +264,23 @@ float decoupledLookback(in uint partID, in float aggregate) {
     return exclusive;
 }
 
-// ===================== MAIN ========================
-
 void main(void) {
+    const uint gid = gl_GlobalInvocationID.x;
+    const uint invocID = gl_LocalInvocationID.x;
+
     uint blockID = gl_WorkGroupID.x;
 
-    globalMemoryRead(blockID);
+    uint blockHeavyCount = blockScan(blockID);
 
-    float blockAggregate = blockScan();
+    const uint lastBlockID = (N + BLOCK_SIZE - 1) / BLOCK_SIZE - 1;
+    bool lastBlock = blockID == lastBlockID;
 
-    float blockExclusive = decoupledLookback(blockID, blockAggregate);
-    // float blockExclusive = 0;
-    combine(blockExclusive);
+    uint blockExclusiveCount = decoupledLookback(blockID, blockHeavyCount);
 
-    globalMemoryWrite(blockID);
+    writePartitionAndIndicies(blockID, blockExclusiveCount);
+
+    if (lastBlock) {
+      heavyCount = blockExclusiveCount + blockHeavyCount;
+    }
+
 }
