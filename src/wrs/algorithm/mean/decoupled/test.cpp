@@ -1,10 +1,12 @@
 #include "./test.hpp"
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : test.cpp
+ */
 
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/mean/decoupled/DecoupledMean.hpp"
-#include "src/wrs/algorithm/mean/decoupled/test/test_cases.hpp"
-#include "src/wrs/algorithm/mean/decoupled/test/test_setup.hpp"
-#include "src/wrs/algorithm/mean/decoupled/test/test_types.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
@@ -15,20 +17,64 @@
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_structs.hpp>
 
+using namespace wrs;
 using namespace wrs::test;
 using namespace wrs::test::decoupled_mean;
 
-vk::DeviceSize wrs::test::decoupled_mean::sizeOfElement(const ElementType wt) {
-    switch (wt) {
-    case WEIGHT_TYPE_FLOAT:
-        return sizeof(float);
+using Buffers = DecoupledMeanBuffers;
+
+struct TestCase {
+    uint32_t workgroupSize;
+    uint32_t rows;
+    uint32_t elementCount;
+    Distribution distribution;
+    bool stable;
+    uint32_t iterations;
+};
+
+static constexpr TestCase TEST_CASES[] = {
+    //
+    TestCase{
+        .workgroupSize = 512,
+        .rows = 8,
+        .elementCount = static_cast<uint32_t>(1024 * 2048),
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+        .stable = false,
+        .iterations = 1,
+    },
+
+    TestCase{
+        .workgroupSize = 64,
+        .rows = 2,
+        .elementCount = 256,
+        .distribution = Distribution::UNIFORM,
+        .stable = false,
+        .iterations = 1,
+    },
+};
+
+inline std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
+
+    uint32_t maxElementCount = 0;
+    std::size_t maxPartitionSize = 0;
+
+    for (const auto& testCase : TEST_CASES) {
+        maxElementCount = std::max(maxElementCount, testCase.elementCount);
+        maxPartitionSize = std::max(maxPartitionSize,
+                                    Buffers::partitionSize(testCase.workgroupSize, testCase.rows));
     }
-    throw std::runtime_error("NOT IMPLEMENTED");
+
+    Buffers buffers = Buffers::allocate(context.alloc, maxElementCount, maxPartitionSize,
+                                        merian::MemoryMappingType::NONE);
+
+    Buffers stage = Buffers::allocate(context.alloc, maxElementCount, maxPartitionSize,
+                                      merian::MemoryMappingType::HOST_ACCESS_RANDOM);
+
+    return std::make_tuple(buffers, stage);
 }
 
-
 using elem_t = float;
-void uploadTestCase(vk::CommandBuffer cmd,
+void uploadTestCase(const merian::CommandBufferHandle& cmd,
                     std::pmr::vector<elem_t> elements,
                     uint32_t workgroupSize,
                     uint32_t rows,
@@ -40,29 +86,29 @@ void uploadTestCase(vk::CommandBuffer cmd,
 
     SPDLOG_DEBUG("Staged upload");
     {
-      Buffers::ElementsView stageView{stage.elements, elements.size()};
-      Buffers::ElementsView localView{buffers.elements, elements.size()};
-      stageView.template upload<elem_t>(elements);
-      stageView.copyTo(cmd, localView);
-      localView.expectComputeRead(cmd);
+        Buffers::ElementsView stageView{stage.elements, elements.size()};
+        Buffers::ElementsView localView{buffers.elements, elements.size()};
+        stageView.template upload<elem_t>(elements);
+        stageView.copyTo(cmd, localView);
+        localView.expectComputeRead(cmd);
     }
     {
-      Buffers::DecoupledStatesView localView{buffers.decoupledStates, workgroupCount};
-      localView.zero(cmd);
-      localView.expectComputeRead(cmd);
+        Buffers::DecoupledStatesView localView{buffers.decoupledStates, workgroupCount};
+        localView.zero(cmd);
+        localView.expectComputeRead(cmd);
     }
 }
 
-void downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage) {
-  Buffers::MeanView stageView {stage.mean};
-  Buffers::MeanView localView {buffers.mean};
-  localView.copyTo(cmd, stageView);
-  stageView.expectHostRead(cmd);
+void downloadToStage(const merian::CommandBufferHandle& cmd, Buffers& buffers, Buffers& stage) {
+    Buffers::MeanView stageView{stage.mean};
+    Buffers::MeanView localView{buffers.mean};
+    localView.copyTo(cmd, stageView);
+    stageView.expectHostRead(cmd);
 }
 
 elem_t downloadFromStage(Buffers& stage) {
-  Buffers::MeanView stageView {stage.mean};
-  return stageView.template download<elem_t>();
+    Buffers::MeanView stageView{stage.mean};
+    return stageView.template download<elem_t>();
 }
 
 bool runTestCase(const TestContext& context,
@@ -81,8 +127,8 @@ bool runTestCase(const TestContext& context,
                             wrs::distribution_to_pretty_string(testCase.distribution),
                             testCase.stable, testCase.iterations));
     SPDLOG_DEBUG("Creating DecoupledMean algorithm instance");
-    wrs::DecoupledMean kernel(context.context, testCase.workgroupSize, testCase.rows,
-                                      testCase.stable);
+    wrs::DecoupledMean kernel(context.context, context.shaderCompiler, testCase.workgroupSize, testCase.rows,
+                              testCase.stable);
 
     bool failed = false;
     for (size_t i = 0; i < testCase.iterations; ++i) {
@@ -109,12 +155,13 @@ bool runTestCase(const TestContext& context,
             SPDLOG_DEBUG(fmt::format("Generating {} weights with {}", testCase.elementCount,
                                      wrs::distribution_to_pretty_string(testCase.distribution)));
             MERIAN_PROFILE_SCOPE(context.profiler, "Generate weights");
-            elements = wrs::pmr::generate_weights<elem_t>(
-                testCase.distribution, testCase.elementCount, resource);
+            elements = wrs::pmr::generate_weights<elem_t>(testCase.distribution,
+                                                          testCase.elementCount, resource);
         }
 
         // Begin recording
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
 
         std::string recordingLabel = fmt::format(
             "Recoding: [workgroupSize={},rows={},elementCount={},"
@@ -148,7 +195,7 @@ bool runTestCase(const TestContext& context,
         {
             context.profiler->end();
             context.profiler->cmd_end(cmd);
-            cmd.end();
+            cmd->end();
 
             MERIAN_PROFILE_SCOPE(context.profiler, "Wait for device idle");
             context.queue->submit_wait(cmd);
@@ -195,7 +242,7 @@ void wrs::test::decoupled_mean::test(const merian::ContextHandle& context) {
         stackResource.reset();
     }
 
-    testContext.profiler->collect(true,true);
+    testContext.profiler->collect(true, true);
     SPDLOG_INFO(fmt::format("Profiler results: \n{}",
                             merian::Profiler::get_report_str(testContext.profiler->get_report())));
 }

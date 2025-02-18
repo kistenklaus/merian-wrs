@@ -62,7 +62,7 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
     return std::make_tuple(buffers, stage);
 }
 
-static void uploadPartitionIndices(const vk::CommandBuffer cmd,
+static void uploadPartitionIndices(const merian::CommandBufferHandle& cmd,
                                    const std::span<const wrs::glsl::uint> heavyIndices,
                                    const std::span<const wrs::glsl::uint> reverseLightIndices,
                                    const Buffers& buffers,
@@ -85,7 +85,7 @@ static void uploadPartitionIndices(const vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-static void uploadPartition(vk::CommandBuffer cmd,
+static void uploadPartition(const merian::CommandBufferHandle& cmd,
     std::span<const float> partition,
     Buffers& buffers,
     Buffers& stage) {
@@ -96,7 +96,7 @@ static void uploadPartition(vk::CommandBuffer cmd,
   localView.expectComputeRead(cmd);
 }
 
-static void uploadWeights(vk::CommandBuffer cmd,
+static void uploadWeights(const merian::CommandBufferHandle& cmd,
                           std::span<const float> weights,
                           Buffers& buffers,
                           Buffers& stage) {
@@ -107,13 +107,13 @@ static void uploadWeights(vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-void uploadSplits(const vk::CommandBuffer cmd,
+void uploadSplits(const merian::CommandBufferHandle& cmd,
                   std::span<const wrs::Split<float, wrs::glsl::uint>> splits,
                   Buffers& buffers,
                   Buffers& stage);
 
 static void
-uploadMean(vk::CommandBuffer cmd, float averageWeight, Buffers& buffers, Buffers& stage) {
+uploadMean(const merian::CommandBufferHandle& cmd, float averageWeight, Buffers& buffers, Buffers& stage) {
     Buffers::MeanView stageView{stage.mean};
     Buffers::MeanView localView{buffers.mean};
     stageView.upload(averageWeight);
@@ -121,7 +121,7 @@ uploadMean(vk::CommandBuffer cmd, float averageWeight, Buffers& buffers, Buffers
     localView.expectComputeRead(cmd);
 }
 
-static void downloadAliasTableToStage(const vk::CommandBuffer cmd,
+static void downloadAliasTableToStage(const merian::CommandBufferHandle& cmd,
                                       const std::size_t N,
                                       const Buffers& buffers,
                                       const Buffers& stage) {
@@ -146,7 +146,7 @@ static bool runTestCase(const TestContext& context,
     SPDLOG_INFO("Running test case:{}", testName);
 
     SPDLOG_DEBUG("Creating ScalarPack instance");
-    Algorithm kernel{context.context, testCase.config};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -230,7 +230,8 @@ static bool runTestCase(const TestContext& context,
         }
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -280,7 +281,7 @@ static bool runTestCase(const TestContext& context,
             context.profiler->end();
             context.profiler->cmd_end(cmd);
             SPDLOG_DEBUG("Submitting to device...");
-            cmd.end();
+            cmd->end();
             context.queue->submit_wait(cmd);
         }
         // 7. Download from stage

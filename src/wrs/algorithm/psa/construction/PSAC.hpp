@@ -1,4 +1,5 @@
 #pragma once
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/algorithm/mean/atomic/AtomicMean.hpp"
 #include "src/wrs/algorithm/splitpack/SplitPack.hpp"
 #include "src/wrs/layout/BufferView.hpp"
@@ -7,11 +8,9 @@
 #include <src/wrs/algorithm/pack/scalar/ScalarPack.hpp>
 #include <src/wrs/algorithm/prefix_partition/decoupled/DecoupledPrefixPartition.hpp>
 #include <src/wrs/algorithm/split/scalar/ScalarSplit.hpp>
-#include <src/wrs/common_vulkan.hpp>
 #include <vulkan/vulkan_handles.hpp>
 
 #include "merian/vk/memory/resource_allocator.hpp"
-#include "src/wrs/algorithm/mean/decoupled/DecoupledMean.hpp"
 
 namespace wrs {
 struct PSACBuffers {
@@ -62,9 +61,9 @@ struct PSACConfig {
 
     glsl::uint splitSize;
 
-    constexpr PSACConfig() : meanConfig{}, prefixPartitionConfig{},
-              splitWorkgroupSize(512), packWorkgroupSize(512),
-              splitSize(2) {}
+    constexpr PSACConfig()
+        : meanConfig{}, prefixPartitionConfig{}, splitWorkgroupSize(512), packWorkgroupSize(512),
+          splitSize(2) {}
 };
 
 class PSAC {
@@ -73,16 +72,18 @@ class PSAC {
     using Buffers = PSACBuffers;
     using weight_t = glsl::f32;
 
-    explicit PSAC(const merian::ContextHandle& context, PSACConfig config = {})
-        : m_mean(context, config.meanConfig),
+    explicit PSAC(const merian::ContextHandle& context,
+                  const merian::ShaderCompilerHandle& shaderCompiler,
+                  PSACConfig config = {})
+        : m_mean(context, shaderCompiler, config.meanConfig),
           /* m_mean(context, config.meanWorkgroupSize, config.meanRows, false), */
-          m_prefixPartition(context, config.prefixPartitionConfig),
-          m_splitpack(context, config.splitWorkgroupSize, config.splitSize),
+          m_prefixPartition(context, shaderCompiler, config.prefixPartitionConfig),
+          m_splitpack(context, shaderCompiler, config.splitWorkgroupSize, config.splitSize),
           /* m_split(context, config.splitWorkgroupSize), m_pack(context, config.packWorkgroupSize),
            */
           m_splitSize(config.splitSize) {}
 
-    void run(const vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle cmd,
              const Buffers& buffers,
              const std::size_t weightCount,
              std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
@@ -129,11 +130,10 @@ class PSAC {
             m_mean.run(cmd, meanBuffers, weightCount);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.mean->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                         vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     buffers.mean->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                  vk::AccessFlagBits::eShaderRead));
 
         if (profiler.has_value()) {
             MERIAN_PROFILE_SCOPE_GPU(*profiler, cmd, "PrefixPartition");
@@ -142,16 +142,14 @@ class PSAC {
             m_prefixPartition.run(cmd, partitionBuffers, weightCount);
         }
 
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eComputeShader,
-            {}, {},
-            {
-                buffers.partitionIndices->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                         vk::AccessFlagBits::eShaderRead),
-                buffers.partitionPrefix->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                        vk::AccessFlagBits::eShaderRead),
-            },
-            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     {
+                         buffers.partitionIndices->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                                  vk::AccessFlagBits::eShaderRead),
+                         buffers.partitionPrefix->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                                 vk::AccessFlagBits::eShaderRead),
+                     });
 
         SplitPackBuffers splitPackBuffers;
         splitPackBuffers.weights = buffers.weights;

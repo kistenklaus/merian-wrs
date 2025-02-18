@@ -1,6 +1,8 @@
 #include "./partition.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
+#include "merian/vk/shader/shader_compiler_shaderc.hpp"
+#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/partition/Partition.hpp"
 #include "src/wrs/algorithm/prefix_sum/block_scan/BlockScan.hpp"
@@ -104,6 +106,7 @@ BenchmarkResult benchmarkConfiguration(const merian::ContextHandle& context,
                                        const merian::ResourceAllocatorHandle& alloc,
                                        const merian::QueueHandle& queue,
                                        const merian::CommandPoolHandle& cmdPool,
+                                       const merian::ShaderCompilerHandle& shaderCompiler,
                                        wrs::eval::log10::IntLogScaleRange<glsl::uint> elementCounts,
                                        std::size_t maxN,
                                        PartitionConfig config) {
@@ -123,7 +126,7 @@ BenchmarkResult benchmarkConfiguration(const merian::ContextHandle& context,
     Buffers local = Buffers::allocate(alloc, merian::MemoryMappingType::NONE, config, maxN);
     assert(local.elements != nullptr);
 
-    Partition<Base> method{context, config};
+    Partition<Base> method{context, shaderCompiler, config};
     // Upload some input date
     {
         SPDLOG_INFO("Uploading mock input for benchmarking");
@@ -131,7 +134,8 @@ BenchmarkResult benchmarkConfiguration(const merian::ContextHandle& context,
         const std::vector<Base> weights =
             wrs::generate_weights<Base>(Distribution::PSEUDO_RANDOM_UNIFORM, maxN);
 
-        vk::CommandBuffer cmd = cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+        cmd->begin();
         {
             SPDLOG_DEBUG("Upload elements");
             Buffers::ElementsView<Base> stageView{stage.elements, maxN};
@@ -148,7 +152,7 @@ BenchmarkResult benchmarkConfiguration(const merian::ContextHandle& context,
             stageView.copyTo(cmd, localView);
             localView.expectComputeRead(cmd);
         }
-        cmd.end();
+        cmd->end();
         SPDLOG_DEBUG("Waiting for uploading to complete");
         queue->submit_wait(cmd);
     }
@@ -159,7 +163,8 @@ BenchmarkResult benchmarkConfiguration(const merian::ContextHandle& context,
     std::size_t x = 0;
     for (const auto& n : elementCounts) {
         if (n <= method.maxElementCount()) {
-            vk::CommandBuffer cmd = cmdPool->create_and_begin();
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+            cmd->begin();
             std::string label = fmt::format("{}-{}", prefix, n);
             for (std::size_t it = 0; it < ITERATIONS; ++it) {
                 profiler->start(label);
@@ -170,7 +175,7 @@ BenchmarkResult benchmarkConfiguration(const merian::ContextHandle& context,
                 profiler->end();
                 profiler->cmd_end(cmd);
             }
-            cmd.end();
+            cmd->end();
             queue->submit_wait(cmd);
 
             profiler->collect(true, true);
@@ -202,6 +207,7 @@ void wrs::bench::partition::write_bench_results(const merian::ContextHandle& con
     merian::ResourceAllocatorHandle alloc = resources->resource_allocator();
     merian::QueueHandle queue = context->get_queue_GCT();
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
+    merian::ShaderCompilerHandle shaderCompiler = std::make_shared<merian::SystemGlslcCompiler>(context);
 
     auto elementCounts = wrs::eval::log10scale<glsl::uint>(MIN_N, MAX_N, TICKS);
 
@@ -211,16 +217,21 @@ void wrs::bench::partition::write_bench_results(const merian::ContextHandle& con
 
     for (std::size_t i = 0; i < CONFIGURATIONS.size(); ++i) {
 
-        results[i] = benchmarkConfiguration(context, alloc, queue, cmdPool, elementCounts, MAX_N,
+        results[i] = benchmarkConfiguration(context, alloc, queue, cmdPool, shaderCompiler, elementCounts, MAX_N,
                                             CONFIGURATIONS[i]);
         benchmarkNames[i + 1] = partitionConfigName(CONFIGURATIONS[i]);
     }
 
     const std::string filePath = "./partition_benchmark.csv";
+    
+    SPDLOG_DEBUG("Writing results to {}", filePath);
     wrs::exp::CSVWriter<CONFIGURATIONS.size() + 1> csv{benchmarkNames, filePath};
+
+    SPDLOG_DEBUG("step1", filePath);
 
     std::size_t x = 0;
     for (const auto& n : elementCounts) {
+        SPDLOG_DEBUG("n={}", n);
         csv.unsafePushValue(n, false);
         for (std::size_t i = 0; i < results.size(); ++i) {
             if (results[i].durations[x].has_value()) {

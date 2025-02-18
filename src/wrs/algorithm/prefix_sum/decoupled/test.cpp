@@ -6,14 +6,8 @@
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
-#include "src/wrs/reference/partition.hpp"
-#include "src/wrs/reference/prefix_sum.hpp"
-#include "src/wrs/reference/reduce.hpp"
-#include "src/wrs/reference/split.hpp"
-#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/is_prefix.hpp"
 #include "src/wrs/test/test.hpp"
-#include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fmt/base.h>
@@ -42,7 +36,8 @@ struct TestCase {
 
 static TestCase TEST_CASES[] = {
     TestCase{
-        .config = DecoupledPrefixSumConfig(512, 8, 32, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::SUBGROUP_SCAN_SHFL),
+        .config = DecoupledPrefixSumConfig(
+            512, 8, 32, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::SUBGROUP_SCAN_SHFL),
         .N = static_cast<glsl::uint>((1 << 28)),
         .distribution = Distribution::UNIFORM,
         .iterations = 1,
@@ -67,7 +62,7 @@ std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
     return std::make_tuple(local, stage);
 }
 
-static void uploadTestCase(const vk::CommandBuffer cmd,
+static void uploadTestCase(const merian::CommandBufferHandle cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
                            std::span<const float> elements,
@@ -87,8 +82,10 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
     }
 }
 
-static void
-downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t N) {
+static void downloadToStage(const merian::CommandBufferHandle cmd,
+                            Buffers& buffers,
+                            Buffers& stage,
+                            std::size_t N) {
     Buffers::PrefixSumView stageView{stage.prefixSum, N};
     Buffers::PrefixSumView localView{buffers.prefixSum, N};
     localView.copyTo(cmd, stageView);
@@ -118,7 +115,7 @@ static bool runTestCase(const TestContext& context,
                     testCase.N, testCase.config.rows, testCase.config.parallelLookbackDepth);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.config};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -142,7 +139,8 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -175,7 +173,7 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage

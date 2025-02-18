@@ -152,11 +152,15 @@ class PartitionBuffers {
 template <typename T> class Partition {
     using Method = std::variant<DecoupledPartition, BlockWisePartition>;
 
-    static Method createMethod(const merian::ContextHandle& context, PartitionConfig config) {
+    static Method createMethod(const merian::ContextHandle& context,
+                               const merian::ShaderCompilerHandle& shaderCompiler,
+                               PartitionConfig config) {
         if (std::holds_alternative<DecoupledPartitionConfig>(config)) {
-            return DecoupledPartition(context, std::get<DecoupledPartitionConfig>(config));
+            return DecoupledPartition(context, shaderCompiler,
+                                      std::get<DecoupledPartitionConfig>(config));
         } else if (std::holds_alternative<BlockWisePartitionConfig>(config)) {
-            return BlockWisePartition(context, std::get<BlockWisePartitionConfig>(config));
+            return BlockWisePartition(context, shaderCompiler,
+                                      std::get<BlockWisePartitionConfig>(config));
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }
@@ -165,10 +169,12 @@ template <typename T> class Partition {
   public:
     using Buffers = PartitionBuffers;
 
-    Partition(const merian::ContextHandle& context, PartitionConfig config)
-        : m_method(createMethod(context, config)) {}
+    Partition(const merian::ContextHandle& context,
+              const merian::ShaderCompilerHandle& shaderCompiler,
+              PartitionConfig config)
+        : m_method(createMethod(context, shaderCompiler, config)) {}
 
-    void run(vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, glsl::uint N) {
         if (std::holds_alternative<DecoupledPartition>(m_method)) {
             using InstanceBuffers = DecoupledPartition::Buffers;
             InstanceBuffers instanceBuffers;
@@ -210,7 +216,7 @@ template <typename T> class Partition {
         } else if (std::holds_alternative<BlockWisePartition>(m_method)) {
             return std::get<BlockWisePartition>(m_method).maxElementCount();
         } else {
-          throw std::runtime_error("NOT-IMPLEMENTED");
+            throw std::runtime_error("NOT-IMPLEMENTED");
         }
     }
 

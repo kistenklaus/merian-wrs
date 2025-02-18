@@ -6,11 +6,11 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
 
@@ -41,7 +41,8 @@ class DecoupledPartition {
   public:
     using Buffers = DecoupledPartitionBuffers;
 
-    explicit DecoupledPartition(const merian::ContextHandle& context, glsl::uint workgroupSize) : m_workgroupSize(workgroupSize){
+    explicit DecoupledPartition(const merian::ContextHandle& context,
+        const merian::ShaderCompilerHandle& shaderCompiler, glsl::uint workgroupSize) : m_workgroupSize(workgroupSize){
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -51,7 +52,7 @@ class DecoupledPartition {
         const std::string shaderPath = "src/wrs/algorithm/???";
 
         const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
+            shaderCompiler->find_compile_glsl_to_shadermodule(
                 context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
@@ -67,15 +68,15 @@ class DecoupledPartition {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers) {
+    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers) {
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, TODO);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, TODO);
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
                                                           .X = TODO
         });
         const uint32_t workgroupCount = TODO;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
   private:

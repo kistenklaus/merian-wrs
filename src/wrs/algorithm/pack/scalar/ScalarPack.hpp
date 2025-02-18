@@ -6,11 +6,11 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
 
@@ -25,9 +25,9 @@ struct ScalarPackBuffers {
     using PartitionIndicesLayout =
         layout::StructLayout<storageQualifier,
                              layout::Attribute<glsl::uint, "heavyCount">,
-                             layout::Attribute<glsl::uint, "heavyCount1">,
-                             layout::Attribute<glsl::uint, "heavyCount2">,
-                             layout::Attribute<glsl::uint, "heavyCount3">,
+                             layout::Attribute<glsl::uint, "__padding1">,
+                             layout::Attribute<glsl::uint, "__padding2">,
+                             layout::Attribute<glsl::uint, "__padding3">,
                              layout::Attribute<glsl::uint*, "heavyLightIndices">>;
     using PartitionIndicesView = layout::BufferView<PartitionIndicesLayout>;
 
@@ -76,25 +76,27 @@ class ScalarPack {
     };
 
   public:
+    using Buffers = ScalarPackBuffers;
     using weight_t = float;
 
-    explicit ScalarPack(const merian::ContextHandle& context, ScalarPackConfig config = {})
+    explicit ScalarPack(const merian::ContextHandle& context,
+                        const merian::ShaderCompilerHandle& shaderCompiler,
+                        ScalarPackConfig config = {})
         : m_workgroupSize(config.workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
-                .add_binding_storage_buffer()
-                .add_binding_storage_buffer()
-                .add_binding_storage_buffer()
-                .add_binding_storage_buffer()
-                .add_binding_storage_buffer()
+                .add_binding_storage_buffer() // partition indices
+                .add_binding_storage_buffer() // weights
+                .add_binding_storage_buffer() // mean
+                .add_binding_storage_buffer() // splits
+                .add_binding_storage_buffer() // alias table
                 .build_push_descriptor_layout(context);
 
         std::string shaderPath = "src/wrs/algorithm/pack/scalar/preload_float.comp";
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -104,60 +106,29 @@ class ScalarPack {
 
         merian::SpecializationInfoBuilder specInfoBuilder;
         specInfoBuilder.add_entry<glsl::uint>(config.workgroupSize);
-        specInfoBuilder.add_entry<glsl::uint>(context->physical_device.physical_device_subgroup_properties.subgroupSize);
+        specInfoBuilder.add_entry<glsl::uint>(
+            context->physical_device.physical_device_subgroup_properties.subgroupSize);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
-
-        m_writes.resize(5);
-
-        vk::WriteDescriptorSet& partitionIndices = m_writes[0];
-        partitionIndices.setDstBinding(0);
-        partitionIndices.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& weights = m_writes[1];
-        weights.setDstBinding(1);
-        weights.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& mean = m_writes[2];
-        mean.setDstBinding(2);
-        mean.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& splits = m_writes[3];
-        splits.setDstBinding(3);
-        splits.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& table = m_writes[4];
-        table.setDstBinding(4);
-        table.setDescriptorType(vk::DescriptorType::eStorageBuffer);
     }
 
-    void run(const vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle& cmd,
              const glsl::uint N,
              const glsl::uint K,
              const ScalarPackBuffers& buffers) {
 
-        m_pipeline->bind(cmd);
-
-        vk::DescriptorBufferInfo partitionIndicesDesc =
-            buffers.partitionIndices->get_descriptor_info();
-        m_writes[0].setBufferInfo(partitionIndicesDesc);
-        vk::DescriptorBufferInfo weightsDesc = buffers.weights->get_descriptor_info();
-        m_writes[1].setBufferInfo(weightsDesc);
-        vk::DescriptorBufferInfo meanDesc = buffers.mean->get_descriptor_info();
-        m_writes[2].setBufferInfo(meanDesc);
-        vk::DescriptorBufferInfo splitsDesc = buffers.splits->get_descriptor_info();
-        m_writes[3].setBufferInfo(splitsDesc);
-        vk::DescriptorBufferInfo aliasTableDesc = buffers.aliasTable->get_descriptor_info();
-        m_writes[4].setBufferInfo(aliasTableDesc);
-        m_pipeline->push_descriptor_set(cmd, m_writes);
-
-        m_pipeline->push_constant<PushConstant>(cmd, PushConstant{.N = N, .K = K});
-
-        uint32_t workgroupCount = (K + m_workgroupSize - 1) / m_workgroupSize;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.partitionIndices, buffers.weights,
+                                 buffers.mean, buffers.splits, buffers.aliasTable);
+        cmd->push_constant<PushConstant>(m_pipeline, PushConstant{.N = N, .K = K});
+        const uint32_t workgroupCount = (K + m_workgroupSize - 1) / m_workgroupSize;
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
   private:
     merian::PipelineHandle m_pipeline;
     glsl::uint m_workgroupSize;
-    std::vector<vk::WriteDescriptorSet> m_writes;
 };
 
 } // namespace wrs

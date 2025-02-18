@@ -6,6 +6,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
@@ -36,7 +37,7 @@ struct MeanSquaredErrorBuffers {
     using MseLayout = layout::ArrayLayout<float, storageQualifier>;
     using MseView = layout::BufferView<MseLayout>;
 
-    static Self allocate(const merian::ResourceAllocatorHandle& alloc,
+    static Self allocate([[maybe_unused]] const merian::ResourceAllocatorHandle& alloc,
                          merian::MemoryMappingType memoryMapping) {
         Self buffers;
         throw std::runtime_error("NOT IMPLEMENTED");
@@ -60,6 +61,7 @@ class MeanSquaredError {
     using Buffers = MeanSquaredErrorBuffers;
 
     explicit MeanSquaredError(const merian::ContextHandle& context,
+                              const merian::ShaderCompilerHandle& shaderCompiler,
                               glsl::uint workgroupSize = 512,
                               glsl::uint rows = 8)
         : m_partitionSize(workgroupSize * rows) {
@@ -73,9 +75,8 @@ class MeanSquaredError {
 
         const std::string shaderPath = "src/wrs/algorithm/rmse/mse/shader.comp";
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -93,23 +94,23 @@ class MeanSquaredError {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              glsl::uint offset,
              float S,
              glsl::uint N,
              float totalWeight) {
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.histogram, buffers.weights, buffers.mse);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.histogram, buffers.weights, buffers.mse);
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
                                                           .offset = offset,
                                                           .S = S,
                                                           .N = N,
                                                           .totalWeight = totalWeight,
                                                       });
         const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
   private:

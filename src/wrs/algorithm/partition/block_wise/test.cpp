@@ -5,26 +5,20 @@
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
-#include "src/wrs/reference/partition.hpp"
-#include "src/wrs/reference/prefix_sum.hpp"
-#include "src/wrs/reference/reduce.hpp"
-#include "src/wrs/reference/split.hpp"
-#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/is_partition.hpp"
-#include "src/wrs/test/is_prefix.hpp"
 #include "src/wrs/test/is_stable_partition.hpp"
 #include "src/wrs/test/test.hpp"
-#include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
-#include <ranges>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <tuple>
 
 #include "./BlockWisePartition.hpp"
+
+namespace wrs::test::block_wise_partition {
 
 using namespace wrs;
 using namespace wrs::test;
@@ -42,13 +36,11 @@ struct TestCase {
 static const TestCase TEST_CASES[] = {
     //
     TestCase{
-        .config = 
-          BlockWisePartitionConfig(
+        .config = BlockWisePartitionConfig(
             PartitionBlockScanConfig(512,
                                      2,
                                      2,
-                                     BlockScanVariant::RANKED |
-                                         BlockScanVariant::EXCLUSIVE |
+                                     BlockScanVariant::RANKED | BlockScanVariant::EXCLUSIVE |
                                          BlockScanVariant::SUBGROUP_SCAN_INTRINSIC),
             BlockScanConfig(512,
                             2,
@@ -81,7 +73,7 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
     return std::make_tuple(local, stage);
 }
 
-static void uploadTestCase(const vk::CommandBuffer cmd,
+static void uploadTestCase(const merian::CommandBufferHandle& cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
                            std::span<const float> elements,
@@ -102,7 +94,7 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
     }
 }
 
-static void downloadToStage(vk::CommandBuffer cmd,
+static void downloadToStage(const merian::CommandBufferHandle& cmd,
                             Buffers& buffers,
                             Buffers& stage,
                             glsl::uint N,
@@ -197,7 +189,7 @@ static bool runTestCase(const TestContext& context,
             fmt::format("N={} is to large max={}", testCase.N, testCase.config.maxElementCount()));
     }
 
-    Algorithm kernel{context.context, testCase.config};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -224,7 +216,8 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -254,7 +247,7 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
@@ -311,7 +304,7 @@ static bool runTestCase(const TestContext& context,
     return failed;
 }
 
-void wrs::test::block_wise_partition::test(const merian::ContextHandle& context) {
+void test(const merian::ContextHandle& context) {
     SPDLOG_INFO("Testing Work efficient prefix sum algorithm");
 
     const TestContext testContext = setupTestContext(context);
@@ -342,3 +335,4 @@ void wrs::test::block_wise_partition::test(const merian::ContextHandle& context)
                                  sizeof(TEST_CASES) / sizeof(TestCase)));
     }
 }
+} // namespace wrs::test::block_wise_partition

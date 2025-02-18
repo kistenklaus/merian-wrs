@@ -1,5 +1,15 @@
 #pragma once
 
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : HSTRepr.hpp
+ *
+ * Array representation of the reduction tree.
+ * Primarily used by the hiearichcal sampling approach, for other methods,
+ * there are definitely more compact methods to represent this!
+ */
+
 #include "src/wrs/types/glsl.hpp"
 #include <array>
 #include <cstddef>

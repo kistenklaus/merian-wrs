@@ -1,8 +1,10 @@
 #include "./test.hpp"
 
 #include "./is_prefix.hpp"
+#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
+#include "merian/vk/shader/shader_compiler_shaderc.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/eval/chi_square.hpp"
 #include "src/wrs/export/csv.hpp"
@@ -16,11 +18,11 @@
 #include "src/wrs/reference/reduce.hpp"
 #include "src/wrs/reference/split.hpp"
 #include "src/wrs/reference/sweeping_alias_table.hpp"
+#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/is_partition.hpp"
+#include "src/wrs/test/is_split.hpp"
 #include "src/wrs/types/alias_table.hpp"
 #include "src/wrs/types/split.hpp"
-#include "src/wrs/test/is_split.hpp"
-#include "src/wrs/test/is_alias_table.hpp"
 #include <cassert>
 #include <fmt/base.h>
 #include <fmt/format.h>
@@ -42,6 +44,8 @@ wrs::test::TestContext wrs::test::setupTestContext(const merian::ContextHandle& 
     query_pool->reset(); // LOL THIS WAS HARD TO FIND shared_ptr also defines a reset function =^).
     profiler->set_query_pool(query_pool);
 
+    merian::ShaderCompilerHandle shaderCompiler = std::make_shared<merian::SystemGlslcCompiler>(context);
+
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
 
     return {
@@ -50,6 +54,7 @@ wrs::test::TestContext wrs::test::setupTestContext(const merian::ContextHandle& 
         .queue = queue,
         .cmdPool = cmdPool,
         .profiler = profiler,
+        .shaderCompiler = shaderCompiler,
     };
 }
 
@@ -266,10 +271,8 @@ static void testSplitTests(std::pmr::memory_resource* resource) {
     const auto heavy = heavyLightPartition.heavy();
     const auto light = heavyLightPartition.light();
 
-    std::pmr::vector<float> heavyPrefix =
-        wrs::reference::pmr::prefix_sum<float>(heavy, resource);
-    std::pmr::vector<float> lightPrefix =
-        wrs::reference::pmr::prefix_sum<float>(light, resource);
+    std::pmr::vector<float> heavyPrefix = wrs::reference::pmr::prefix_sum<float>(heavy, resource);
+    std::pmr::vector<float> lightPrefix = wrs::reference::pmr::prefix_sum<float>(light, resource);
 
     std::pmr::vector<wrs::Split<float, uint32_t>> splits =
         wrs::reference::pmr::splitK<float, uint32_t>(heavyPrefix, lightPrefix, average, N, K,
@@ -391,19 +394,19 @@ void wrs::test::testTests() {
 
     SPDLOG_INFO("Testing reduce reference");
     stackResource.reset();
-    //testReduceReference(&resource);
+    // testReduceReference(&resource);
 
     SPDLOG_INFO("Testing partition assertions tests");
     stackResource.reset();
-    //testPartitionTests(&resource);
+    // testPartitionTests(&resource);
 
     SPDLOG_INFO("Testing inclusive prefix assertion tests");
     stackResource.reset();
-    //testPrefixTests(&resource);
+    // testPrefixTests(&resource);
 
     SPDLOG_INFO("Testing split assertion tests");
     stackResource.reset();
-    //testSplitTests(&resource);
+    // testSplitTests(&resource);
 
     SPDLOG_INFO("Testing alias table assertion tests");
     stackResource.reset();
@@ -411,8 +414,7 @@ void wrs::test::testTests() {
 
     SPDLOG_INFO("Testing chi squared evaluation");
     stackResource.reset();
-    //testChiSquared(&resource);
+    // testChiSquared(&resource);
 
     SPDLOG_INFO("Tested tests and references successfully!");
 }
-

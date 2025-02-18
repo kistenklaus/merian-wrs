@@ -1,4 +1,17 @@
 #pragma once
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : ITS.hpp
+ *
+ * Inverse Transform Sampling method.
+ * First computes the cummulative distribution (weight) function (CDF/CMF)
+ * and then performs a the inverse CDF method, which boils down to a
+ * uniform sample and a binary search.
+ *
+ * This method performs suprisingly good for small sample sizes.
+ *
+ */
 
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/its/sampling/InverseTransformSampling.hpp"
@@ -55,11 +68,12 @@ class ITS {
     using Buffers = ITSBuffers;
 
     explicit ITS(const merian::ContextHandle& context,
+                 const merian::ShaderCompilerHandle& shaderCompiler,
                  ITSConfig config = {})
-        : m_prefixSumKernel(context, config.prefixSumConfig),
-          m_samplingKernel(context, config.samplingConfig) {}
+        : m_prefixSumKernel(context, shaderCompiler, config.prefixSumConfig),
+          m_samplingKernel(context, shaderCompiler, config.samplingConfig) {}
 
-    void run(const vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              glsl::uint N,
              glsl::uint S,
@@ -98,11 +112,10 @@ class ITS {
             profiler.value()->cmd_end(cmd);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.prefixSum->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                              vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     buffers.prefixSum->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                       vk::AccessFlagBits::eShaderRead));
         using SamplingBuffers = InverseTransformSampling::Buffers;
         SamplingBuffers samplingBuffers;
         samplingBuffers.cmf = buffers.prefixSum;

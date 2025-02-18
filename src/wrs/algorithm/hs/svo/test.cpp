@@ -1,3 +1,9 @@
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : test.cpp
+ */
+
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
@@ -5,18 +11,11 @@
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
-#include "src/wrs/reference/partition.hpp"
-#include "src/wrs/reference/prefix_sum.hpp"
-#include "src/wrs/reference/reduce.hpp"
-#include "src/wrs/reference/split.hpp"
-#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/test.hpp"
-#include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
-#include <ranges>
 #include <spdlog/spdlog.h>
 #include <tuple>
 
@@ -61,7 +60,7 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
     return std::make_tuple(local, stage);
 }
 
-static void uploadTestCase(const vk::CommandBuffer cmd,
+static void uploadTestCase(const merian::CommandBufferHandle& cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
                            std::span<const float> weights) {
@@ -73,7 +72,7 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
 }
 
 static void
-downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t N) {
+downloadToStage(merian::CommandBufferHandle& cmd, Buffers& buffers, Buffers& stage, std::size_t N) {
     Buffers::HistogramView stageView{stage.histogram, N};
     Buffers::HistogramView localView{buffers.histogram, N};
     localView.expectComputeWrite();
@@ -102,7 +101,7 @@ static bool runTestCase(const TestContext& context,
                                        testCase.N, testCase.S);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.workgroupSize};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.workgroupSize};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -125,7 +124,8 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -155,7 +155,7 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
@@ -169,7 +169,7 @@ static bool runTestCase(const TestContext& context,
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
             for (std::size_t i = 0; i < results.histogram.size(); ++i) {
-              fmt::println("[{}]: {}", i, results.histogram[i]);
+                fmt::println("[{}]: {}", i, results.histogram[i]);
             }
         }
         context.profiler->collect(true, true);

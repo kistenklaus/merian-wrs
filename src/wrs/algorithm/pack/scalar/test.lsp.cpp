@@ -3,13 +3,14 @@
 #include "src/wrs/types/split.hpp"
 #include "src/wrs/types/alias_table.hpp"
 #include "src/wrs/algorithm/pack/scalar/ScalarPack.hpp"
+#include "merian/vk/command/command_buffer.hpp"
 
 namespace wrs::test::scalar_pack {
 
 using weight_t = float;
 using Buffers = ScalarPackBuffers;
 
-void uploadSplits(const vk::CommandBuffer cmd,
+void uploadSplits(const merian::CommandBufferHandle& cmd,
                          std::span<const wrs::Split<weight_t, wrs::glsl::uint>> splits,
                          Buffers& buffers,
                          Buffers& stage) {

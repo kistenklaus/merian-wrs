@@ -1,5 +1,6 @@
 #pragma once
 
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/algorithm/psa/construction/PSAC.hpp"
 #include "src/wrs/algorithm/psa/sampling/SampleAliasTable.hpp"
 #include "src/wrs/types/glsl.hpp"
@@ -69,10 +70,13 @@ class PSA {
   public:
     using Buffers = PSABuffers;
 
-    explicit PSA(const merian::ContextHandle& context, PSAConfig config = PSAConfig::defaultV())
-        : m_psac(context, config.psac), m_sampleKernel(context, config.samplingWorkgroupSize) {}
+    explicit PSA(const merian::ContextHandle& context,
+                 const merian::ShaderCompilerHandle& shaderCompiler,
+                 PSAConfig config = PSAConfig::defaultV())
+        : m_psac(context, shaderCompiler, config.psac),
+          m_sampleKernel(context, shaderCompiler, config.samplingWorkgroupSize) {}
 
-    void run(const vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle cmd,
              const Buffers& buffers,
              std::size_t N,
              std::size_t S,
@@ -98,11 +102,10 @@ class PSA {
             profiler.value()->cmd_end(cmd);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            psacBuffers.aliasTable->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                                   vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     psacBuffers.aliasTable->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                            vk::AccessFlagBits::eShaderRead));
 
         SampleAliasTable::Buffers samplingBuffers;
         samplingBuffers.samples = buffers.samples;
@@ -128,8 +131,7 @@ class PSA {
         std::size_t prefixPartitionSize = m_psac.getPrefixPartitionSize();
         std::size_t splitSize = m_psac.getSplitSize();
         std::size_t splitCount = (N + splitSize - 1) / splitSize;
-        return Buffers::allocate(alloc, memoryMapping, N, prefixPartitionSize,
-                                 splitCount, S);
+        return Buffers::allocate(alloc, memoryMapping, N, prefixPartitionSize, splitCount, S);
     }
 
   private:

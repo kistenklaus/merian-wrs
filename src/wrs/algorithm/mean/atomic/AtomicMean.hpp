@@ -1,6 +1,17 @@
 #pragma once
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : AtomicMean.hpp
+ * 
+ * Single dispatch mean using floating point atomic means. 
+ * A workgroup computes it's local mean, and publishes using atomics.
+ * 
+ * This is the best performing implementation we found, however it does require floating point
+ * atomics.
+ */
 
-#include "./config.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
 #include "merian/vk/pipeline/pipeline_compute.hpp"
@@ -8,15 +19,11 @@
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
-#include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/PrimitiveLayout.hpp"
-#include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <fmt/format.h>
 #include <memory>
-#include <ranges>
 #include <vulkan/vulkan_handles.hpp>
 
 #include "merian/vk/memory/resource_allocator.hpp"
@@ -57,17 +64,19 @@ struct AtomicMeanBuffers {
         }
         return buffers;
     }
+};
 
-    template <std::ranges::forward_range ForwardRange>
-        requires std::same_as<std::ranges::range_value_t<ForwardRange>, AtomicMeanRunInfo>
-    static Self allocate(const merian::ResourceAllocatorHandle& alloc,
-                         merian::MemoryMappingType memoryMapping,
-                         const ForwardRange& supported) {
-        glsl::uint N = 0;
-        for (const auto& sup : supported) {
-            N = std::max(N, sup.N);
-        }
-        return allocate(alloc, memoryMapping, N);
+class AtomicMeanConfig {
+  public:
+    glsl::uint workgroupSize;
+    glsl::uint rows;
+
+    constexpr AtomicMeanConfig() : workgroupSize(512), rows(8) {}
+    explicit constexpr AtomicMeanConfig(glsl::uint workgroupSize, glsl::uint rows)
+        : workgroupSize(workgroupSize), rows(rows) {}
+
+    inline constexpr glsl::uint partitionSize() const {
+        return workgroupSize * rows;
     }
 };
 
@@ -79,7 +88,9 @@ class AtomicMean {
   public:
     using Buffers = AtomicMeanBuffers;
 
-    explicit AtomicMean(const merian::ContextHandle& context, AtomicMeanConfig config = {})
+    explicit AtomicMean(const merian::ContextHandle& context,
+                        const merian::ShaderCompilerHandle& shaderCompiler,
+                        AtomicMeanConfig config = {})
         : m_partitionSize(config.rows * config.workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
@@ -91,7 +102,7 @@ class AtomicMean {
         const std::string shaderPath = "src/wrs/algorithm/mean/atomic/shader.comp";
 
         const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
+            shaderCompiler->find_compile_glsl_to_shadermodule(
                 context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
@@ -110,15 +121,15 @@ class AtomicMean {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, glsl::uint N) {
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.mean);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.mean);
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
                                                           .N = N,
                                                       });
         const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
   private:

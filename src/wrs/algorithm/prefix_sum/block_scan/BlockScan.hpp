@@ -6,6 +6,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
@@ -101,6 +102,20 @@ inline constexpr bool operator!=(BlockScanVariant a, BlockScanVariant b) noexcep
     return static_cast<Base>(a) != static_cast<Base>(b);
 }
 
+static std::string blockScanVariantName(BlockScanVariant variant) {
+    if ((variant & BlockScanVariant::RAKING) == BlockScanVariant::RAKING) {
+        return "RAKING";
+    } else if ((variant & BlockScanVariant::RANKED) == BlockScanVariant::RANKED) {
+        if ((variant & BlockScanVariant::STRIDED) == BlockScanVariant::STRIDED) {
+            return "RANKED-STRIDED";
+        } else {
+            return "RANKED";
+        }
+    } else {
+        return "UNNAMED";
+    }
+}
+
 struct BlockScanConfig {
     const glsl::uint workgroupSize;
     const glsl::uint rows;
@@ -132,7 +147,9 @@ template <typename T = float> class BlockScan {
   public:
     using Buffers = BlockScanBuffers<T>;
 
-    explicit BlockScan(const merian::ContextHandle& context, BlockScanConfig config = {})
+    explicit BlockScan(const merian::ContextHandle& context,
+                       const merian::ShaderCompilerHandle& shaderCompiler,
+                       BlockScanConfig config = {})
         : m_blockSize(config.blockSize()) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
@@ -156,10 +173,6 @@ template <typename T = float> class BlockScan {
         }
         if ((config.variant & BlockScanVariant::EXCLUSIVE) == BlockScanVariant::EXCLUSIVE) {
             defines["EXCLUSIVE"];
-
-            if ((config.variant & BlockScanVariant::STRIDED) == BlockScanVariant::STRIDED) {
-              throw std::runtime_error("Unsupported variant [STRIDED | EXCLUSIVE]");
-            }
         }
         if ((config.variant & BlockScanVariant::INCLUSIVE) == BlockScanVariant::INCLUSIVE) {
             const auto it = defines.find("EXCLUSIVE");
@@ -169,10 +182,10 @@ template <typename T = float> class BlockScan {
         }
 
         if ((config.variant & BlockScanVariant::STRIDED) == BlockScanVariant::STRIDED) {
-          if ((config.variant & BlockScanVariant::RAKING) == BlockScanVariant::RAKING) {
-            throw std::runtime_error("Unsupported variant");
-          }
-          defines["STRIDED"];
+            if ((config.variant & BlockScanVariant::RAKING) == BlockScanVariant::RAKING) {
+                throw std::runtime_error("Unsupported variant");
+            }
+            defines["STRIDED"];
         }
 
         if constexpr (std::is_same_v<T, glsl::f32>) {
@@ -183,10 +196,9 @@ template <typename T = float> class BlockScan {
             throw std::runtime_error("unsupported type for BlockScans");
         }
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute,
-                {"src/wrs/algorithm/include/"}, defines);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute, {"src/wrs/algorithm/include/"},
+            defines);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -207,19 +219,18 @@ template <typename T = float> class BlockScan {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, glsl::uint N) {
 
-        m_pipeline->bind(cmd);
+        cmd->bind(m_pipeline);
         if (buffers.reductions == nullptr) {
-            m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.prefixSum);
+            cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.prefixSum);
         } else {
-            m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.prefixSum,
-                                            buffers.reductions);
+            cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.prefixSum,
+                                     buffers.reductions);
         }
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{.N = N});
         const uint32_t workgroupCount = (N + m_blockSize - 1) / m_blockSize;
-        fmt::println("DISPATCH: {}   -- partitionSize: {}", workgroupCount, m_blockSize);
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
     inline glsl::uint blockSize() const {

@@ -1,28 +1,19 @@
 #include "./test.hpp"
+#include "merian/vk/command/command_buffer.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/prefix_sum/block_scan/BlockScan.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
-#include "src/wrs/reference/partition.hpp"
-#include "src/wrs/reference/prefix_sum.hpp"
-#include "src/wrs/reference/reduce.hpp"
-#include "src/wrs/reference/split.hpp"
-#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/is_partition.hpp"
-#include "src/wrs/test/is_prefix.hpp"
 #include "src/wrs/test/is_stable_partition.hpp"
 #include "src/wrs/test/test.hpp"
-#include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
 #include <cstring>
-#include <execution>
 #include <fmt/base.h>
 #include <fmt/format.h>
-#include <ranges>
 #include <spdlog/spdlog.h>
-#include <stdexcept>
 #include <tuple>
 
 #include "./DecoupledPartition.hpp"
@@ -73,7 +64,7 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
     return std::make_tuple(local, stage);
 }
 
-static void uploadTestCase(const vk::CommandBuffer cmd,
+static void uploadTestCase(const merian::CommandBufferHandle& cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
                            std::span<const float> elements,
@@ -94,7 +85,7 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
     }
 }
 
-static void downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, glsl::uint N) {
+static void downloadToStage(const merian::CommandBufferHandle& cmd, Buffers& buffers, Buffers& stage, glsl::uint N) {
     {
         Buffers::HeavyCountView stageView{stage.heavyCount};
         Buffers::HeavyCountView localView{buffers.heavyCount};
@@ -152,7 +143,7 @@ static bool runTestCase(const TestContext& context,
         fmt::format("{{blockSize={},N={}}}", testCase.config.blockSize(), testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.config};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -168,9 +159,6 @@ static bool runTestCase(const TestContext& context,
             }
         }
 
-        const glsl::uint partitionCount =
-            (testCase.N + testCase.config.blockSize() - 1) / testCase.config.blockSize();
-
         // 1. Generate input
         context.profiler->start("Generate test input");
         std::pmr::vector<float> elements =
@@ -179,7 +167,8 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -211,7 +200,7 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
@@ -230,11 +219,6 @@ static bool runTestCase(const TestContext& context,
                 for (std::size_t i = 0; i < results.partitionIndices.size(); ++i) {
                     fmt::println("[{}]: {}", i, results.partitionIndices[i]);
                 }
-
-                /* fmt::println("PARTITION:"); */
-                /* for (std::size_t i = 0; i < results.partition.size(); ++i) { */
-                /*     fmt::println("[{}]: {}", i, results.partition[i]); */
-                /* } */
             }
             fmt::println("HeavyCount: {}", results.heavyCount);
 

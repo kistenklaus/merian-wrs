@@ -37,7 +37,7 @@ constexpr TestCase TEST_CASES[] = {
     },
 };
 
-static void uploadWeights(vk::CommandBuffer cmd,
+static void uploadWeights(const merian::CommandBufferHandle& cmd,
                           const Buffers& buffers,
                           const Buffers& stage,
                           const std::span<const weight_type> weights) {
@@ -48,7 +48,7 @@ static void uploadWeights(vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-static void zeroDecoupledStates(const vk::CommandBuffer cmd,
+static void zeroDecoupledStates(const merian::CommandBufferHandle cmd,
                                 const Buffers& buffers,
                                 const std::size_t weightCount,
                                 std::size_t prefixPartitionSize) {
@@ -60,7 +60,7 @@ static void zeroDecoupledStates(const vk::CommandBuffer cmd,
     partitionStateView.expectComputeRead(cmd);
 }
 
-static void downloadAliasTableToStage(vk::CommandBuffer cmd,
+static void downloadAliasTableToStage(const merian::CommandBufferHandle cmd,
                                       const Buffers& buffers,
                                       const Buffers& stage,
                                       const std::size_t weightCount) {
@@ -71,7 +71,7 @@ static void downloadAliasTableToStage(vk::CommandBuffer cmd,
     stageView.expectHostRead(cmd);
 }
 
-static void downloadSplitsToStage(vk::CommandBuffer cmd,
+static void downloadSplitsToStage(const merian::CommandBufferHandle cmd,
                                   const Buffers& buffers,
                                   const Buffers& stage,
                                   const std::size_t splitCount) {
@@ -99,7 +99,7 @@ static bool runTestCase(const wrs::test::TestContext& context,
     SPDLOG_INFO("Running test case:{}", testName);
 
     SPDLOG_DEBUG("Creating ScalarPsa instance");
-    wrs::PSAC psac{context.context};
+    wrs::PSAC psac{context.context, context.shaderCompiler, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -128,7 +128,8 @@ static bool runTestCase(const wrs::test::TestContext& context,
         }
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
 
 #ifdef MERIAN_PROFILER_ENABLE
@@ -167,7 +168,7 @@ static bool runTestCase(const wrs::test::TestContext& context,
             context.profiler->cmd_end(cmd);
             SPDLOG_DEBUG("Submitting to device...");
 #endif
-            cmd.end();
+            cmd->end();
             context.queue->submit_wait(cmd);
         }
         // 7. Download from stage

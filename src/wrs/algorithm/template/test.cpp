@@ -1,5 +1,6 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
+#include "src/renderdoc.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
@@ -14,12 +15,10 @@
 #include <algorithm>
 #include <cstring>
 #include <fmt/format.h>
+#include <memory>
 #include <ranges>
 #include <spdlog/spdlog.h>
 #include <tuple>
-#include "src/renderdoc.hpp"
-
-
 
 #include "./Algorithm.hpp"
 
@@ -37,40 +36,33 @@ struct TestCase {
 
 static constexpr TestCase TEST_CASES[] = {
     //
-      TestCase{
+    TestCase{
         .workgroupSize = 512,
         .N = 1024 * 2048,
         .iterations = 1,
-      },
+    },
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
-  Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM);
-  Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE);
+    Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM);
+    Buffers local = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE);
 
-  return std::make_tuple(local, stage);
-
+    return std::make_tuple(local, stage);
 }
 
-static void uploadTestCase(const vk::CommandBuffer cmd,
-                                   const Buffers& buffers,
-                                   const Buffers& stage,
-                                   std::pmr::memory_resource* resource) {
+static void uploadTestCase(const merian::CommandBufferHandle& cmd,
+                           const Buffers& buffers,
+                           const Buffers& stage,
+                           std::pmr::memory_resource* resource) {}
 
-}
+static void
+downloadToStage(const merian::CommandBufferHandle& cmd, Buffers& buffers, Buffers& stage) {}
 
-static void downloadToStage(vk::CommandBuffer cmd,
-                          Buffers& buffers,
-                          Buffers& stage) {
-
-}
-
-struct Results {
+struct Results2 {
     // TODO
 };
-static Results downloadFromStage(Buffers& stage, std::pmr::memory_resource* resource) {
-	return Results {
-            };
+static Results2 downloadFromStage(Buffers& stage, std::pmr::memory_resource* resource) {
+    return Results2{};
 };
 
 static bool runTestCase(const TestContext& context,
@@ -79,10 +71,10 @@ static bool runTestCase(const TestContext& context,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
     std::string testName =
-        fmt::format("{{workgroupSize={},N={}}}", testCase.workgroupSize,testCase.N);
+        fmt::format("{{workgroupSize={},N={}}}", testCase.workgroupSize, testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
-   	Algorithm kernel{context.context};
+    Algorithm kernel{context.context, context.shaderCompiler};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -104,7 +96,8 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -134,13 +127,13 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
         context.profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        Results results = downloadFromStage(stage, resource);
+        [[maybe_unused]] Results2 results = downloadFromStage(stage, resource);
         context.profiler->end();
 
         // 7. Test results

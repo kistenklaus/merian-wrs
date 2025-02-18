@@ -6,6 +6,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
@@ -75,8 +76,9 @@ struct SubgroupPackConfig {
     const glsl::uint subgroupSplit;
 
     constexpr SubgroupPackConfig() : splitSize(2), workgroupSize(512), subgroupSplit(4) {}
-    explicit constexpr SubgroupPackConfig(glsl::uint splitSize, glsl::uint workgroupSize,
-        glsl::uint subgroupSplit)
+    explicit constexpr SubgroupPackConfig(glsl::uint splitSize,
+                                          glsl::uint workgroupSize,
+                                          glsl::uint subgroupSplit)
         : splitSize(splitSize), workgroupSize(workgroupSize), subgroupSplit(subgroupSplit) {}
 };
 
@@ -89,7 +91,9 @@ class SubgroupPack {
   public:
     using Buffers = SubgroupPackBuffers;
 
-    explicit SubgroupPack(const merian::ContextHandle& context, SubgroupPackConfig config = {})
+    explicit SubgroupPack(const merian::ContextHandle& context,
+                          const merian::ShaderCompilerHandle& shaderCompiler,
+                          SubgroupPackConfig config = {})
         : m_splitSize(config.splitSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
@@ -104,9 +108,8 @@ class SubgroupPack {
 
         const std::string shaderPath = "src/wrs/algorithm/pack/subgroup/shader.comp";
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -122,7 +125,7 @@ class SubgroupPack {
         specInfoBuilder.add_entry(subgroupSize); // 1
         /* glsl::uint log2SubgroupSize = std::bit_width(subgroupSize) - 1; // floor(log2( . )) */
         /* specInfoBuilder.add_entry(log2SubgroupSize); */
-        
+
         glsl::uint threadsPerSubproblem = subgroupSize / config.subgroupSplit;
         specInfoBuilder.add_entry(threadsPerSubproblem); // 2
         glsl::uint log2ThreadsPerSubgroup = std::bit_width(threadsPerSubproblem) - 1;
@@ -138,20 +141,21 @@ class SubgroupPack {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, glsl::uint N) {
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.partitionIndices, buffers.weights,
-                                        buffers.mean, buffers.splits, buffers.aliasTable, buffers.partition);
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.partitionIndices, buffers.weights,
+                                 buffers.mean, buffers.splits, buffers.aliasTable,
+                                 buffers.partition);
 
         glsl::uint K = ((N + m_splitSize - 1) / m_splitSize);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
                                                           .N = N,
                                                           .K = K,
                                                       });
-        const uint32_t workgroupCount = (K + m_subproblemsPerWorkgroup - 1) / m_subproblemsPerWorkgroup;
-        fmt::println("DISPATCH-WORKGROUP-COUNT: {}    K ={}", workgroupCount, K);
-        cmd.dispatch(workgroupCount, 1, 1);
+        const uint32_t workgroupCount =
+            (K + m_subproblemsPerWorkgroup - 1) / m_subproblemsPerWorkgroup;
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
   private:

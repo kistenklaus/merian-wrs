@@ -1,4 +1,13 @@
 #pragma once
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : HSTC.hpp
+ *
+ * Hierarchical sampling construction.
+ * This essentially builds a reduction tree, where each node represents the
+ * weight of all child nodes.
+ */
 
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
@@ -6,6 +15,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/algorithm/hs/HSTRepr.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/BufferView.hpp"
@@ -56,7 +66,9 @@ class HSTC {
   public:
     using Buffers = HSTCBuffers;
 
-    explicit HSTC(const merian::ContextHandle& context, glsl::uint workgroupSize)
+    explicit HSTC(const merian::ContextHandle& context,
+                  const merian::ShaderCompilerHandle& shaderCompiler,
+                  glsl::uint workgroupSize)
         : m_workgroupSize(workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
@@ -66,9 +78,8 @@ class HSTC {
 
         const std::string shaderPath = "src/wrs/algorithm/hs/hstc/shader.comp";
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -83,13 +94,13 @@ class HSTC {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              const glsl::uint N,
              const glsl::uint svoThreshold = 0) const {
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.tree);
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.tree);
 
         hst::HSTRepr repr{N};
 
@@ -105,23 +116,23 @@ class HSTC {
             const uint32_t workgroupCount = (numInvoc + m_workgroupSize - 1) / m_workgroupSize;
 
             if (!first) {
-                cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                                    vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                                    buffers.tree->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                                 vk::AccessFlagBits::eShaderRead),
-                                    {});
+                cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                             vk::PipelineStageFlagBits::eComputeShader,
+                             buffers.tree->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                          vk::AccessFlagBits::eShaderRead));
             }
             first = false;
 
-            /* fmt::println("HSTC: dst_offset = {}, src_offset = {}, invoc = {}", dstOffset, srcOffset, */
+            /* fmt::println("HSTC: dst_offset = {}, src_offset = {}, invoc = {}", dstOffset,
+             * srcOffset, */
             /*              numInvoc); */
 
-            m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
+            cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
                                                               .dst_offset = dstOffset,
                                                               .src_offset = srcOffset,
                                                               .num_invoc = numInvoc,
                                                           });
-            cmd.dispatch(workgroupCount, 1, 1);
+            cmd->dispatch(workgroupCount, 1, 1);
         }
     }
 

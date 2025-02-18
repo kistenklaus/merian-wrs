@@ -1,5 +1,6 @@
 #pragma once
 
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
 #include "merian/vk/memory/memory_allocator.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
@@ -113,6 +114,7 @@ class PartitionBlockScan {
     using Buffers = PartitionBlockScanBuffers;
 
     explicit PartitionBlockScan(const merian::ContextHandle& context,
+        const merian::ShaderCompilerHandle& shaderCompiler,
                                 PartitionBlockScanConfig config)
         : m_blockSize(config.blockSize()) {
 
@@ -156,7 +158,7 @@ class PartitionBlockScan {
         defines["USE_FLOAT"]; // NOTE only support float partitions
 
         const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
+            shaderCompiler->find_compile_glsl_to_shadermodule(
                 context, shaderPath, vk::ShaderStageFlagBits::eCompute,
                 {"src/wrs/algorithm/include"}, defines);
 
@@ -177,18 +179,18 @@ class PartitionBlockScan {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, glsl::uint N) {
 
-        m_pipeline->bind(cmd);
+        cmd->bind(m_pipeline);
         if (buffers.blockCount != nullptr) {
-            m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.pivot, buffers.indices,
+            cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.pivot, buffers.indices,
                                             buffers.blockCount);
         } else {
-            m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.pivot, buffers.indices);
+            cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.pivot, buffers.indices);
         }
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{.N = N});
         const uint32_t workgroupCount = (N + m_blockSize - 1) / m_blockSize;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
     inline glsl::uint blockSize() const {

@@ -2,16 +2,13 @@
 
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/split/scalar/ScalarSplit.hpp"
-#include "src/wrs/algorithm/split/scalar/test/test_cases.hpp"
-#include "src/wrs/algorithm/split/scalar/test/test_setup.hpp"
-#include "src/wrs/layout/layout_traits.hpp"
+#include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
 #include "src/wrs/reference/mean.hpp"
 #include "src/wrs/reference/partition.hpp"
 #include "src/wrs/reference/prefix_sum.hpp"
-#include "src/wrs/reference/split.hpp"
 #include "src/wrs/test/is_split.hpp"
 #include "src/wrs/test/test.hpp"
 #include "src/wrs/types/partition.hpp"
@@ -20,23 +17,56 @@
 #include <cstring>
 #include <fmt/base.h>
 #include <spdlog/spdlog.h>
-#include <stdexcept>
 #include <vector>
 #include <vulkan/vulkan_enums.hpp>
 
 namespace wrs::test::scalar_split {
 
-vk::DeviceSize sizeOfWeightType(WeightType type) {
-    switch (type) {
-    case WEIGHT_TYPE_FLOAT:
-        return sizeof(float);
+using Buffers = ScalarSplitBuffers;
+
+struct TestCase {
+    glsl::uint workgroupSize;
+    uint32_t weightCount;
+    Distribution distribution;
+    uint32_t splitCount;
+    uint32_t iterations;
+};
+
+static constexpr TestCase TEST_CASES[] = {
+    TestCase{
+        .workgroupSize = 512,
+        .weightCount = static_cast<glsl::uint>(1024 * 2048),
+        .distribution = Distribution::PSEUDO_RANDOM_UNIFORM,
+        .splitCount = static_cast<glsl::uint>(1024 * 2048) / 16,
+        .iterations = 1,
+    },
+    //
+    /* TestCase{ */
+    /*     .workgroupSize = 512, */
+    /*     .weightCount = 256, */
+    /*     .distribution = Distribution::SEEDED_RANDOM_UNIFORM, */
+    /*     .splitCount = (256) / 8, */
+    /*     .iterations = 1, */
+    /* }, */
+};
+
+static std::tuple<Buffers, Buffers> allocateBuffers(const wrs::test::TestContext context) {
+    uint32_t maxWeightCount = 0;
+    uint32_t maxSplitCount = 0;
+    for (const auto& testCase : TEST_CASES) {
+      maxWeightCount = std::max(maxWeightCount, testCase.weightCount);
+      maxSplitCount = std::max(maxSplitCount, testCase.splitCount);
     }
-    throw std::runtime_error("sizeOfWeightType is not implemented properly");
+    Buffers buffers = Buffers::allocate(context.alloc,maxWeightCount, maxSplitCount,
+        merian::MemoryMappingType::NONE);
+    Buffers stage = Buffers::allocate(context.alloc,maxWeightCount, maxSplitCount,
+        merian::MemoryMappingType::HOST_ACCESS_RANDOM);
+    return std::make_tuple(buffers, stage);
 }
 
 using weight_t = float;
 
-static void uploadTestCase(vk::CommandBuffer cmd,
+static void uploadTestCase(const merian::CommandBufferHandle& cmd,
                            const std::span<weight_t>& heavyPrefix,
                            const std::span<weight_t>& reverseLightPrefix,
                            const weight_t mean,
@@ -69,7 +99,7 @@ static void uploadTestCase(vk::CommandBuffer cmd,
     }
 }
 
-void downloadResultsToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, uint32_t K) {
+void downloadResultsToStage(const merian::CommandBufferHandle cmd, Buffers& buffers, Buffers& stage, uint32_t K) {
      Buffers::SplitsView stageView{stage.splits, K}; 
      Buffers::SplitsView localView{buffers.splits, K}; 
      localView.expectComputeWrite(); 
@@ -98,7 +128,7 @@ static void runTestCase(const wrs::test::TestContext& context,
 
     SPDLOG_DEBUG("Creating ScalarSplit instance");
 
-    wrs::ScalarSplit algo{context.context, testCase.workgroupSize};
+    wrs::ScalarSplit algo{context.context, context.shaderCompiler, testCase.workgroupSize};
 
     for (size_t i = 0; i < testCase.iterations; ++i) {
 
@@ -186,7 +216,8 @@ static void runTestCase(const wrs::test::TestContext& context,
         /* } */
 
         // =========== Start Recoding =========
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
 
         std::string recordingLabel =
             fmt::format("Recoding: [workgroupSize={},weightCount={},splitCount= {}"
@@ -222,7 +253,7 @@ static void runTestCase(const wrs::test::TestContext& context,
             context.profiler->end();
             context.profiler->cmd_end(cmd);
             SPDLOG_DEBUG("Submiting to queue & waiting");
-            cmd.end();
+            cmd->end();
             context.queue->submit_wait(cmd);
         }
 

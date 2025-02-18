@@ -7,7 +7,7 @@ namespace wrs::test::sample_alias {
 
 using Buffers = SampleAliasTableBuffers;
 
-void uploadTestCase(const vk::CommandBuffer cmd,
+void uploadTestCase(const merian::CommandBufferHandle& cmd,
                                    const Buffers& buffers,
                                    const Buffers& stage,
                                    wrs::ImmutableAliasTableReference<float, glsl::uint> aliasTable) {

@@ -68,13 +68,13 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
     return std::make_tuple(local, stage);
 }
 
-void uploadTestCase(const vk::CommandBuffer cmd,
+void uploadTestCase(const merian::CommandBufferHandle& cmd,
                     const Buffers& buffers,
                     const Buffers& stage,
                     wrs::ImmutableAliasTableReference<float, glsl::uint> aliasTable);
 
 static void
-downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t S) {
+downloadToStage(const merian::CommandBufferHandle& cmd, Buffers& buffers, Buffers& stage, std::size_t S) {
     Buffers::SamplesView stageView{stage.samples, S};
     Buffers::SamplesView localView{buffers.samples, S};
     localView.copyTo(cmd, stageView);
@@ -103,7 +103,7 @@ static bool runTestCase(const TestContext& context,
                                        testCase.N, testCase.S);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.workgroupSize};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.workgroupSize};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -129,7 +129,8 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -159,7 +160,7 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage

@@ -62,30 +62,33 @@ void main(void) {
 
         const uint base = blockBase + gl_SubgroupID * (ROWS * SUBGROUP_SIZE) + gl_SubgroupInvocationID.x;
 
+        MONOID exclusive = 0;
         #pragma unroll
         for (uint i = 0, ix = base; i < ROWS; ++i, ix += SUBGROUP_SIZE) {
-            v[i] = elements[ix];
-        }
-
-        #pragma unroll
-        for (uint i = 0; i < ROWS; ++i) {
+            MONOID x = elements[ix];
+            MONOID agg;
+            #ifdef EXCLUSIVE
             #ifdef USE_UINT
-            v[i] = subgroup_inclusive_scan_uint(v[i]);
-            #else
-            v[i] = subgroup_inclusive_scan_float(v[i]);
+            v[i] = subgroup_exclusive_scan_uint(x, agg) + exclusive;
+            #elif defined(USE_FLOAT)
+            v[i] = subgroup_exclusive_scan_float(x, agg) + exclusive;
             #endif
-        }
-        const uint last = SUBGROUP_SIZE - 1;
-        for (uint i = 1; i < ROWS; ++i) {
-            v[i] += subgroupBroadcast(v[i - 1], last);
+            #else 
+            #ifdef USE_UINT
+            v[i] = subgroup_inclusive_scan_uint(x, agg) + exclusive;
+            #elif defined(USE_FLOAT)
+            v[i] = subgroup_inclusive_scan_float(x, agg) + exclusive;
+            #endif
+            #endif
+            exclusive += agg;
         }
 
-        if (gl_SubgroupInvocationID == last) {
-            strided_scatch[gl_SubgroupID] = v[ROWS - 1];
+        if (gl_SubgroupInvocationID == SUBGROUP_SIZE - 1) {
+            strided_scatch[gl_SubgroupID] = exclusive; // inclusive at this point
         }
-        
+
         barrier();
-        
+
         if (gl_SubgroupID == 0) {
             MONOID subgroupAgg = (gl_SubgroupInvocationID < MAX_SUBGROUPS_PER_WORKGROUP)
                 ? strided_scatch[gl_SubgroupInvocationID] : 0;
@@ -99,13 +102,13 @@ void main(void) {
             }
         }
         barrier();
-        
+
         if (gl_LocalInvocationID.x == 0) {
             partAgg += strided_scatch[gl_NumSubgroups - 1];
         }
 
         MONOID subgroupExclusive = (gl_SubgroupID > 0) ? strided_scatch[gl_SubgroupID - 1] : 0;
-        
+
         for (uint i = 0; i < ROWS; ++i) {
             v[i] += subgroupExclusive;
         }

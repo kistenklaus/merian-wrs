@@ -2,6 +2,8 @@
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/memory_allocator.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
+#include "merian/vk/shader/shader_compiler_shaderc.hpp"
+#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "src/wrs/algorithm/prng/philox/Philox.hpp"
 #include "src/wrs/algorithm/psa/construction/PSAC.hpp"
 #include "src/wrs/eval/logscale.hpp"
@@ -18,10 +20,12 @@ void wrs::eval::write_philox_rmse_curve(const merian::ContextHandle& context) {
     merian::QueueHandle queue = context->get_queue_GCT();
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
 
+    merian::ShaderCompilerHandle shaderCompiler = std::make_shared<merian::SystemGlslcCompiler>(context);
+
     constexpr glsl::uint N = 1024 * 2048;
     constexpr std::size_t S = 1e10;
 
-    wrs::Philox philox{context};
+    wrs::Philox philox{context, shaderCompiler};
 
     constexpr glsl::uint MAX_SAMPLING_STEP_SIZE = 0x3FFFFFFF;
     constexpr glsl::uint SAMPLING_STEP_COUNT =
@@ -45,13 +49,14 @@ void wrs::eval::write_philox_rmse_curve(const merian::ContextHandle& context) {
         merian::MemoryMappingType::HOST_ACCESS_RANDOM);
 
     {
-        vk::CommandBuffer cmd = cmdPool->create_and_begin();
+      merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+      cmd->begin();
         wrs::PSAC::Buffers::WeightsView stageView{stageWeights, N};
         wrs::PSAC::Buffers::WeightsView localView{localWeights, N};
         stageView.upload<float>(weights);
         stageView.copyTo(cmd, localView);
         localView.expectComputeRead(cmd);
-        cmd.end();
+        cmd->end();
         queue->submit_wait(cmd);
     }
 
@@ -61,14 +66,15 @@ void wrs::eval::write_philox_rmse_curve(const merian::ContextHandle& context) {
     constexpr bool USE_GPU_ACCELERATED_RMSE = true;
     if (USE_GPU_ACCELERATED_RMSE) {
         wrs::eval::RMSECurveAcceleratedBuilder rmseCurveBuilder{
-            context, localWeights, static_cast<float>(N), N,
+            context, shaderCompiler, localWeights, static_cast<float>(N), N,
             wrs::eval::log10scale<uint64_t>(1000, S, RMSE_CURVE_TICKS)};
 
         std::vector<glsl::uint> samplesSection;
         std::size_t s = S;
         for (std::size_t i = 0; i < SAMPLING_STEP_COUNT;) {
-
-            vk::CommandBuffer cmd = cmdPool->create_and_begin();
+            
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+            cmd->begin();
 
             std::size_t x = 0;
             while (i < SAMPLING_STEP_COUNT && x < SUBMIT_LIMIT) {
@@ -93,7 +99,7 @@ void wrs::eval::write_philox_rmse_curve(const merian::ContextHandle& context) {
             SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", S - s, S,
                         100 * ((S - s) / static_cast<float>(S)));
 
-            cmd.end();
+            cmd->end();
             queue->submit_wait(cmd);
         }
         SPDLOG_INFO("Downloading from stage..");
@@ -126,7 +132,8 @@ void wrs::eval::write_philox_rmse_curve(const merian::ContextHandle& context) {
             SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", S - s, S,
                         100 * ((S - s) / static_cast<float>(S)));
 
-            vk::CommandBuffer cmd = cmdPool->create_and_begin();
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+            cmd->begin();
 
             glsl::uint seed = dist(rng);
             philox.run(cmd, local, s2, N, seed);
@@ -138,7 +145,7 @@ void wrs::eval::write_philox_rmse_curve(const merian::ContextHandle& context) {
             localView.copyTo(cmd, stageView);
             stageView.expectHostRead(cmd);
 
-            cmd.end();
+            cmd->end();
             queue->submit_wait(cmd);
 
             const auto& samples = stageView.download<glsl::uint>();

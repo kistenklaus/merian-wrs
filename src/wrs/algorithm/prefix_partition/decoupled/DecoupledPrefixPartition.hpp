@@ -8,6 +8,7 @@
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/PrimitiveLayout.hpp"
@@ -192,6 +193,7 @@ class DecoupledPrefixPartition {
     using Buffers = DecoupledPrefixPartitionBuffers;
 
     explicit DecoupledPrefixPartition(const merian::ContextHandle& context,
+                                      const merian::ShaderCompilerHandle& shaderCompiler,
                                       DecoupledPrefixPartitionConfig config = {})
         : m_partitionSize(config.partitionSize()) {
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
@@ -205,9 +207,8 @@ class DecoupledPrefixPartition {
 
         std::string shaderPath = "src/wrs/algorithm/prefix_partition/decoupled/shader.comp";
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -226,17 +227,16 @@ class DecoupledPrefixPartition {
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
-    void run(vk::CommandBuffer cmd, const DecoupledPrefixPartitionBuffers& buffers, uint32_t N) {
-        m_pipeline->bind(cmd);
-
-
-        m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.pivot,
-                                        buffers.batchDescriptors, buffers.partitionPrefix,
-                                        buffers.partition);
-        m_pipeline->push_constant(cmd, N);
-
+    void run(const merian::CommandBufferHandle& cmd,
+             const DecoupledPrefixPartitionBuffers& buffers,
+             uint32_t N) {
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.pivot,
+                                 buffers.batchDescriptors, buffers.partitionPrefix,
+                                 buffers.partition);
+        cmd->push_constant(m_pipeline, N);
         uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
     vk::DeviceSize minBufferDescriptorSize(uint32_t N) {

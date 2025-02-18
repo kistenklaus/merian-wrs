@@ -1,5 +1,7 @@
 #include "./hst.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
+#include "merian/vk/shader/shader_compiler_shaderc.hpp"
+#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/hs/HS.hpp"
 #include "src/wrs/algorithm/hs/HSTRepr.hpp"
@@ -42,7 +44,8 @@ BenchmarkResults benchmark(const merian::CommandPoolHandle& cmdPool,
                            const wrs::HS::Buffers& stage,
                            std::size_t s,
                            std::size_t N) {
-    vk::CommandBuffer cmd = cmdPool->create_and_begin();
+    merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+    cmd->begin();
     wrs::hst::HSTRepr repr{N};
 
     glsl::uint* mapped = stage.outputSensitiveSamples->get_memory()->map_as<glsl::uint>();
@@ -53,20 +56,19 @@ BenchmarkResults benchmark(const merian::CommandPoolHandle& cmdPool,
         repr.size() * sizeof(glsl::uint),
         sizeof(glsl::uint),
     };
-    cmd.copyBuffer(*stage.outputSensitiveSamples, *local.outputSensitiveSamples, 1, &copy);
 
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                        vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                        local.outputSensitiveSamples->buffer_barrier(
-                            vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eShaderRead),
-                        {});
+    cmd->copy(stage.outputSensitiveSamples, local.outputSensitiveSamples, copy);
+
+    cmd->barrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eComputeShader,
+                 local.outputSensitiveSamples->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
+                                                              vk::AccessFlagBits::eShaderRead));
 
     for (std::size_t i = 0; i < BENCHMARK_ITERATIONS; ++i) {
         MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Latency");
         hs.run(cmd, local, N, s, profiler);
     }
 
-    cmd.end();
+    cmd->end();
     queue->submit_wait(cmd);
 
     profiler->collect(true, false);
@@ -105,6 +107,9 @@ void wrs::bench::hst::write_bench_results(const merian::ContextHandle& context) 
     query_pool->reset(); // LOL THIS WAS HARD TO FIND shared_ptr also defines a reset function =^).
     profiler->set_query_pool(query_pool);
 
+    merian::ShaderCompilerHandle shaderCompiler =
+        std::make_shared<merian::SystemGlslcCompiler>(context);
+
     const std::vector<float> weights = wrs::generate_weights(DIST, N);
 
     wrs::HS::Buffers local = wrs::HS::Buffers::allocate(alloc, merian::MemoryMappingType::NONE, N,
@@ -114,7 +119,8 @@ void wrs::bench::hst::write_bench_results(const merian::ContextHandle& context) 
         wrs::HS::Buffers::allocate(alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, N, S,
                                    EXPLODE_WORKGROUP_SIZE * EXPLODE_ROWS);
 
-    vk::CommandBuffer cmd = cmdPool->create_and_begin();
+    merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+    cmd->begin();
 
     wrs::HS::Buffers::WeightTreeView stageView{stage.weightTree, N};
     wrs::HS::Buffers::WeightTreeView localView{local.weightTree, N};
@@ -122,10 +128,11 @@ void wrs::bench::hst::write_bench_results(const merian::ContextHandle& context) 
     stageView.copyTo(cmd, localView);
     localView.expectComputeRead(cmd);
 
-    cmd.end();
+    cmd->end();
     queue->submit_wait(cmd);
 
     wrs::HS hs{context,
+               shaderCompiler,
                HSTC_WORKGROUP_SIZE,
                SVO_WORKGROUP_SIZE,
                SAMPLING_WORKGROUP_SIZE,
@@ -133,14 +140,14 @@ void wrs::bench::hst::write_bench_results(const merian::ContextHandle& context) 
                EXPLODE_ROWS,
                EXPLODE_LOOKBACK_DEPTH};
 
-    wrs::exp::CSVWriter<7> csv{
-        {"sample_size", "latency_ms", "prepare_ms", "construction_ms", "svo_ms", "sampling_ms", "explode_ms"},
-        "hst_benchmark.csv"};
+    wrs::exp::CSVWriter<7> csv{{"sample_size", "latency_ms", "prepare_ms", "construction_ms",
+                                "svo_ms", "sampling_ms", "explode_ms"},
+                               "hst_benchmark.csv"};
 
     for (const auto& s : wrs::eval::log10scale<glsl::uint>(1000, S, BENCHMARK_TICKS)) {
         auto result = benchmark(cmdPool, queue, profiler, hs, local, stage, s, N);
 
-        csv.pushRow(s, result.latencyMs, result.prepareMs, result.constructionMs, result.svoMs, result.samplingMs,
-                    result.explodeMs);
+        csv.pushRow(s, result.latencyMs, result.prepareMs, result.constructionMs, result.svoMs,
+                    result.samplingMs, result.explodeMs);
     }
 }

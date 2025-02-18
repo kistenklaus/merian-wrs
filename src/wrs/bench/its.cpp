@@ -1,6 +1,8 @@
 #include "./its.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
+#include "merian/vk/shader/shader_compiler_shaderc.hpp"
+#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/its/ITS.hpp"
 #include "src/wrs/eval/logscale.hpp"
@@ -30,7 +32,10 @@ void wrs::bench::its::write_bench_results(const merian::ContextHandle& context) 
     query_pool->reset(); // LOL THIS WAS HARD TO FIND shared_ptr also defines a reset function =^).
     profiler->set_query_pool(query_pool);
 
-    wrs::ITS its{context, config};
+    merian::ShaderCompilerHandle shaderCompiler =
+        std::make_shared<merian::SystemGlslcCompiler>(context);
+
+    wrs::ITS its{context, shaderCompiler, config};
 
     using Buffers = wrs::ITS::Buffers;
     Buffers local = Buffers::allocate(alloc, merian::MemoryMappingType::NONE, WEIGHT_COUNT,
@@ -42,7 +47,8 @@ void wrs::bench::its::write_bench_results(const merian::ContextHandle& context) 
     std::vector<float> weights =
         wrs::generate_weights(Distribution::SEEDED_RANDOM_UNIFORM, WEIGHT_COUNT);
 
-    vk::CommandBuffer cmd = cmdPool->create_and_begin();
+    merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+    cmd->begin();
     { // Upload weights
         Buffers::WeightsView stageView{stage.weights, WEIGHT_COUNT};
         Buffers::WeightsView localView{local.weights, WEIGHT_COUNT};
@@ -51,27 +57,27 @@ void wrs::bench::its::write_bench_results(const merian::ContextHandle& context) 
         localView.expectComputeRead(cmd);
     }
 
-    cmd.end();
+    cmd->end();
     queue->submit_wait(cmd);
 
     auto scale =
         wrs::eval::log10scale<glsl::uint>(MIN_SAMPLES_COUNT, MAX_SAMPLES_COUNT, BENCHMARK_SAMPLES);
     for (const glsl::uint S : scale) {
         fmt::println("Benchmarking S = {}", S);
-        vk::CommandBuffer cmd = cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+        cmd->begin();
         for (std::size_t it = 0; it < BENCHMARK_ITERATIONS; ++it) {
             {
                 MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, fmt::format("{}", S));
                 its.run(cmd, local, WEIGHT_COUNT, S, profiler);
             }
 
-            cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                                vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                                local.prefixSum->buffer_barrier(vk::AccessFlagBits::eHostRead,
-                                                                vk::AccessFlagBits::eHostWrite),
-                                {});
+            cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                         vk::PipelineStageFlagBits::eComputeShader,
+                         local.prefixSum->buffer_barrier(vk::AccessFlagBits::eHostRead,
+                                                         vk::AccessFlagBits::eHostWrite));
         }
-        cmd.end();
+        cmd->end();
         queue->submit_wait(cmd);
         profiler->collect(true, true);
     }

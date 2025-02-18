@@ -1,3 +1,9 @@
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : test.cpp
+ */
+
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
@@ -5,20 +11,13 @@
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
-#include "src/wrs/reference/partition.hpp"
-#include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/reduce.hpp"
-#include "src/wrs/reference/split.hpp"
-#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/test.hpp"
-#include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
-#include <ranges>
 #include <spdlog/spdlog.h>
-#include <tuple>
 
 #include "./AtomicMean.hpp"
 
@@ -29,7 +28,8 @@ using Algorithm = AtomicMean;
 using Buffers = Algorithm::Buffers;
 
 struct TestCase {
-    AtomicMeanRunInfo runInfo;
+    AtomicMeanConfig config;
+    glsl::uint N;
     Distribution dist;
     uint32_t iterations;
 };
@@ -37,17 +37,14 @@ struct TestCase {
 static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
-        .runInfo =
-            {
-                .config = {},
-                .N = static_cast<glsl::uint>(1e7),
-            },
+        .config = {},
+        .N = static_cast<glsl::uint>(1e7),
         .dist = wrs::Distribution::SEEDED_RANDOM_UNIFORM,
         .iterations = 1,
     },
 };
 
-static void uploadTestCase(const vk::CommandBuffer cmd,
+static void uploadTestCase(const merian::CommandBufferHandle& cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
                            std::span<const float> elements) {
@@ -58,7 +55,8 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-static void downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage) {
+static void
+downloadToStage(const merian::CommandBufferHandle& cmd, Buffers& buffers, Buffers& stage) {
     Buffers::MeanView stageView{stage.mean};
     Buffers::MeanView localView{buffers.mean};
     localView.expectComputeWrite();
@@ -84,18 +82,18 @@ static bool runTestCase(const TestContext& context,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
 
-    std::string testName = fmt::format("{{workgroupSize={},N={}}}",
-                                       testCase.runInfo.config.workgroupSize, testCase.runInfo.N);
+    std::string testName =
+        fmt::format("{{workgroupSize={},N={}}}", testCase.config.workgroupSize, testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.runInfo.config};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
         MERIAN_PROFILE_SCOPE(context.profiler, testName);
         context.queue->wait_idle();
         if (testCase.iterations > 1) {
-            if (testCase.runInfo.N > 1e6) {
+            if (testCase.N > 1e6) {
                 SPDLOG_INFO(
                     fmt::format("Testing iterations {} out of {}", it + 1, testCase.iterations));
             } else {
@@ -107,11 +105,12 @@ static bool runTestCase(const TestContext& context,
         // 1. Generate input
         context.profiler->start("Generate test input");
         const auto elements =
-            wrs::pmr::generate_weights<float>(testCase.dist, testCase.runInfo.N, resource);
+            wrs::pmr::generate_weights<float>(testCase.dist, testCase.N, resource);
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -127,7 +126,7 @@ static bool runTestCase(const TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.runInfo.N);
+            kernel.run(cmd, buffers, testCase.N);
         }
 
         // 5. Download results to stage
@@ -141,7 +140,7 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
@@ -170,15 +169,14 @@ void wrs::test::atomic_mean::test(const merian::ContextHandle& context) {
     const TestContext testContext = setupTestContext(context);
 
     SPDLOG_DEBUG("Allocating buffers");
-    auto buffers =
-        Buffers::allocate(testContext.alloc, merian::MemoryMappingType::NONE,
-                          std::views::transform(TEST_CASES, [](const TestCase& testCase) {
-                              return testCase.runInfo;
-                          }));
-    auto stage = Buffers::allocate(testContext.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
-                                   std::views::transform(TEST_CASES, [](const TestCase& testCase) {
-                                       return testCase.runInfo;
-                                   }));
+    glsl::uint maxN = 0;
+    for (const auto& testCase : TEST_CASES) {
+        maxN = std::max(maxN, testCase.N);
+    }
+
+    auto buffers = Buffers::allocate(testContext.alloc, merian::MemoryMappingType::NONE, maxN);
+    auto stage =
+        Buffers::allocate(testContext.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, maxN);
 
     wrs::memory::StackResource stackResource{4096 * 2048};
     wrs::memory::FallbackResource fallbackResource{&stackResource};

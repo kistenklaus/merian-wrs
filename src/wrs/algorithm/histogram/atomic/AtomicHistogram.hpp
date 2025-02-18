@@ -1,17 +1,24 @@
 #pragma once
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : AtomicHistogram
+ *
+ * Horrible implementation of a histogram using atomic couters in every single invocation,
+ * but good enough for evaluation.
+ */
 
+#include "merian/vk/command/command_buffer.hpp"
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
-#include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
-#include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
 
@@ -62,8 +69,12 @@ class AtomicHistogram {
   public:
     using Buffers = AtomicHistogramBuffers;
 
-    explicit AtomicHistogram(const merian::ContextHandle& context, glsl::uint workgroupSize = 512)
+    explicit AtomicHistogram(const merian::ContextHandle& context,
+                             merian::ShaderCompilerHandle shaderCompiler,
+                             glsl::uint workgroupSize = 512)
         : m_workgroupSize(workgroupSize) {
+        assert(context != nullptr);
+        assert(shaderCompiler != nullptr);
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -72,11 +83,9 @@ class AtomicHistogram {
                 .build_push_descriptor_layout(context);
 
         const std::string shaderPath = "src/wrs/algorithm/histogram/atomic/shader.comp";
-        
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -91,15 +100,20 @@ class AtomicHistogram {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void
-    run(const vk::CommandBuffer& cmd, const Buffers& buffers, glsl::uint offset, glsl::uint count) {
-        
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.samples, buffers.histogram);
-        m_pipeline->push_constant<PushConstants>(cmd,
-                                                 PushConstants{.offset = offset, .count = count});
+    void run(const merian::CommandBufferHandle& cmd,
+             const Buffers& buffers,
+             glsl::uint offset,
+             glsl::uint count) {
+
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.samples, buffers.histogram);
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
+                                                          .offset = offset,
+                                                          .count = count,
+                                                      });
+
         const uint32_t workgroupCount = (count + m_workgroupSize - 1) / m_workgroupSize;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
   private:

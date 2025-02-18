@@ -1,11 +1,15 @@
 #pragma once
 
-#include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
-#include "merian/vk/pipeline/pipeline.hpp"
-#include "merian/vk/pipeline/pipeline_compute.hpp"
-#include "merian/vk/pipeline/pipeline_layout_builder.hpp"
-#include "merian/vk/pipeline/specialization_info.hpp"
-#include "merian/vk/pipeline/specialization_info_builder.hpp"
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : HS.hpp
+ *
+ * Hierarchical sampling.
+ *
+ * Composite of multiple kernels : HSTC, SmallValueOptimization, HSTSampling, Explode
+ */
+
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/hs/explode/Explode.hpp"
 #include "src/wrs/algorithm/hs/hstc/HSTC.hpp"
@@ -15,9 +19,7 @@
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <fmt/base.h>
-#include <memory>
 #include <vulkan/vulkan_handles.hpp>
 
 #include "merian/vk/memory/resource_allocator.hpp"
@@ -66,17 +68,20 @@ class HS {
     using Buffers = HSBuffers;
 
     explicit HS(const merian::ContextHandle& context,
+                const merian::ShaderCompilerHandle& shaderCompiler,
                 glsl::uint hstcWorkgroupSize,
                 glsl::uint svoWorkgroupSize,
                 glsl::uint samplingWorkgroupSize,
                 glsl::uint explodeWorkgroupSize,
                 glsl::uint explodeRows,
                 glsl::uint explodeLookbackDepth)
-        : m_hstc(context, hstcWorkgroupSize), m_svo(context, svoWorkgroupSize),
-          m_hstSampling(context, samplingWorkgroupSize),
-          m_explode(context, explodeWorkgroupSize, explodeRows, explodeLookbackDepth) {}
+        : m_hstc(context, shaderCompiler, hstcWorkgroupSize),
+          m_svo(context, shaderCompiler, svoWorkgroupSize),
+          m_hstSampling(context, shaderCompiler, samplingWorkgroupSize),
+          m_explode(
+              context, shaderCompiler, explodeWorkgroupSize, explodeRows, explodeLookbackDepth) {}
 
-    void run(const vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              std::size_t N,
              glsl::uint S,
@@ -114,11 +119,10 @@ class HS {
             profiler.value()->cmd_end(cmd);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.weightTree->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                               vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     buffers.weightTree->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                        vk::AccessFlagBits::eShaderRead));
 
         HSSVOBuffers svoBuffers;
         svoBuffers.hst = buffers.weightTree;
@@ -127,16 +131,16 @@ class HS {
         glsl::uint offset = 0;
         glsl::uint size = N;
         for (const auto& level : repr.get()) {
-          if (level.numChildren <= m_svo.getWorkgroupSize()) {
-            offset = level.childOffset;
-            size = level.numChildren;
-            break;
-          }
+            if (level.numChildren <= m_svo.getWorkgroupSize()) {
+                offset = level.childOffset;
+                size = level.numChildren;
+                break;
+            }
         }
 
         if (profiler.has_value()) {
-          profiler.value()->start("SVO");
-          profiler.value()->cmd_start(cmd, "SVO");
+            profiler.value()->start("SVO");
+            profiler.value()->cmd_start(cmd, "SVO");
         }
 
         m_svo.run(cmd, svoBuffers, S, offset, size);
@@ -146,12 +150,10 @@ class HS {
             profiler.value()->cmd_end(cmd);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.outputSensitiveSamples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                               vk::AccessFlagBits::eShaderRead),
-                            {});
-
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     buffers.outputSensitiveSamples->buffer_barrier(
+                         vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead));
 
         if (profiler.has_value()) {
             profiler.value()->start("Sampling");
@@ -168,11 +170,10 @@ class HS {
             profiler.value()->cmd_end(cmd);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.outputSensitiveSamples->buffer_barrier(
-                                vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     buffers.outputSensitiveSamples->buffer_barrier(
+                         vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead));
 
         if (profiler.has_value()) {
             profiler.value()->start("Explode");

@@ -7,6 +7,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/types/glsl.hpp"
@@ -60,7 +61,9 @@ class Philox {
   public:
     using Buffers = PhiloxBuffers;
 
-    explicit Philox(const merian::ContextHandle& context, PhiloxConfig config = {})
+    explicit Philox(const merian::ContextHandle& context,
+                    const merian::ShaderCompilerHandle& shaderCompiler,
+                    PhiloxConfig config = {})
         : m_workgroupSize(config.workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
@@ -70,9 +73,8 @@ class Philox {
 
         const std::string shaderPath = "src/wrs/algorithm/prng/philox/philox.comp";
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -87,20 +89,20 @@ class Philox {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              glsl::uint sampleCount,
              glsl::uint N,
              glsl::uint seed = 12345u) {
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.samples);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.samples);
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
                                                           .seed = seed,
                                                           .N = N,
                                                       });
         const uint32_t workgroupCount = (sampleCount + m_workgroupSize - 1) / m_workgroupSize;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
   private:

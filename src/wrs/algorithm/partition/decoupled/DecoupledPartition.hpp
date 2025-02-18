@@ -6,6 +6,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/algorithm/prefix_sum/block_scan/BlockScan.hpp"
 #include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
@@ -94,6 +95,7 @@ class DecoupledPartition {
     using Buffers = DecoupledPartitionBuffers;
 
     explicit DecoupledPartition(const merian::ContextHandle& context,
+        const merian::ShaderCompilerHandle& shaderCompiler,
                                 DecoupledPartitionConfig config)
         : m_blockSize(config.blockSize()) {
 
@@ -140,7 +142,7 @@ class DecoupledPartition {
         defines["USE_FLOAT"];
 
         const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
+          shaderCompiler->find_compile_glsl_to_shadermodule(
                 context, shaderPath, vk::ShaderStageFlagBits::eCompute,
                 {"src/wrs/algorithm/include/"}, defines);
 
@@ -161,7 +163,7 @@ class DecoupledPartition {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, glsl::uint N) {
 
         const uint32_t workgroupCount = (N + m_blockSize - 1) / m_blockSize;
 
@@ -171,13 +173,13 @@ class DecoupledPartition {
         decoupledStatesView.zero(cmd);
         decoupledStatesView.expectComputeRead(cmd);
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.pivot,
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.pivot,
                                         buffers.decoupledStates, buffers.partitionIndices,
                                         buffers.partition, buffers.heavyCount);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{.N = N});
 
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
     inline glsl::uint blockSize() const {

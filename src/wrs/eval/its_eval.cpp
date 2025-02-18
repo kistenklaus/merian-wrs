@@ -1,15 +1,15 @@
 #include "./its_eval.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/memory_allocator.hpp"
+#include "merian/vk/shader/shader_compiler_shaderc.hpp"
+#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "src/wrs/algorithm/its/sampling/InverseTransformSampling.hpp"
 #include "src/wrs/algorithm/prefix_sum/decoupled/DecoupledPrefixSum.hpp"
 #include "src/wrs/eval/logscale.hpp"
 #include "src/wrs/eval/rms.hpp"
 #include "src/wrs/export/csv.hpp"
 #include "src/wrs/gen/weight_generator.h"
-#include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/reduce.hpp"
-#include "src/wrs/why.hpp"
 
 void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
 
@@ -17,6 +17,7 @@ void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
     merian::ResourceAllocatorHandle alloc = resources->resource_allocator();
     merian::QueueHandle queue = context->get_queue_GCT();
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
+    merian::ShaderCompilerHandle shaderCompiler = std::make_shared<merian::SystemGlslcCompiler>(context);
 
     constexpr std::size_t N = 1024 * 2048;
     constexpr std::size_t S = 1e11;
@@ -25,7 +26,7 @@ void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
         wrs::generate_weights(Distribution::SEEDED_RANDOM_EXPONENTIAL, N);
     const float totalWeight = wrs::reference::kahan_reduction<float>(weights);
 
-    wrs::InverseTransformSampling itsKernel{context};
+    wrs::InverseTransformSampling itsKernel{context, shaderCompiler};
 
     constexpr glsl::uint MAX_SAMPLING_STEP_SIZE = 0x3FFFFFFF;
     constexpr glsl::uint SAMPLING_STEP_COUNT =
@@ -40,7 +41,7 @@ void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
     SamplingBuffers local =
         SamplingBuffers::allocate(alloc, merian::MemoryMappingType::NONE, N, MAX_SAMPLING_STEP_SIZE);
 
-    wrs::DecoupledPrefixSum prefixSumKernel{context};
+    wrs::DecoupledPrefixSum prefixSumKernel{context, shaderCompiler};
     using PrefixBuffers = wrs::DecoupledPrefixSum::Buffers;
     PrefixBuffers prefixLocal = PrefixBuffers::allocate(alloc, merian::MemoryMappingType::NONE, N,
                                                         prefixSumKernel.getPartitionSize());
@@ -53,7 +54,8 @@ void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
         prefixLocal.prefixSum = local.cmf;
         prefixStage.prefixSum = stage.cmf;
 
-        vk::CommandBuffer cmd = cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+        cmd->begin();
         PrefixBuffers::ElementsView stageView{prefixStage.elements, N};
         PrefixBuffers::ElementsView localView{prefixLocal.elements, N};
         stageView.upload<float>(weights);
@@ -65,7 +67,7 @@ void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
         PrefixBuffers::PrefixSumView prefixView{prefixLocal.prefixSum, N};
         prefixView.expectComputeRead(cmd);
 
-        cmd.end();
+        cmd->end();
         queue->submit_wait(cmd);
     }
 
@@ -74,13 +76,14 @@ void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
     std::uniform_int_distribution<glsl::uint> dist;
 
     wrs::eval::RMSECurveAcceleratedBuilder rmseCurveBuilder{
-        context, prefixLocal.elements, totalWeight, N,
+        context, shaderCompiler, prefixLocal.elements, totalWeight, N,
         wrs::eval::log10scale<uint64_t>(1000, S, RMSE_CURVE_TICKS)};
     std::vector<glsl::uint> samplesSection;
 
     for (std::size_t i = 0; i < SAMPLING_STEP_COUNT;) {
 
-        vk::CommandBuffer cmd = cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+        cmd->begin();
 
         std::size_t x = 0;
         while (i < SAMPLING_STEP_COUNT && x < SUBMIT_LIMIT) {
@@ -106,7 +109,7 @@ void wrs::eval::write_its_rmse_curves(const merian::ContextHandle& context) {
         SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", S - s, S,
                     100 * ((S - s) / static_cast<float>(S)));
 
-        cmd.end();
+        cmd->end();
         queue->submit_wait(cmd);
     }
 

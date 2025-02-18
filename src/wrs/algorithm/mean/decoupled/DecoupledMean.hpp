@@ -1,4 +1,14 @@
 #pragma once
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : DecoupledMean.hpp
+ *
+ * Essentially a single dispatch prefix sum, which only writes back the last element
+ * divided by N. As the single dispatch approach operates close to memory bandwidth limits
+ * this does too. Compared to the AtomicMean approach this performs slightly worse, however
+ * it does not require floating point atomics.
+ */
 
 #include "merian/vk/context.hpp"
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
@@ -7,11 +17,11 @@
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/BufferView.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <fmt/base.h>
 #include <memory>
 #include <spdlog/spdlog.h>
@@ -61,8 +71,8 @@ struct DecoupledMeanBuffers {
     static constexpr vk::BufferUsageFlags DECOUPLED_STATE_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
 
-    static std::size_t partitionSize(std::size_t workgroupSize, std::size_t rows ) {
-      return workgroupSize * rows;
+    static std::size_t partitionSize(std::size_t workgroupSize, std::size_t rows) {
+        return workgroupSize * rows;
     }
 
     static DecoupledMeanBuffers allocate(merian::ResourceAllocatorHandle alloc,
@@ -75,7 +85,7 @@ struct DecoupledMeanBuffers {
                                          std::size_t workgroupSize,
                                          std::size_t rows,
                                          merian::MemoryMappingType memoryMapping) {
-      return allocate(alloc, elementCount, partitionSize(workgroupSize, rows), memoryMapping);
+        return allocate(alloc, elementCount, partitionSize(workgroupSize, rows), memoryMapping);
     }
 };
 
@@ -88,6 +98,7 @@ class DecoupledMean {
     static constexpr uint32_t DEFAULT_ROWS = 4;
 
     DecoupledMean(const merian::ContextHandle& context,
+                  const merian::ShaderCompilerHandle& shaderCompiler,
                   uint32_t workgroupSize = DEFAULT_WORKGROUP_SIZE,
                   uint32_t rows = DEFAULT_ROWS,
                   bool stable = false)
@@ -97,7 +108,6 @@ class DecoupledMean {
                 .add_binding_storage_buffer() // elements
                 .add_binding_storage_buffer() // mean
                 .add_binding_storage_buffer() // decoupled states
-                .add_binding_storage_buffer() // decoupled aggregates
                 .build_push_descriptor_layout(context);
         std::string shaderPath;
         if (stable) {
@@ -106,9 +116,8 @@ class DecoupledMean {
         } else {
             shaderPath = "src/wrs/algorithm/mean/decoupled/float.comp";
         }
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -122,43 +131,26 @@ class DecoupledMean {
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
-        m_writes.resize(3);
-        vk::WriteDescriptorSet& elements = m_writes[0];
-        elements.setDstBinding(0);
-        elements.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& mean = m_writes[1];
-        mean.setDstBinding(1);
-        mean.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& states = m_writes[2];
-        states.setDstBinding(2);
-        states.setDescriptorType(vk::DescriptorType::eStorageBuffer);
     }
 
-    void run(vk::CommandBuffer cmd, const DecoupledMeanBuffers& buffers, uint32_t N) {
+    void run(merian::CommandBufferHandle cmd, const DecoupledMeanBuffers& buffers, uint32_t N) {
 
-        uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
-                m_pipeline->bind(cmd);
-        vk::DescriptorBufferInfo elementsDesc = buffers.elements->get_descriptor_info();
-        m_writes[0].setBufferInfo(elementsDesc);
-        vk::DescriptorBufferInfo meanDesc = buffers.mean->get_descriptor_info();
-        m_writes[1].setBufferInfo(meanDesc);
-        vk::DescriptorBufferInfo statesDesc = buffers.decoupledStates->get_descriptor_info();
-        m_writes[2].setBufferInfo(statesDesc);
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.mean,
+                                 buffers.decoupledStates);
+        cmd->push_constant(m_pipeline, N);
 
-        m_pipeline->push_descriptor_set(cmd, m_writes);
-        m_pipeline->push_constant(cmd, N);
-
-        cmd.dispatch(workgroupCount, 1, 1);
+        const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
     inline uint32_t getPartitionSize() const {
-      return m_partitionSize;
+        return m_partitionSize;
     }
 
   private:
     const uint32_t m_partitionSize;
     merian::PipelineHandle m_pipeline;
-    std::vector<vk::WriteDescriptorSet> m_writes;
 };
 
 }; // namespace wrs

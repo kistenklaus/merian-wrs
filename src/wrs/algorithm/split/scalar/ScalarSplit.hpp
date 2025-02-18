@@ -6,17 +6,16 @@
 #include "merian/vk/pipeline/pipeline_compute.hpp"
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
 #include "src/wrs/layout/Attribute.hpp"
-#include "src/wrs/layout/StructLayout.hpp"
-#include "src/wrs/layout/PrimitiveLayout.hpp"
 #include "src/wrs/layout/BufferView.hpp"
+#include "src/wrs/layout/PrimitiveLayout.hpp"
+#include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
 #include "src/wrs/types/split.hpp"
-#include "src/wrs/why.hpp"
 #include <concepts>
 #include <memory>
-#include <stdexcept>
 #include <tuple>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_handles.hpp>
@@ -47,10 +46,10 @@ struct ScalarSplitBuffers {
     static constexpr vk::DeviceSize minPartitionPrefixBufferSize(uint32_t N, size_t sizeOfWeight) {
         return sizeof(uint32_t) + sizeof(uint32_t) + sizeOfWeight * N;
     }
-    using PartitionPrefixLayout =
-        layout::StructLayout<storageQualifier,
-                             layout::Attribute<wrs::glsl::uint, layout::StaticString("heavyCount")>,
-                             layout::Attribute<weight_type*, layout::StaticString("heavyLightIndices")>>;
+    using PartitionPrefixLayout = layout::StructLayout<
+        storageQualifier,
+        layout::Attribute<wrs::glsl::uint, layout::StaticString("heavyCount")>,
+        layout::Attribute<weight_type*, layout::StaticString("heavyLightIndices")>>;
     using PartitionPrefixView = layout::BufferView<PartitionPrefixLayout>;
 
     /**
@@ -59,7 +58,7 @@ struct ScalarSplitBuffers {
     merian::BufferHandle mean;
     static constexpr vk::BufferUsageFlags MEAN_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
-    using MeanLayout = layout::PrimitiveLayout<weight_type, storageQualifier>; 
+    using MeanLayout = layout::PrimitiveLayout<weight_type, storageQualifier>;
     using MeanView = layout::BufferView<MeanLayout>;
 
     static constexpr vk::DeviceSize minMeanBufferSize(size_t sizeOfWeight) {
@@ -73,9 +72,9 @@ struct ScalarSplitBuffers {
     static constexpr vk::BufferUsageFlags SPLITS_BUFFER_USAGE_FLAGS =
         vk::BufferUsageFlagBits::eStorageBuffer;
     using SplitStructLayout = layout::StructLayout<storageQualifier,
-          layout::Attribute<wrs::glsl::uint, "i">,
-          layout::Attribute<wrs::glsl::uint, "j">,
-          layout::Attribute<weight_type, "spill">>;
+                                                   layout::Attribute<wrs::glsl::uint, "i">,
+                                                   layout::Attribute<wrs::glsl::uint, "j">,
+                                                   layout::Attribute<weight_type, "spill">>;
     using SplitsLayout = layout::ArrayLayout<SplitStructLayout, storageQualifier>;
     using SplitsView = layout::BufferView<SplitsLayout>;
 
@@ -87,17 +86,26 @@ struct ScalarSplitBuffers {
     template <std::floating_point weight_t> using Split = wrs::Split<weight_t, wrs::glsl::uint>;
 
     static ScalarSplitBuffers allocate(merian::ResourceAllocatorHandle alloc,
-                                         std::size_t weightCount,
-                                         std::size_t splitCount,
-                                         merian::MemoryMappingType memoryMapping);
-
+                                       std::size_t weightCount,
+                                       std::size_t splitCount,
+                                       merian::MemoryMappingType memoryMapping);
 };
 
 class ScalarSplit {
+
+    struct PushConstants {
+        glsl::uint K;
+        glsl::uint N;
+    };
+
   public:
+    using Buffers = ScalarSplitBuffers;
     using weight_t = float;
 
-    ScalarSplit(const merian::ContextHandle& context, glsl::uint workgroupSize = 512) : m_workgroupSize(workgroupSize) {
+    ScalarSplit(const merian::ContextHandle& context,
+                const merian::ShaderCompilerHandle& shaderCompiler,
+                glsl::uint workgroupSize = 512)
+        : m_workgroupSize(workgroupSize) {
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
                 .add_binding_storage_buffer() // partition prefix sums
@@ -105,9 +113,8 @@ class ScalarSplit {
                 .add_binding_storage_buffer() // splits
                 .build_push_descriptor_layout(context);
         std::string shaderPath = "src/wrs/algorithm/split/scalar/float.comp";
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -120,36 +127,20 @@ class ScalarSplit {
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
-
-        m_writes.resize(3);
-        vk::WriteDescriptorSet& partitionPrefix = m_writes[0];
-        partitionPrefix.setDstBinding(0);
-        partitionPrefix.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& mean = m_writes[1];
-        mean.setDstBinding(1);
-        mean.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vk::WriteDescriptorSet& splits = m_writes[2];
-        splits.setDstBinding(2);
-        splits.setDescriptorType(vk::DescriptorType::eStorageBuffer);
     }
 
-    void run(const vk::CommandBuffer cmd, const ScalarSplitBuffers& buffers, uint32_t N, uint32_t K) {
-        m_pipeline->bind(cmd);
-
-        vk::DescriptorBufferInfo prefixDesc = buffers.partitionPrefix->get_descriptor_info();
-        m_writes[0].setBufferInfo(prefixDesc);
-        vk::DescriptorBufferInfo meanDesc = buffers.mean->get_descriptor_info();
-        m_writes[1].setBufferInfo(meanDesc);
-        vk::DescriptorBufferInfo splitDesc = buffers.splits->get_descriptor_info();
-        m_writes[2].setBufferInfo(splitDesc);
-        m_pipeline->push_descriptor_set(cmd, m_writes);
-
-        // NOTE: tuples are stored in reverse order by entries (makes it a bit weird when mapping)
-        m_pipeline->push_constant<std::tuple<uint32_t, uint32_t>>(cmd, std::make_tuple(N, K));
-        
-        glsl::uint workgroupCount = (K - 1 + m_workgroupSize - 1) / m_workgroupSize;
-
-        cmd.dispatch(workgroupCount, 1, 1);
+    void run(const merian::CommandBufferHandle& cmd,
+             const ScalarSplitBuffers& buffers,
+             uint32_t N,
+             uint32_t K) {
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.partitionPrefix, buffers.mean, buffers.splits);
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
+                                                          .K = K,
+                                                          .N = N,
+                                                      });
+        const glsl::uint workgroupCount = (K - 1 + m_workgroupSize - 1) / m_workgroupSize;
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
   private:

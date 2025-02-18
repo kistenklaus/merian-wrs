@@ -33,7 +33,11 @@ src_files += files('wrs/algorithm/partition/block_wise/test.cpp')
 src_files += files('wrs/algorithm/partition/decoupled/test.cpp')
 src_files += files('wrs/algorithm/partition/decoupled/DecoupledPartition.cpp')
 
+src_files += files('wrs/algorithm/prefix_partition/test.cpp')
+
 src_files += files('wrs/bench/partition.cpp')
+src_files += files('wrs/bench/prefix_sum.cpp')
+src_files += files('wrs/bench/memcpy.cpp')
 
 
 src_files += files('wrs/eval/psa_eval.cpp')
@@ -43,7 +47,6 @@ src_files += files('wrs/algorithm/hs/hstc/test.cpp')
 src_files += files('wrs/algorithm/hs/sampling/test.cpp')
 
 src_files += files('wrs/algorithm/hs/explode/test.cpp')
-src_files += files('wrs/algorithm/hs/explode/test.lsp.cpp')
 src_files += files('wrs/algorithm/hs/explode/Explode.cpp')
 
 src_files += files('wrs/algorithm/mean/atomic/test.cpp')
@@ -64,7 +67,6 @@ src_files += files('wrs/algorithm/splitpack/test.lsp.cpp')
 
 src_files += files('wrs/algorithm/psa/PSA.cpp')
 src_files += files('wrs/algorithm/psa/test.cpp')
-src_files += files('wrs/algorithm/psa/test.lsp.cpp')
 src_files += files('wrs/algorithm/psa/construction/test.cpp')
 src_files += files('wrs/algorithm/psa/construction/test.lsp.cpp')
 src_files += files('wrs/algorithm/psa/construction/PSAC.cpp')

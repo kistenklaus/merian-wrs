@@ -99,16 +99,18 @@ class BlockWiseScan {
     using BlockScanKernel = BlockScan<float>;
     using CombineKernel = BlockCombine<float>;
 
-    BlockWiseScan(const merian::ContextHandle& context, BlockWiseScanConfig config = {})
-        : m_elementScan(context, config.elementScanConfig),
-          m_combine(context, config.blockCombineConfig),
-          m_blockScan(context, config.blockScanConfig) {
+    BlockWiseScan(const merian::ContextHandle& context,
+                  const merian::ShaderCompilerHandle& shaderCompiler,
+                  BlockWiseScanConfig config = {})
+        : m_elementScan(context, shaderCompiler, config.elementScanConfig),
+          m_combine(context, shaderCompiler, config.blockCombineConfig),
+          m_blockScan(context, shaderCompiler, config.blockScanConfig) {
         assert(config.elementScanConfig.writeBlockReductions);
         assert((config.blockScanConfig.variant & BlockScanVariant::EXCLUSIVE) ==
                BlockScanVariant::EXCLUSIVE);
     }
 
-    void run(vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle& cmd,
              Buffers buffers,
              glsl::uint N,
              std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
@@ -131,11 +133,10 @@ class BlockWiseScan {
             profiler.value()->cmd_end(cmd);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.reductions->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                               vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     buffers.reductions->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                        vk::AccessFlagBits::eShaderRead));
 
         const glsl::uint blockCount =
             (N + m_elementScan.blockSize() - 1) / m_elementScan.blockSize();
@@ -158,15 +159,13 @@ class BlockWiseScan {
             profiler.value()->cmd_end(cmd);
         }
 
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eComputeShader,
-            {}, {},
-            {buffers.reductions->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                vk::AccessFlagBits::eShaderRead),
-             buffers.prefixSum->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                               vk::AccessFlagBits::eShaderRead |
-                                                   vk::AccessFlagBits::eShaderWrite)},
-            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     {buffers.reductions->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                         vk::AccessFlagBits::eShaderRead),
+                      buffers.prefixSum->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                        vk::AccessFlagBits::eShaderRead |
+                                                            vk::AccessFlagBits::eShaderWrite)});
 
         // Combine scan over blocks with scan over elements
         CombineKernel::Buffers blockCombineBuffers;
@@ -183,6 +182,10 @@ class BlockWiseScan {
             profiler.value()->end();
             profiler.value()->cmd_end(cmd);
         }
+    }
+
+    inline glsl::uint maxElementCount() const {
+        return m_elementScan.blockSize() * m_blockScan.blockSize();
     }
 
   private:

@@ -1,7 +1,4 @@
 #include "./test.hpp"
-#include "./test/test_cases.hpp"
-#include "./test/test_setup.hpp"
-#include "./test/test_types.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/pack/scalar/ScalarPack.hpp"
 #include "src/wrs/gen/weight_generator.h"
@@ -13,7 +10,6 @@
 #include "src/wrs/reference/reduce.hpp"
 #include "src/wrs/reference/split.hpp"
 #include "src/wrs/test/is_alias_table.hpp"
-#include "src/wrs/test/is_split.hpp"
 #include "src/wrs/test/test.hpp"
 #include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
@@ -30,7 +26,51 @@ namespace wrs::test::scalar_pack {
 
 using weight_t = float;
 
-static void uploadPartitionIndices(const vk::CommandBuffer cmd,
+using Buffers = ScalarPack::Buffers;
+
+struct TestCase {
+    ScalarPackConfig config;
+    uint32_t weightCount; // N
+    Distribution distribution;
+    uint32_t splitCount;  // K
+    uint32_t iterations;
+};
+
+constexpr TestCase TEST_CASES[] = {
+    //
+    {
+        .config = ScalarPackConfig(32),
+        .weightCount = static_cast<glsl::uint>(1024 * 2048),
+        .distribution = Distribution::PSEUDO_RANDOM_UNIFORM,
+        .splitCount = static_cast<glsl::uint>(1024 * 2048) / 16,
+        .iterations = 1,
+    },
+    /*{*/
+    /*    .weightType = WEIGHT_TYPE_FLOAT,*/
+    /*    .workgroupSize = 512,*/
+    /*    .weightCount = 256,*/
+    /*    .distribution = Distribution::SEEDED_RANDOM_UNIFORM,*/
+    /*    .splitCount = 256 / 8,*/
+    /*    .iterations = 1,*/
+    /*},*/
+};
+
+inline std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
+  std::uint32_t maxWeightCount = 0;
+  std::uint32_t maxSplitCount = 0;
+  for (const auto& testCase : TEST_CASES) {
+    maxWeightCount = std::max(maxWeightCount, testCase.weightCount);
+    maxSplitCount = std::max(maxSplitCount, testCase.splitCount);
+  }
+  Buffers buffers = Buffers::allocate(context.alloc, maxWeightCount, maxSplitCount, 
+      merian::MemoryMappingType::NONE);  
+  Buffers stage = Buffers::allocate(context.alloc, maxWeightCount, maxSplitCount, 
+      merian::MemoryMappingType::HOST_ACCESS_RANDOM);  
+
+  return std::make_tuple(buffers, stage);
+}
+
+static void uploadPartitionIndices(const merian::CommandBufferHandle& cmd,
                                    const std::span<const wrs::glsl::uint> heavyIndices,
                                    const std::span<const wrs::glsl::uint> reverseLightIndices,
                                    const Buffers& buffers,
@@ -53,7 +93,7 @@ static void uploadPartitionIndices(const vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-static void uploadWeights(vk::CommandBuffer cmd,
+static void uploadWeights(const merian::CommandBufferHandle& cmd,
                           std::span<const weight_t> weights,
                           Buffers& buffers,
                           Buffers& stage) {
@@ -64,13 +104,15 @@ static void uploadWeights(vk::CommandBuffer cmd,
     localView.expectComputeRead(cmd);
 }
 
-void uploadSplits(const vk::CommandBuffer cmd,
+void uploadSplits(const merian::CommandBufferHandle& cmd,
                   std::span<const wrs::Split<weight_t, wrs::glsl::uint>> splits,
                   Buffers& buffers,
                   Buffers& stage);
 
-static void
-uploadMean(vk::CommandBuffer cmd, weight_t averageWeight, Buffers& buffers, Buffers& stage) {
+static void uploadMean(const merian::CommandBufferHandle& cmd,
+                       weight_t averageWeight,
+                       Buffers& buffers,
+                       Buffers& stage) {
     Buffers::MeanView stageView{stage.mean};
     Buffers::MeanView localView{buffers.mean};
     stageView.upload(averageWeight);
@@ -78,7 +120,7 @@ uploadMean(vk::CommandBuffer cmd, weight_t averageWeight, Buffers& buffers, Buff
     localView.expectComputeRead(cmd);
 }
 
-static void downloadAliasTableToStage(const vk::CommandBuffer cmd,
+static void downloadAliasTableToStage(const merian::CommandBufferHandle& cmd,
                                       const std::size_t N,
                                       const Buffers& buffers,
                                       const Buffers& stage) {
@@ -103,7 +145,7 @@ static bool runTestCase(const TestContext& context,
     SPDLOG_INFO("Running test case:{}", testName);
 
     SPDLOG_DEBUG("Creating ScalarPack instance");
-    wrs::ScalarPack kernel{context.context, testCase.config};
+    wrs::ScalarPack kernel{context.context, context.shaderCompiler, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -175,7 +217,8 @@ static bool runTestCase(const TestContext& context,
         /*}*/
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -222,7 +265,7 @@ static bool runTestCase(const TestContext& context,
             context.profiler->end();
             context.profiler->cmd_end(cmd);
             SPDLOG_DEBUG("Submitting to device...");
-            cmd.end();
+            cmd->end();
             context.queue->submit_wait(cmd);
         }
         // 7. Download from stage

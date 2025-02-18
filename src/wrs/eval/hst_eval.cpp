@@ -1,12 +1,14 @@
 #include "./hst_eval.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
+#include "merian/vk/shader/shader_compiler_shaderc.hpp"
+#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "src/wrs/algorithm/hs/HS.hpp"
 #include "src/wrs/eval/logscale.hpp"
 #include "src/wrs/eval/rms.hpp"
+#include "src/wrs/export/csv.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/reference/reduce.hpp"
-#include "src/wrs/export/csv.hpp"
 #include <algorithm>
 #include <fmt/base.h>
 #include <random>
@@ -35,10 +37,10 @@ float compute_rmse(const wrs::HS& hs,
                    std::span<const float> weights,
                    float totalWeight) {
 
-
     wrs::hst::HSTRepr repr{N};
 
-    vk::CommandBuffer cmd = cmdPool->create_and_begin();
+    merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+    cmd->begin();
 
     // Upload sample count
     glsl::uint* mapped = stage.outputSensitiveSamples->get_memory()->map_as<glsl::uint>();
@@ -49,13 +51,11 @@ float compute_rmse(const wrs::HS& hs,
         repr.size() * sizeof(glsl::uint),
         sizeof(glsl::uint),
     };
-    cmd.copyBuffer(*stage.outputSensitiveSamples, *local.outputSensitiveSamples, 1, &copy);
+    cmd->copy(stage.outputSensitiveSamples, local.outputSensitiveSamples, copy);
 
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                        vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                        local.outputSensitiveSamples->buffer_barrier(
-                            vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eShaderRead),
-                        {});
+    cmd->barrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eComputeShader,
+                 local.outputSensitiveSamples->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
+                                                              vk::AccessFlagBits::eShaderRead));
 
     hs.run(cmd, local, N, S);
 
@@ -65,7 +65,7 @@ float compute_rmse(const wrs::HS& hs,
     localView.copyTo(cmd, stageView);
     stageView.expectHostRead(cmd);
 
-    cmd.end();
+    cmd->end();
     queue->submit_wait(cmd);
 
     std::vector<glsl::uint> samples = stageView.download<glsl::uint>();
@@ -83,6 +83,8 @@ void wrs::eval::write_hst_rmse_curves(const merian::ContextHandle& context) {
     merian::ResourceAllocatorHandle alloc = resources->resource_allocator();
     merian::QueueHandle queue = context->get_queue_GCT();
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
+    merian::ShaderCompilerHandle shaderCompiler =
+        std::make_shared<merian::SystemGlslcCompiler>(context);
 
     wrs::HS::Buffers local = wrs::HS::Buffers::allocate(alloc, merian::MemoryMappingType::NONE, N,
                                                         S, EXPLODE_WORKGROUP_SIZE * EXPLODE_ROWS);
@@ -93,7 +95,8 @@ void wrs::eval::write_hst_rmse_curves(const merian::ContextHandle& context) {
     std::vector<float> weights = wrs::generate_weights(DISTRIBUTION, N);
     float totalWeight = wrs::reference::kahan_reduction<float>(weights);
 
-    vk::CommandBuffer cmd = cmdPool->create_and_begin();
+    merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+    cmd->begin();
 
     wrs::HS::Buffers::WeightTreeView stageView{stage.weightTree, N};
     wrs::HS::Buffers::WeightTreeView localView{local.weightTree, N};
@@ -101,13 +104,19 @@ void wrs::eval::write_hst_rmse_curves(const merian::ContextHandle& context) {
     stageView.copyTo(cmd, localView);
     localView.expectComputeRead(cmd);
 
-    cmd.end();
+    cmd->end();
     queue->submit_wait(cmd);
 
-    wrs::HS hs{context,      HSTC_WORKGROUP_SIZE,   SVO_WORKGROUP_SIZE, SAMPLING_WORKGROUP_SIZE, EXPLODE_WORKGROUP_SIZE,
-               EXPLODE_ROWS, EXPLODE_LOOKBACK_DEPTH};
+    wrs::HS hs{context,
+               shaderCompiler,
+               HSTC_WORKGROUP_SIZE,
+               SVO_WORKGROUP_SIZE,
+               SAMPLING_WORKGROUP_SIZE,
+               EXPLODE_WORKGROUP_SIZE,
+               EXPLODE_ROWS,
+               EXPLODE_LOOKBACK_DEPTH};
 
-    wrs::exp::CSVWriter<2> rmseCurve{{"sample_size","RMSE"}, "hst_rmse.csv"};
+    wrs::exp::CSVWriter<2> rmseCurve{{"sample_size", "RMSE"}, "hst_rmse.csv"};
 
     for (const auto& s : wrs::eval::log10scale<glsl::uint>(1000, S, RMSE_TICKS)) {
         float rmse = compute_rmse(hs, cmdPool, queue, local, stage, s, weights, totalWeight);

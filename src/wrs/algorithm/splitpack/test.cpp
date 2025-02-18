@@ -2,7 +2,6 @@
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
 #include "src/wrs/eval/rms.hpp"
-#include "src/wrs/reference/sample_alias_table.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
@@ -11,6 +10,7 @@
 #include "src/wrs/reference/partition.hpp"
 #include "src/wrs/reference/prefix_sum.hpp"
 #include "src/wrs/reference/reduce.hpp"
+#include "src/wrs/reference/sample_alias_table.hpp"
 #include "src/wrs/reference/split.hpp"
 #include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/is_split.hpp"
@@ -68,7 +68,7 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
 
 namespace wrs::test::splitpack {
 
-void uploadTestCase(const vk::CommandBuffer cmd,
+void uploadTestCase(const merian::CommandBufferHandle& cmd,
                     const Buffers& buffers,
                     const Buffers& stage,
                     std::span<const float> weights,
@@ -79,8 +79,11 @@ void uploadTestCase(const vk::CommandBuffer cmd,
                     const float mean,
                     std::pmr::memory_resource* resource);
 
-void downloadToStage(
-    vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, glsl::uint N, glsl::uint K);
+void downloadToStage(const merian::CommandBufferHandle& cmd,
+                     Buffers& buffers,
+                     Buffers& stage,
+                     glsl::uint N,
+                     glsl::uint K);
 
 Results
 downloadFromStage(Buffers& stage, glsl::uint N, glsl::uint K, std::pmr::memory_resource* resource);
@@ -94,7 +97,8 @@ static bool runTestCase(const TestContext& context,
         fmt::format("{{workgroupSize={},N={}}}", testCase.workgroupSize, testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context, testCase.workgroupSize, testCase.splitSize};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.workgroupSize,
+                     testCase.splitSize};
 
     glsl::uint K = testCase.N / testCase.splitSize;
 
@@ -132,7 +136,8 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -164,7 +169,7 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
@@ -210,23 +215,24 @@ static bool runTestCase(const TestContext& context,
                     wrs::reference::alias_table_to_normalized_weights<float, glsl::uint,
                                                                       wrs::pmr_alloc<float>>(
                         results.aliasTable, resource);
-                std::pmr::vector<float> normalizedWeights = wrs::reference::normalize_weights<float,
-                  wrs::pmr_alloc<float>>(weights, resource);
-
+                std::pmr::vector<float> normalizedWeights =
+                    wrs::reference::normalize_weights<float, wrs::pmr_alloc<float>>(weights,
+                                                                                    resource);
 
                 fmt::println("ALIAS-TABLE:");
                 for (std::size_t i = 0; i < results.aliasTable.size(); ++i) {
                     const auto& entry = results.aliasTable[i];
-                    fmt::println("[{:04}]: ({:12},{:12})       {:12}     ->     {:12}       [{}]", i, entry.p, entry.a,
+                    fmt::println("[{:04}]: ({:12},{:12})       {:12}     ->     {:12}       [{}]",
+                                 i, entry.p, entry.a,
 
-                        normalizedWeights[i], sampledWeights[i],
-                        normalizedWeights[i] - sampledWeights[i]);
+                                 normalizedWeights[i], sampledWeights[i],
+                                 normalizedWeights[i] - sampledWeights[i]);
                 }
 
-                std::vector<glsl::uint> samples = wrs::reference::sample_alias_table<float, glsl::uint>(results.aliasTable, 1e9);
+                std::vector<glsl::uint> samples =
+                    wrs::reference::sample_alias_table<float, glsl::uint>(results.aliasTable, 1e9);
                 float rmse = wrs::eval::rmse<float, glsl::uint>(weights, samples);
                 fmt::println("RMSE = {}", rmse);
-
             }
 
             /* auto err2 = wrs::test::pmr::assert_is_split<float, */

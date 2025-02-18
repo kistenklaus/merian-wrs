@@ -1,7 +1,8 @@
+#include "./ScalarSplit.hpp"
 #include <vector>
-#include "./test/test_types.hpp"
 
 using weight_t = float;
+using Buffers = wrs::ScalarSplit::Buffers;
 
 namespace wrs::test::scalar_split {
 

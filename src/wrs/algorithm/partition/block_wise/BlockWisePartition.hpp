@@ -125,13 +125,16 @@ struct BlockWisePartitionConfig {
           blockCombineConfig(combineConfig) {
         if (!((elementScanConfig.variant & BlockScanVariant::EXCLUSIVE) ==
               BlockScanVariant::EXCLUSIVE)) {
-          throw std::runtime_error("ElementScan of BlockWisePartition is required to be EXCLUSIVE");
+            throw std::runtime_error(
+                "ElementScan of BlockWisePartition is required to be EXCLUSIVE");
         }
-        if(!(elementScanConfig.blockSize() == blockCombineConfig.blockSize())) {
-          throw std::runtime_error("The blockSize of elementScan must match the blockSize of blockCombine");
+        if (!(elementScanConfig.blockSize() == blockCombineConfig.blockSize())) {
+            throw std::runtime_error(
+                "The blockSize of elementScan must match the blockSize of blockCombine");
         }
-        if(!((blockScanConfig.variant & BlockScanVariant::EXCLUSIVE) == BlockScanVariant::EXCLUSIVE)) {
-          throw std::runtime_error("BlockScan of BlockWisePartition is required to be EXCLUSIVE");
+        if (!((blockScanConfig.variant & BlockScanVariant::EXCLUSIVE) ==
+              BlockScanVariant::EXCLUSIVE)) {
+            throw std::runtime_error("BlockScan of BlockWisePartition is required to be EXCLUSIVE");
         }
     }
 
@@ -149,12 +152,14 @@ struct BlockWisePartition {
     using Buffers = BlockWisePartitionBuffers;
     using Config = BlockWisePartitionConfig;
 
-    BlockWisePartition(const merian::ContextHandle& context, BlockWisePartitionConfig config)
-        : m_elementScan(context, config.elementScanConfig),
-          m_blockScan(context, config.blockScanConfig),
-          m_combine(context, config.blockCombineConfig) {}
+    BlockWisePartition(const merian::ContextHandle& context,
+                       const merian::ShaderCompilerHandle& shaderCompiler,
+                       BlockWisePartitionConfig config)
+        : m_elementScan(context, shaderCompiler, config.elementScanConfig),
+          m_blockScan(context, shaderCompiler, config.blockScanConfig),
+          m_combine(context, shaderCompiler, config.blockCombineConfig) {}
 
-    void run(vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle& cmd,
              const BlockWisePartitionBuffers& buffers,
              glsl::uint N,
              std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
@@ -166,10 +171,9 @@ struct BlockWisePartition {
         elementScanBuffers.indices = buffers.indices;
         elementScanBuffers.blockCount = buffers.blockIndices;
 
-
         glsl::uint blockCount = (N + m_elementScan.blockSize() - 1) / m_elementScan.blockSize();
         if (profiler.has_value()) {
-            
+
             profiler.value()->start(fmt::format("ElementScan {}", blockCount));
             profiler.value()->cmd_start(cmd, fmt::format("ElementScan {}", blockCount));
         }
@@ -179,12 +183,10 @@ struct BlockWisePartition {
             profiler.value()->cmd_end(cmd);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.blockIndices->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                                 vk::AccessFlagBits::eShaderRead),
-                            {});
-
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     buffers.blockIndices->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                          vk::AccessFlagBits::eShaderRead));
 
         BlockScan<glsl::uint>::Buffers blockScanBuffers;
         blockScanBuffers.elements = buffers.blockIndices;
@@ -201,11 +203,10 @@ struct BlockWisePartition {
             profiler.value()->cmd_end(cmd);
         }
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            buffers.blockIndices->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                                 vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     buffers.blockIndices->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                          vk::AccessFlagBits::eShaderRead));
 
         PartitionCombine::Buffers combineBuffers;
         combineBuffers.elements = buffers.elements;
@@ -228,7 +229,7 @@ struct BlockWisePartition {
     }
 
     inline glsl::uint maxElementCount() const {
-      return m_elementScan.blockSize() * m_blockScan.blockSize();
+        return m_elementScan.blockSize() * m_blockScan.blockSize();
     }
 
   private:

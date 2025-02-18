@@ -1,5 +1,7 @@
 #include "./psa_eval.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
+#include "merian/vk/shader/shader_compiler_shaderc.hpp"
+#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "src/wrs/reference/sweeping_alias_table.hpp"
 
 #include "merian/vk/memory/memory_allocator.hpp"
@@ -27,6 +29,9 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
     merian::QueueHandle queue = context->get_queue_GCT();
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
 
+    merian::ShaderCompilerHandle shaderCompiler =
+        std::make_shared<merian::SystemGlslcCompiler>(context);
+
     constexpr glsl::uint N = 1024 * 2048;
     constexpr uint64_t S = static_cast<uint64_t>(1e11);
     constexpr Distribution DIST = Distribution::PSEUDO_RANDOM_UNIFORM;
@@ -34,7 +39,7 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
     const float totalWeight = wrs::reference::kahan_reduction<float>(weights);
 
     // Construct alias table!
-    wrs::PSAC psac{context};
+    wrs::PSAC psac{context, shaderCompiler};
 
     glsl::uint splitCount = (N + psac.getSplitSize() - 1) / psac.getSplitSize();
 
@@ -46,7 +51,8 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
 
     constexpr bool USE_GPU_CONSTRUCTION = true;
 
-    vk::CommandBuffer cmd = cmdPool->create_and_begin();
+    merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+    cmd->begin();
     if (USE_GPU_CONSTRUCTION) {
         {
             wrs::PSAC::Buffers::WeightsView stage{stagePsac.weights, N};
@@ -57,11 +63,10 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
         }
         psac.run(cmd, localPsac, N);
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            localPsac.aliasTable->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                                 vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     localPsac.aliasTable->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                          vk::AccessFlagBits::eShaderRead));
     } else {
         const auto aliasTable =
             wrs::reference::psa_alias_table<float, float, glsl::uint, std::allocator<float>>(
@@ -78,7 +83,7 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
         local.expectComputeRead(cmd);
     }
 
-    cmd.end();
+    cmd->end();
     queue->submit_wait(cmd);
 
     /* constexpr glsl::uint MAX_SAMPLING_STEP_SIZE = 0x3FFFFFFF; */
@@ -89,7 +94,7 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
     constexpr glsl::uint RMSE_CURVE_TICKS = 100;
     constexpr glsl::uint SUBMIT_LIMIT = 4;
 
-    wrs::SampleAliasTable sampleAlias{context};
+    wrs::SampleAliasTable sampleAlias{context, shaderCompiler};
 
     merian::BufferHandle samplesLocal = alloc->createBuffer(
         wrs::PSA::Buffers::SamplesLayout::size(MAX_SAMPLING_STEP_SIZE),
@@ -108,13 +113,14 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
         std::uniform_int_distribution<glsl::uint> dist;
 
         wrs::eval::RMSECurveAcceleratedBuilder rmseCurveBuilder{
-            context, localPsac.weights, totalWeight, N,
+            context, shaderCompiler, localPsac.weights, totalWeight, N,
             wrs::eval::log10scale<uint64_t>(1000, S, RMSE_CURVE_TICKS)};
         std::vector<glsl::uint> samplesSection;
 
         for (std::size_t i = 0; i < SAMPLING_STEP_COUNT;) {
 
-            vk::CommandBuffer cmd = cmdPool->create_and_begin();
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+            cmd->begin();
 
             std::size_t x = 0;
             while (i < SAMPLING_STEP_COUNT && x < SUBMIT_LIMIT) {
@@ -143,7 +149,7 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
             SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", S - s, S,
                         100 * ((S - s) / static_cast<float>(S)));
 
-            cmd.end();
+            cmd->end();
             queue->submit_wait(cmd);
         }
         const auto& rmseCurve = rmseCurveBuilder.get();
@@ -166,7 +172,8 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
 
         for (std::size_t i = 0; i < SAMPLING_STEP_COUNT;) {
 
-            vk::CommandBuffer cmd = cmdPool->create_and_begin();
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+            cmd->begin();
 
             std::size_t s2 = s;
             if (s2 == 0) {
@@ -193,7 +200,7 @@ void wrs::eval::write_psa_rmse_curves(const merian::ContextHandle& context) {
             SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", S - s, S,
                         100 * ((S - s) / static_cast<float>(S)));
 
-            cmd.end();
+            cmd->end();
             queue->submit_wait(cmd);
 
             auto samplesSection = samplesStageView.download<glsl::uint>();

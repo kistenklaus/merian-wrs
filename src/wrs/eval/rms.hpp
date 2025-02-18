@@ -70,7 +70,7 @@ template <std::floating_point E,
 E histogram_rmse(std::span<const E> weights,
                  std::span<const I> histogram,
                  std::optional<E> totalWeight = std::nullopt,
-                 const Allocator& alloc = {}) {
+                 [[maybe_unused]] const Allocator& alloc = {}) {
     assert(!weights.empty());
     assert(!histogram.empty());
     if (!totalWeight.has_value()) {
@@ -316,12 +316,13 @@ struct RMSECurveAcceleratedBuilder {
     template <std::ranges::input_range Scale>
         requires std::is_integral_v<std::ranges::range_value_t<Scale>>
     explicit RMSECurveAcceleratedBuilder(const merian::ContextHandle& context,
+                                         const merian::ShaderCompilerHandle& shaderCompiler,
                                          merian::BufferHandle weights,
                                          float totalWeight,
                                          glsl::uint N,
                                          const Scale& scale)
-        : m_histogramKernel(context), m_rmeKernel(context), m_s(0), m_weights(weights), m_n(N),
-          m_totalWeight(totalWeight), m_k(0) {
+        : m_histogramKernel(context, shaderCompiler), m_rmeKernel(context, shaderCompiler), m_s(0),
+          m_weights(weights), m_n(N), m_totalWeight(totalWeight), m_k(0) {
 
         auto scaleIt = std::ranges::begin(scale);
         const auto scaleEnd = std::ranges::end(scale);
@@ -351,7 +352,8 @@ struct RMSECurveAcceleratedBuilder {
             vk::BufferUsageFlagBits::eTransferDst, merian::MemoryMappingType::HOST_ACCESS_RANDOM);
     }
 
-    void consume(vk::CommandBuffer cmd, merian::BufferHandle samples, glsl::uint s) {
+    void
+    consume(const merian::CommandBufferHandle& cmd, merian::BufferHandle samples, glsl::uint s) {
         if (m_k == m_rmseCurve.size()) {
             return;
         }
@@ -383,7 +385,7 @@ struct RMSECurveAcceleratedBuilder {
         }
     }
 
-    void appendHistogram(vk::CommandBuffer cmd,
+    void appendHistogram(const merian::CommandBufferHandle cmd,
                          merian::BufferHandle samples,
                          glsl::uint offset,
                          glsl::uint count) {
@@ -392,27 +394,24 @@ struct RMSECurveAcceleratedBuilder {
         wrs::AtomicHistogramBuffers buffers;
         buffers.samples = samples;
         buffers.histogram = m_histogram;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                    vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                             vk::AccessFlagBits::eShaderRead));
         m_histogramKernel.run(cmd, buffers, offset, count);
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            m_histogram->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                        vk::AccessFlagBits::eShaderWrite),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     m_histogram->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                 vk::AccessFlagBits::eShaderWrite));
     }
 
-    void computeMse(vk::CommandBuffer cmd) {
+    void computeMse(const merian::CommandBufferHandle cmd) {
         SPDLOG_DEBUG("Computing MSE");
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            m_histogram->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                        vk::AccessFlagBits::eShaderRead),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     m_histogram->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                 vk::AccessFlagBits::eShaderRead));
 
         wrs::MeanSquaredError::Buffers buffers;
         buffers.histogram = m_histogram;
@@ -420,15 +419,14 @@ struct RMSECurveAcceleratedBuilder {
         buffers.mse = m_mse;
         m_rmeKernel.run(cmd, buffers, m_k, static_cast<float>(m_s), m_n, m_totalWeight);
 
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                            vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                            m_histogram->buffer_barrier(vk::AccessFlagBits::eShaderRead,
-                                                        vk::AccessFlagBits::eShaderWrite),
-                            {});
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     m_histogram->buffer_barrier(vk::AccessFlagBits::eShaderRead,
+                                                 vk::AccessFlagBits::eShaderWrite));
         m_k++;
     }
 
-    void downloadMSE_toStage(vk::CommandBuffer cmd) {
+    void downloadMSE_toStage(const merian::CommandBufferHandle& cmd) {
         SPDLOG_DEBUG("Downloading to Stage");
         wrs::MeanSquaredError::Buffers::MseView stageView{m_mseStage, m_rmseCurve.size()};
         wrs::MeanSquaredError::Buffers::MseView localView{m_mse, m_rmseCurve.size()};

@@ -10,7 +10,7 @@ using Buffers = Algorithm::Buffers;
 
 namespace wrs::test::splitpack {
 
-void uploadTestCase(const vk::CommandBuffer cmd,
+void uploadTestCase(const merian::CommandBufferHandle& cmd,
                     const Buffers& buffers,
                     const Buffers& stage,
                     std::span<const float> weights,
@@ -70,7 +70,7 @@ void uploadTestCase(const vk::CommandBuffer cmd,
 }
 
 void downloadToStage(
-    vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, glsl::uint N, glsl::uint K) {
+    const merian::CommandBufferHandle& cmd, Buffers& buffers, Buffers& stage, glsl::uint N, glsl::uint K) {
 
     {
         Buffers::AliasTableView stageView{stage.aliasTable, N};

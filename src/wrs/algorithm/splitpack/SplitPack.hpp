@@ -1,5 +1,6 @@
 #pragma once
 
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
 #include "merian/vk/pipeline/pipeline_compute.hpp"
@@ -11,7 +12,6 @@
 #include "src/wrs/layout/PrimitiveLayout.hpp"
 #include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <fmt/base.h>
 #include <memory>
 #include <vulkan/vulkan_handles.hpp>
@@ -76,7 +76,8 @@ class SplitPack {
   public:
     using Buffers = SplitPackBuffers;
 
-    explicit SplitPack(const merian::ContextHandle& context, glsl::uint workgroupSize,
+    explicit SplitPack(const merian::ContextHandle& context,
+        const merian::ShaderCompilerHandle& shaderCompiler, glsl::uint workgroupSize,
         glsl::uint splitSize)
         : m_workgroupSize(workgroupSize), m_splitSize(splitSize) {
 
@@ -93,7 +94,7 @@ class SplitPack {
         const std::string shaderPath = "src/wrs/algorithm/splitpack/shader_using_weights.comp";
 
         const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
+            shaderCompiler->find_compile_glsl_to_shadermodule(
                 context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
@@ -111,21 +112,21 @@ class SplitPack {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
+    void run(const merian::CommandBufferHandle cmd, const Buffers& buffers, glsl::uint N) {
 
         glsl::uint K = N / m_splitSize;
 
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.weights, buffers.partitionIndices,
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.weights, buffers.partitionIndices,
                                         buffers.partitionPrefix, buffers.mean, buffers.aliasTable,
                                         buffers.splits);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
                                                           .K = K,
                                                           .N = N,
                                                       });
         const glsl::uint splitsPerDispatch = m_workgroupSize - 1;
         const glsl::uint workgroupCount = (K + splitsPerDispatch - 1) / splitsPerDispatch;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
   private:

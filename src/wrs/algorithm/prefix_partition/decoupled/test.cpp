@@ -1,25 +1,16 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
+#include "src/renderdoc.hpp"
 #include "src/wrs/gen/weight_generator.h"
 #include "src/wrs/memory/FallbackResource.hpp"
 #include "src/wrs/memory/SafeResource.hpp"
 #include "src/wrs/memory/StackResource.hpp"
-#include "src/wrs/reference/partition.hpp"
-#include "src/wrs/reference/prefix_sum.hpp"
-#include "src/wrs/reference/reduce.hpp"
-#include "src/wrs/reference/split.hpp"
-#include "src/wrs/test/is_alias_table.hpp"
 #include "src/wrs/test/test.hpp"
-#include "src/wrs/types/alias_table.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fmt/format.h>
-#include <ranges>
 #include <spdlog/spdlog.h>
 #include <tuple>
-#include "src/renderdoc.hpp"
-
-
 
 #include "./DecoupledPrefixPartition.hpp"
 
@@ -38,54 +29,53 @@ struct TestCase {
 
 static constexpr TestCase TEST_CASES[] = {
     //
-      TestCase{
+    TestCase{
         .config = {},
         .N = 1024 * 2048,
         .dist = wrs::Distribution::PSEUDO_RANDOM_UNIFORM,
         .iterations = 1,
-      },
+    },
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
-  glsl::uint maxPartitionSize = 0;
-  glsl::uint maxN = 0;
-  for (const auto& testCase : TEST_CASES) {
-    maxPartitionSize = std::max(maxPartitionSize, testCase.config.partitionSize());
-    maxN = std::max(maxN, testCase.N);
-  }
+    glsl::uint maxPartitionSize = 0;
+    glsl::uint maxN = 0;
+    for (const auto& testCase : TEST_CASES) {
+        maxPartitionSize = std::max(maxPartitionSize, testCase.config.partitionSize());
+        maxN = std::max(maxN, testCase.N);
+    }
 
+    Buffers stage = Buffers::allocate(context.alloc, maxN, maxPartitionSize,
+                                      merian::MemoryMappingType::HOST_ACCESS_RANDOM);
+    Buffers local =
+        Buffers::allocate(context.alloc, maxN, maxPartitionSize, merian::MemoryMappingType::NONE);
 
-  Buffers stage = Buffers::allocate(context.alloc, maxN, maxPartitionSize, merian::MemoryMappingType::HOST_ACCESS_RANDOM);
-  Buffers local = Buffers::allocate(context.alloc, maxN, maxPartitionSize, merian::MemoryMappingType::NONE);
-
-  return {local, stage};
+    return {local, stage};
 }
 
-static void uploadTestCase(const vk::CommandBuffer cmd,
-                                   const Buffers& buffers,
-                                   const Buffers& stage,
-                                   std::span<const float> elements) {
-  {
-    Buffers::ElementsView stageView{stage.elements, elements.size()};
-    Buffers::ElementsView localView{buffers.elements, elements.size()};
-    stageView.upload(elements);
-    stageView.copyTo(cmd, localView);
-    localView.expectComputeRead(cmd);
-  }
+static void uploadTestCase(const merian::CommandBufferHandle& cmd,
+                           const Buffers& buffers,
+                           const Buffers& stage,
+                           std::span<const float> elements) {
+    {
+        Buffers::ElementsView stageView{stage.elements, elements.size()};
+        Buffers::ElementsView localView{buffers.elements, elements.size()};
+        stageView.upload(elements);
+        stageView.copyTo(cmd, localView);
+        localView.expectComputeRead(cmd);
+    }
 }
 
-static void downloadToStage(vk::CommandBuffer cmd,
-                          Buffers& buffers,
-                          Buffers& stage) {
-  
-}
+static void downloadToStage([[maybe_unused]] const merian::CommandBufferHandle& cmd,
+                            [[maybe_unused]] Buffers& buffers,
+                            [[maybe_unused]] Buffers& stage) {}
 
-struct Results {
+struct Results2 {
     // TODO
 };
-static Results downloadFromStage(Buffers& stage, std::pmr::memory_resource* resource) {
-	return Results {
-            };
+static Results2 downloadFromStage([[maybe_unused]] Buffers& stage,
+                                 [[maybe_unused]] std::pmr::memory_resource* resource) {
+    return Results2{};
 };
 
 static bool runTestCase(const TestContext& context,
@@ -94,10 +84,10 @@ static bool runTestCase(const TestContext& context,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
     std::string testName =
-        fmt::format("{{workgroupSize={},N={}}}", testCase.config.workgroupSize,testCase.N);
+        fmt::format("{{workgroupSize={},N={}}}", testCase.config.workgroupSize, testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
-   	Algorithm kernel{context.context};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -119,7 +109,8 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -149,13 +140,15 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
         context.profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        Results results = downloadFromStage(stage, resource);
+
+        [[maybe_unused]] Results2 results = downloadFromStage(stage, resource);
+
         context.profiler->end();
 
         // 7. Test results
@@ -185,10 +178,8 @@ void wrs::test::decoupled_prefix_partition::test(const merian::ContextHandle& co
 
     uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        renderdoc::startCapture();
         runTestCase(testContext, testCase, buffers, stage, resource);
         renderdoc::stopCapture();
-        stackResource.reset();
     }
 
     testContext.profiler->collect(true, true);

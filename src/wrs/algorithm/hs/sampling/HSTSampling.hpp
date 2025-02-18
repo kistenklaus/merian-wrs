@@ -1,4 +1,15 @@
 #pragma once
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : HSTSampling.hpp
+ *
+ * The sampling step of the Hierarchical sampling approach.
+ * Traverse the tree from the root node in multiple dispatches
+ * and at every node performs a binomial trial to determine the amount of
+ * samples distributed to the right and left child nodes.
+ *
+ */
 
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
@@ -6,13 +17,11 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
+#include "merian/vk/shader/shader_compiler.hpp"
 #include "src/wrs/algorithm/hs/HSTRepr.hpp"
 #include "src/wrs/layout/ArrayLayout.hpp"
-#include "src/wrs/layout/Attribute.hpp"
 #include "src/wrs/layout/BufferView.hpp"
-#include "src/wrs/layout/StructLayout.hpp"
 #include "src/wrs/types/glsl.hpp"
-#include <concepts>
 #include <fmt/base.h>
 #include <memory>
 #include <ranges>
@@ -77,7 +86,9 @@ class HSTSampling {
   public:
     using Buffers = HSTSamplingBuffers;
 
-    explicit HSTSampling(const merian::ContextHandle& context, glsl::uint workgroupSize)
+    explicit HSTSampling(const merian::ContextHandle& context,
+                         const merian::ShaderCompilerHandle& shaderCompiler,
+                         glsl::uint workgroupSize)
         : m_workgroupSize(workgroupSize) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
@@ -88,9 +99,8 @@ class HSTSampling {
 
         const std::string shaderPath = "src/wrs/algorithm/hs/sampling/shader.comp";
 
-        const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
-                context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+        const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -105,21 +115,22 @@ class HSTSampling {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd,
+    void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              std::size_t N,
              const glsl::uint svoThreshold = 0) const {
 
-        m_pipeline->bind(cmd);
+        cmd->bind(m_pipeline);
         hst::HSTRepr repr{N};
 
-        m_pipeline->push_descriptor_set(cmd, buffers.hst, buffers.samples);
+        cmd->push_descriptor_set(m_pipeline, buffers.hst, buffers.samples);
 
         glsl::uint parentOffset = static_cast<glsl::uint>(repr.size());
         glsl::uint invoc = 1;
         for (const auto& level : repr.get() | std::views::reverse) {
 
-            /* fmt::println("child_offset = {}, parent_offset = {}, invoc={}", level.parentOffset, */
+            /* fmt::println("child_offset = {}, parent_offset = {}, invoc={}", level.parentOffset,
+             */
             /*              parentOffset, invoc); */
             if (invoc * 2 <= svoThreshold) {
                 parentOffset = level.parentOffset;
@@ -127,36 +138,35 @@ class HSTSampling {
                 continue;
             }
 
-            m_pipeline->push_constant<PushConstants>(cmd, PushConstants{
+            cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
                                                               .child_offset = level.parentOffset,
                                                               .parent_offset = parentOffset,
                                                               .num_invoc = invoc,
                                                           });
             const glsl::uint workgroupCount = (invoc + m_workgroupSize - 1) / m_workgroupSize;
-            cmd.dispatch(workgroupCount, 1, 1);
+            cmd->dispatch(workgroupCount, 1, 1);
 
             parentOffset = level.parentOffset;
             invoc = level.numParents;
 
-            cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                                vk::PipelineStageFlagBits::eComputeShader, {}, {},
-                                buffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                                vk::AccessFlagBits::eShaderRead),
-                                {});
+            cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                         vk::PipelineStageFlagBits::eComputeShader,
+                         buffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                         vk::AccessFlagBits::eShaderRead));
         }
 
         if (invoc * 2 > svoThreshold) {
             /* fmt::println("LAST HSTSampling: child_offset = {}, parent_offset = {}, invoc={}", */
             /*              repr.get().front().childOffset, parentOffset, invoc); */
-            m_pipeline->push_constant<PushConstants>(
-                cmd, PushConstants{
-                         .child_offset = repr.get().front().childOffset,
-                         .parent_offset = parentOffset,
-                         .num_invoc = invoc,
-                     });
+            cmd->push_constant<PushConstants>(m_pipeline,
+                                              PushConstants{
+                                                  .child_offset = repr.get().front().childOffset,
+                                                  .parent_offset = parentOffset,
+                                                  .num_invoc = invoc,
+                                              });
 
             const glsl::uint workgroupCount = (invoc + m_workgroupSize - 1) / m_workgroupSize;
-            cmd.dispatch(workgroupCount, 1, 1);
+            cmd->dispatch(workgroupCount, 1, 1);
         }
     }
 

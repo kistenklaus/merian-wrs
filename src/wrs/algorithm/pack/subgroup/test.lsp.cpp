@@ -3,13 +3,14 @@
 #include "src/wrs/types/split.hpp"
 #include "src/wrs/types/alias_table.hpp"
 #include "src/wrs/algorithm/pack/subgroup/SubgroupPack.hpp"
+#include "merian/vk/command/command_buffer.hpp"
 
 namespace wrs::test::subgroup_pack {
 
 using weight_t = float;
 using Buffers = SubgroupPack::Buffers;
 
-void uploadSplits(const vk::CommandBuffer cmd,
+void uploadSplits(const merian::CommandBufferHandle& cmd,
                          std::span<const wrs::Split<weight_t, wrs::glsl::uint>> splits,
                          Buffers& buffers,
                          Buffers& stage) {

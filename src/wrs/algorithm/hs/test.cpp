@@ -1,3 +1,9 @@
+/**
+ * @author      : kistenklaus (karlsasssie@gmail.com)
+ * @created     : 11/02/2025
+ * @filename    : test.cpp
+ */
+
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/renderdoc.hpp"
@@ -55,18 +61,18 @@ static constexpr TestCase TEST_CASES[] = {
         .S = 1024 * 2048 / 64,
         .iterations = 1,
     },
-     /* TestCase{  */
-     /*     .hstcWorkgroupSize = 512,  */
-     /*     .svoWorkgroupSize = 512, */
-     /*     .samplingWorkgroupSize = 512,  */
-     /*     .explodeWorkgroupSize = 32,  */
-     /*     .explodeRows = 1,  */
-     /*     .explodeLookbackDepth = 1,  */
-     /*     .N = 1024,  */
-     /*     .distribution = Distribution::UNIFORM,  */
-     /*     .S = 64,  */
-     /*     .iterations = 1,  */
-     /* },  */
+    /* TestCase{  */
+    /*     .hstcWorkgroupSize = 512,  */
+    /*     .svoWorkgroupSize = 512, */
+    /*     .samplingWorkgroupSize = 512,  */
+    /*     .explodeWorkgroupSize = 32,  */
+    /*     .explodeRows = 1,  */
+    /*     .explodeLookbackDepth = 1,  */
+    /*     .N = 1024,  */
+    /*     .distribution = Distribution::UNIFORM,  */
+    /*     .S = 64,  */
+    /*     .iterations = 1,  */
+    /* },  */
 };
 
 static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) {
@@ -89,7 +95,7 @@ static std::tuple<Buffers, Buffers> allocateBuffers(const TestContext& context) 
     return std::make_tuple(local, stage);
 }
 
-static void uploadTestCase(const vk::CommandBuffer cmd,
+static void uploadTestCase(const merian::CommandBufferHandle cmd,
                            const Buffers& buffers,
                            const Buffers& stage,
                            std::span<const float> weights,
@@ -108,8 +114,10 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
         glsl::uint* mapped = stage.outputSensitiveSamples->get_memory()->map_as<glsl::uint>();
         mapped[repr.size()] = S;
         stage.samples->get_memory()->unmap();
-        Buffers::OutputSensitiveSamplesView stageView{stage.outputSensitiveSamples, repr.size() + 1};
-        Buffers::OutputSensitiveSamplesView localView{buffers.outputSensitiveSamples, repr.size() + 1};
+        Buffers::OutputSensitiveSamplesView stageView{stage.outputSensitiveSamples,
+                                                      repr.size() + 1};
+        Buffers::OutputSensitiveSamplesView localView{buffers.outputSensitiveSamples,
+                                                      repr.size() + 1};
         stageView.expectHostWrite();
         stageView.copyTo(cmd, localView);
         localView.expectComputeRead(cmd);
@@ -117,7 +125,7 @@ static void uploadTestCase(const vk::CommandBuffer cmd,
 }
 
 static void
-downloadToStage(vk::CommandBuffer cmd, Buffers& buffers, Buffers& stage, std::size_t S) {
+downloadToStage(merian::CommandBufferHandle cmd, Buffers& buffers, Buffers& stage, std::size_t S) {
     Buffers::SamplesView stageView{stage.samples, S};
     Buffers::SamplesView localView{buffers.samples, S};
     localView.expectComputeWrite();
@@ -143,17 +151,13 @@ static bool runTestCase(const TestContext& context,
                         Buffers& buffers,
                         Buffers& stage,
                         std::pmr::memory_resource* resource) {
-    std::string testName =
-        fmt::format("{{N={},S={}}}", testCase.N, testCase.S);
+    std::string testName = fmt::format("{{N={},S={}}}", testCase.N, testCase.S);
     SPDLOG_INFO("Running test case:{}", testName);
 
-    Algorithm kernel{context.context,
-                     testCase.hstcWorkgroupSize,
-                     testCase.svoWorkgroupSize,
-                     testCase.samplingWorkgroupSize,
-                     testCase.explodeWorkgroupSize,
-                     testCase.explodeRows,
-                     testCase.explodeLookbackDepth};
+    Algorithm kernel{
+        context.context,           context.shaderCompiler,         testCase.hstcWorkgroupSize,
+        testCase.svoWorkgroupSize, testCase.samplingWorkgroupSize, testCase.explodeWorkgroupSize,
+        testCase.explodeRows,      testCase.explodeLookbackDepth};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
@@ -171,11 +175,13 @@ static bool runTestCase(const TestContext& context,
 
         // 1. Generate input
         context.profiler->start("Generate test input");
-        std::pmr::vector<float> weights = wrs::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
+        std::pmr::vector<float> weights =
+            wrs::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
         context.profiler->end();
 
         // 2. Begin recoding
-        vk::CommandBuffer cmd = context.cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
         context.profiler->start(recordingLabel);
         context.profiler->cmd_start(cmd, recordingLabel);
@@ -205,13 +211,13 @@ static bool runTestCase(const TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
-        cmd.end();
+        cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
         context.profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        Results results = downloadFromStage(stage, testCase.S,resource);
+        Results results = downloadFromStage(stage, testCase.S, resource);
         context.profiler->end();
 
         // 7. Test results
@@ -219,9 +225,9 @@ static bool runTestCase(const TestContext& context,
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
             if (testCase.S <= 1024) {
-              for (std::size_t i = 0; i < results.samples.size(); ++i) {
-                fmt::println("[{}]: {}", i, results.samples[i]);
-              }
+                for (std::size_t i = 0; i < results.samples.size(); ++i) {
+                    fmt::println("[{}]: {}", i, results.samples[i]);
+                }
             }
         }
         context.profiler->collect(true, true);

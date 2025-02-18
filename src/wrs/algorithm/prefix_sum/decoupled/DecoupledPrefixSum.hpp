@@ -69,7 +69,7 @@ class DecoupledPrefixSumConfig {
         glsl::uint workgroupSize,
         glsl::uint rows,
         glsl::uint parallelLookbackDepth,
-        BlockScanVariant blockScanVariant = BlockScanVariant::RAKING)
+        BlockScanVariant blockScanVariant = BlockScanVariant::RANKED_STRIDED)
         : workgroupSize(workgroupSize), rows(rows), parallelLookbackDepth(parallelLookbackDepth),
           blockScanVariant(blockScanVariant) {}
 
@@ -87,6 +87,7 @@ class DecoupledPrefixSum {
     using Buffers = DecoupledPrefixSumBuffers;
 
     explicit DecoupledPrefixSum(const merian::ContextHandle& context,
+        const merian::ShaderCompilerHandle& shaderCompiler, 
                                 DecoupledPrefixSumConfig config = {})
         : m_partitionSize(config.partitionSize()) {
 
@@ -129,7 +130,7 @@ class DecoupledPrefixSum {
         }
 
         const merian::ShaderModuleHandle shader =
-            context->shader_compiler->find_compile_glsl_to_shadermodule(
+            shaderCompiler->find_compile_glsl_to_shadermodule(
                 context, shaderPath, vk::ShaderStageFlagBits::eCompute,
                 {"src/wrs/algorithm/include/"}, defines);
 
@@ -152,14 +153,13 @@ class DecoupledPrefixSum {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const vk::CommandBuffer cmd, const Buffers& buffers, glsl::uint N) {
-
-        m_pipeline->bind(cmd);
-        m_pipeline->push_descriptor_set(cmd, buffers.elements, buffers.prefixSum,
+    void run(const merian::CommandBufferHandle cmd, const Buffers& buffers, glsl::uint N) {
+        cmd->bind(m_pipeline);
+        cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.prefixSum,
                                         buffers.decoupledStates);
-        m_pipeline->push_constant<PushConstants>(cmd, PushConstants{.N = N});
+        cmd->push_constant<PushConstants>(m_pipeline, PushConstants{.N = N});
         const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
-        cmd.dispatch(workgroupCount, 1, 1);
+        cmd->dispatch(workgroupCount, 1, 1);
     }
 
     inline glsl::uint getPartitionSize() const {

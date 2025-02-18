@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <spdlog/spdlog.h>
 #include <string>
 
 #include <array>
@@ -88,7 +89,7 @@ template <std::size_t HeaderCount> class CSVWriter {
     }
 
     void unsafePushNull(bool lastEntry) {
-        std::size_t estimatedEntrySize = 0;
+        std::size_t estimatedEntrySize = 1;
         if (buffer.size() + estimatedEntrySize >= bufferLimit) {
             flushBuffer();
         }

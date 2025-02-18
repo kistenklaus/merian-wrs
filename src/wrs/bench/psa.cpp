@@ -2,6 +2,8 @@
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/memory/memory_allocator.hpp"
 #include "merian/vk/memory/resource_allocator.hpp"
+#include "merian/vk/shader/shader_compiler_shaderc.hpp"
+#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/wrs/algorithm/psa/PSA.hpp"
 #include "src/wrs/eval/logscale.hpp"
@@ -23,13 +25,16 @@ void wrs::bench::psa::write_bench_results(const merian::ContextHandle& context) 
     merian::QueueHandle queue = context->get_queue_GCT();
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
 
+    merian::ShaderCompilerHandle shaderCompiler =
+        std::make_shared<merian::SystemGlslcCompiler>(context);
+
     merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context);
     merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
         std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context, 4096);
     query_pool->reset(); // LOL THIS WAS HARD TO FIND shared_ptr also defines a reset function =^).
     profiler->set_query_pool(query_pool);
 
-    wrs::PSA psa{context};
+    wrs::PSA psa{context, shaderCompiler};
 
     using Buffers = wrs::PSA::Buffers;
     Buffers local =
@@ -40,7 +45,8 @@ void wrs::bench::psa::write_bench_results(const merian::ContextHandle& context) 
     std::vector<float> weights =
         wrs::generate_weights(Distribution::SEEDED_RANDOM_UNIFORM, WEIGHT_COUNT);
 
-    vk::CommandBuffer cmd = cmdPool->create_and_begin();
+    merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+    cmd->begin();
     { // Upload weights
         Buffers::WeightsView stageView{stage.weights, WEIGHT_COUNT};
         Buffers::WeightsView localView{local.weights, WEIGHT_COUNT};
@@ -49,7 +55,7 @@ void wrs::bench::psa::write_bench_results(const merian::ContextHandle& context) 
         localView.expectComputeRead(cmd);
     }
 
-    cmd.end();
+    cmd->end();
     queue->submit_wait(cmd);
 
     auto scale =
@@ -57,17 +63,20 @@ void wrs::bench::psa::write_bench_results(const merian::ContextHandle& context) 
 
     for (const glsl::uint S : scale) {
         fmt::println("Benchmarking S = {}", S);
-        vk::CommandBuffer cmd = cmdPool->create_and_begin();
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+        cmd->begin();
         for (std::size_t it = 0; it < BENCHMARK_ITERATIONS; ++it) {
             {
                 MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, fmt::format("{}", S));
                 psa.run(cmd, local, WEIGHT_COUNT, S, profiler);
             }
 
-            cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-                                vk::PipelineStageFlagBits::eAllCommands, {}, {}, {}, {});
+            cmd->barrier(vk::PipelineStageFlagBits::eAllCommands,
+                         vk::PipelineStageFlagBits::eAllCommands,
+                         local.mean->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                    vk::AccessFlagBits::eShaderRead));
         }
-        cmd.end();
+        cmd->end();
         queue->submit_wait(cmd);
         profiler->collect(true, true);
     }
