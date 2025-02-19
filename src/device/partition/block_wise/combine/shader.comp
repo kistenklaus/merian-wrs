@@ -1,0 +1,112 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+#extension GL_KHR_shader_subgroup_shuffle_relative : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint ROWS = 8;
+layout(constant_id = 2) const uint SUBGROUP_SIZE = 32;
+const uint MAX_SUBGROUPS_PER_WORKGROUP = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+
+layout(constant_id = 3) const uint SEQUENTIAL_COMBINE_LENGTH = 32;
+layout(constant_id = 4) const uint BLOCKS_PER_WORKGROUP = 1;
+
+#ifdef USE_UINT
+#define MONOID uint
+#elif defined(USE_FLOAT)
+#define MONOID float
+#else
+#define MONOID void
+#endif
+
+layout(set = 0, binding = 0) readonly buffer in_Elements {
+    MONOID elements[];
+};
+
+layout(set = 0, binding = 1) readonly buffer in_Pivot {
+    MONOID pivot;
+} con;
+
+layout(set = 0, binding = 2) readonly buffer in_Indices {
+    uint indices[];
+};
+
+layout(set = 0, binding = 3) readonly buffer in_BlockIndices {
+    uint blockIndices[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer out_PartitionIndices {
+    uint partitionIndices[];
+};
+
+layout(set = 0, binding = 5) writeonly buffer out_Partition {
+    MONOID partitionElements[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint N;
+} pc;
+
+const uint BLOCK_SIZE = WORKGROUP_SIZE * ROWS;
+const uint SUBGROUP_SUBBLOCK_SIZE = SUBGROUP_SIZE * ROWS;
+const uint PARTITION_SIZE = BLOCK_SIZE * SEQUENTIAL_COMBINE_LENGTH;
+
+uint N;
+
+void main(void) {
+    N = pc.N;
+    const MONOID pivot = con.pivot;
+
+    const uint tileBase = gl_WorkGroupID.x * BLOCKS_PER_WORKGROUP;
+
+    for (uint t = 0; t < BLOCKS_PER_WORKGROUP; ++t) {
+        const uint partBase = (tileBase + t) * PARTITION_SIZE;
+
+        const uint exclusive_h = blockIndices[tileBase + t];
+
+        for (uint p = 0; p < SEQUENTIAL_COMBINE_LENGTH; ++p) {
+            const uint blockBase = partBase + p * BLOCK_SIZE;
+
+            uint h[ROWS];
+            MONOID v[ROWS];
+            for (uint ix = blockBase + gl_LocalInvocationID.x, i = 0;
+                i < ROWS; ix += WORKGROUP_SIZE, ++i) {
+                if (ix < N) {
+                    h[i] = indices[ix];
+                    v[i] = elements[ix];
+                } else {
+                    h[i] = 0;
+                    v[i] = 0;
+                }
+            }
+
+            for (uint i = 0; i < ROWS; ++i) {
+                h[i] += exclusive_h;
+            }
+
+            for (uint ix = blockBase + gl_LocalInvocationID.x, i = 0;
+                i < ROWS; ix += WORKGROUP_SIZE, ++i) {
+                if (ix < N) {
+                    if (v[i] > pivot) {
+                        uint hx = h[i];
+                        partitionIndices[hx] = ix;
+                        partitionElements[hx] = v[i];
+                    } else {
+                        uint l = ix - h[i];
+                        uint lx = (N - 1) - l;
+                        partitionIndices[lx] = ix;
+                        partitionElements[lx] = v[i];
+                    }
+                }
+            }
+        }
+    }
+}

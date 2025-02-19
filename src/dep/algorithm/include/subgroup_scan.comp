@@ -1,0 +1,162 @@
+#ifndef SUBGROUP_SCAN_COMP_GUARD
+#define SUBGROUP_SCAN_COMP_GUARD
+
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+
+#include "shfl_scan.comp"
+
+float details_subgroup_aggregate_from_inclusive_scan_float(float inclusive) {
+    return subgroupBroadcast(inclusive, gl_SubgroupSize - 1);
+}
+
+float details_subgroup_inclusive_scan_to_exclusive_scan_float(float inclusive) {
+    float exclusive = subgroupShuffleUp(inclusive, 1);
+    if (gl_SubgroupInvocationID == 0) {
+        return 0.0f;
+    } else {
+        return exclusive;
+    }
+}
+
+uint details_subgroup_aggregate_from_inclusive_scan_uint(uint inclusive) {
+    return subgroupBroadcast(inclusive, gl_SubgroupSize - 1);
+}
+
+uint details_subgroup_inclusive_scan_to_exclusive_scan_uint(uint inclusive) {
+    uint exclusive = subgroupShuffleUp(inclusive, 1);
+    if (gl_SubgroupInvocationID == 0) {
+        return 0;
+    } else {
+        return exclusive;
+    }
+}
+
+float subgroup_inclusive_scan_float(float x) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    return shfl_subgroup_inclusive_scan_float(x);
+    #else
+    return subgroupInclusiveAdd(x);
+    #endif
+}
+
+float subgroup_inclusive_scan_float(float x, out float aggregate) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    const float inclusive = shfl_subgroup_inclusive_scan_float(x);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_float(inclusive);
+    return inclusive;
+    #else
+    const float inclusive = subgroupInclusiveAdd(x);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_float(inclusive);
+    return inclusive;
+    #endif
+}
+
+float subgroup_exclusive_scan_float(float x) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    float inclusive = shfl_subgroup_inclusive_scan_float(x);
+    return details_subgroup_inclusive_scan_to_exclusive_scan_float(inclusive);
+    #else
+    return subgroupExclusiveAdd(x);
+    #endif
+}
+
+float subgroup_exclusive_scan_float(float x, out float aggregate) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    const float inclusive = shfl_subgroup_inclusive_scan_float(x);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_float(inclusive);
+    return details_subgroup_inclusive_scan_to_exclusive_scan_float(inclusive);
+    #else
+    const float inclusive = subgroupInclusiveAdd(x);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_float(inclusive);
+    return details_subgroup_inclusive_scan_to_exclusive_scan_float(inclusive);
+    #endif
+}
+
+uint subgroup_inclusive_scan_uint(uint x) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    return shfl_subgroup_inclusive_scan_uint(x);
+    #else
+    return subgroupInclusiveAdd(x);
+    #endif
+}
+
+uint subgroup_inclusive_scan_uint(uint x, out uint aggregate) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    const uint inclusive = shfl_subgroup_inclusive_scan_uint(x);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_uint(inclusive);
+    return inclusive;
+    #else
+    const uint inclusive = subgroupInclusiveAdd(x);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_uint(inclusive);
+    return inclusive;
+    #endif
+}
+
+uint subgroup_exclusive_scan_uint(uint x) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    uint inclusive = shfl_subgroup_inclusive_scan_uint(x);
+    return details_subgroup_inclusive_scan_to_exclusive_scan_uint(inclusive);
+    #else
+    return subgroupExclusiveAdd(x);
+    #endif
+}
+
+uint subgroup_exclusive_scan_uint(uint x, out uint aggregate) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    uint inclusive = shfl_subgroup_inclusive_scan_uint(x);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_uint(inclusive);
+    return details_subgroup_inclusive_scan_to_exclusive_scan_uint(inclusive);
+    #else
+    uint inclusive = subgroupInclusiveAdd(x);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_uint(inclusive);
+    return details_subgroup_inclusive_scan_to_exclusive_scan_uint(inclusive);
+    #endif
+}
+
+uint subgroup_inclusive_scan_bool(bool x) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    return shfl_subgroup_inclusive_scan_uint(x ? 1 : 0);
+    #else
+    const uvec4 ballot = subgroupBallot(x);
+    return subgroupBallotInclusiveBitCount(ballot);
+    #endif
+}
+
+uint subgroup_inclusive_scan_bool(bool x, out uint aggregate) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    const uint inclusive = shfl_subgroup_inclusive_scan_uint(x ? 1 : 0);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_uint(inclusive);
+    return inclusive;
+    #else
+    const uvec4 ballot = subgroupBallot(x);
+    const uint inclusive = subgroupBallotInclusiveBitCount(ballot);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_uint(inclusive);
+    return inclusive;
+    #endif
+}
+
+uint subgroup_exclusive_scan_bool(bool x) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    uint inclusive = shfl_subgroup_inclusive_scan_uint(x ? 1 : 0);
+    return details_subgroup_inclusive_scan_to_exclusive_scan_uint(inclusive);
+    #else
+    const uvec4 ballot = subgroupBallot(x);
+    return subgroupBallotExclusiveBitCount(ballot);
+    #endif
+}
+
+uint subgroup_exclusive_scan_bool(bool x, out uint aggregate) {
+    #ifdef SUBGROUP_SCAN_USE_SHFL
+    uint inclusive = shfl_subgroup_inclusive_scan_uint(x ? 1 : 0);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_uint(inclusive);
+    return details_subgroup_inclusive_scan_to_exclusive_scan_uint(inclusive);
+    #else
+    const uvec4 ballot = subgroupBallot(x);
+    const uint inclusive = subgroupBallotInclusiveBitCount(ballot);
+    aggregate = details_subgroup_aggregate_from_inclusive_scan_uint(inclusive);
+    return details_subgroup_inclusive_scan_to_exclusive_scan_uint(inclusive);
+    #endif
+}
+
+#endif

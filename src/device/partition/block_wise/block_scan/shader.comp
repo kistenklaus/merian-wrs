@@ -1,0 +1,177 @@
+#version 460
+#extension GL_ARB_shading_language_include : enable
+
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint ROWS = 8;
+layout(constant_id = 2) const uint SUBGROUP_SIZE = 32;
+
+#include "subgroup_scan.comp"
+#include "block_scan.comp"
+
+#ifdef USE_UINT
+#define MONOID uint
+#elif defined(USE_FLOAT)
+#define MONOID float
+#else
+#define MONOID void
+#endif
+
+layout(constant_id = 3) const uint SEQUENTIAL_SCAN_LENGTH = 32;
+
+layout(set = 0, binding = 0) readonly buffer in_Elements {
+    MONOID elements[];
+};
+
+layout(set = 0, binding = 1) readonly buffer in_Pivot {
+    MONOID pivot;
+} con;
+
+layout(set = 0, binding = 2) writeonly buffer out_Indices {
+    uint indices[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer out_BlockCount {
+    uint blockCount[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint N;
+} pc;
+
+const uint MAX_SUBGROUPS_PER_WORKGROUP = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+const uint BLOCK_SIZE = WORKGROUP_SIZE * ROWS;
+const uint PARTITION_SIZE = BLOCK_SIZE * SEQUENTIAL_SCAN_LENGTH;
+
+shared uint sh_blockExclusive;
+
+shared uint strided_scatch[MAX_SUBGROUPS_PER_WORKGROUP];
+
+void main(void) {
+    uint N = pc.N;
+    MONOID pivot = con.pivot;
+
+    const uint partBase = gl_WorkGroupID.x * PARTITION_SIZE;
+
+    uint partCount = 0;
+    for (uint p = 0; p < SEQUENTIAL_SCAN_LENGTH; ++p) {
+        const uint blockBase = partBase + p * BLOCK_SIZE;
+        uint h[ROWS];
+
+        // ============== STRIDED EDGE BLOCK SCAN =================
+        #ifdef STRIDED
+        const uint base = blockBase + gl_SubgroupID * (ROWS * SUBGROUP_SIZE) + gl_SubgroupInvocationID.x;
+
+        uint exclusiveCount = 0;
+        #pragma unroll
+        for (uint i = 0, ix = base; i < ROWS; ++i, ix += SUBGROUP_SIZE) {
+            MONOID v;
+            if (ix < N) {
+                v = elements[ix];
+            } else {
+                v = 0;
+            }
+            bool condition = v > pivot;
+            uint count;
+            h[i] = subgroup_exclusive_scan_bool(condition, count) + exclusiveCount;
+            exclusiveCount += count;
+        }
+
+        const uint last = SUBGROUP_SIZE - 1;
+        // for (uint i = 1; i < ROWS; ++i) {
+        //     h[i] += subgroupBroadcast(h[i - 1], last);
+        // }
+        //
+        if (gl_SubgroupInvocationID == last) {
+            strided_scatch[gl_SubgroupID] = exclusiveCount; // actually inclusive at this point
+        }
+
+        barrier();
+
+        if (gl_SubgroupID == 0) {
+            uint subgroupCount = (gl_SubgroupInvocationID < MAX_SUBGROUPS_PER_WORKGROUP)
+                ? strided_scatch[gl_SubgroupInvocationID] : 0;
+            uint subgroupExclusiveCount = subgroup_inclusive_scan_uint(subgroupCount);
+            if (gl_SubgroupInvocationID < MAX_SUBGROUPS_PER_WORKGROUP) {
+                strided_scatch[gl_SubgroupInvocationID] = subgroupExclusiveCount;
+            }
+        }
+        barrier();
+
+        if (gl_LocalInvocationID.x == 0) {
+            partCount += strided_scatch[gl_NumSubgroups - 1];
+        }
+
+        uint subgroupCount = (gl_SubgroupID > 0) ? strided_scatch[gl_SubgroupID - 1] : 0;
+
+        for (uint i = 0; i < ROWS; ++i) {
+            h[i] += subgroupCount;
+        }
+
+        #pragma unroll
+        for (uint i = 0, ix = base; i < ROWS; ++i, ix += SUBGROUP_SIZE) {
+            if (ix < N) {
+                indices[ix] = h[i];
+            }
+        }
+
+        // =================== NONE STRIDED BLOCK SCAN ===============
+        #else
+
+        const uint base = blockBase + gl_LocalInvocationID.x * ROWS;
+        #pragma unroll
+        for (uint i = 0; i < ROWS; ++i) {
+            uint ix = base + i;
+            MONOID v;
+            if (ix < N) {
+                v = elements[ix];
+            } else {
+                v = 0;
+            }
+            h[i] = v > pivot ? 1 : 0;
+        }
+
+        // thread scan
+        uint threadCount = 0;
+        #pragma unroll
+        for (uint i = 0; i < ROWS; ++i) {
+            uint temp = h[i];
+            h[i] = threadCount;
+            threadCount += temp;
+        }
+
+        // block scan
+        uint blockCount;
+
+        uint exclusiveCount = block_exclusive_scan_uint(threadCount, blockCount);
+
+        if (gl_LocalInvocationID.x == 0) {
+            sh_blockExclusive = partCount;
+            partCount += blockCount;
+        }
+        barrier();
+        const uint blockExclusive = sh_blockExclusive;
+
+        exclusiveCount += blockExclusive;
+
+        #pragma unroll
+        for (uint i = 0; i < ROWS; ++i) {
+            h[i] += exclusiveCount;
+        }
+
+        #pragma unroll
+        for (uint i = 0; i < ROWS; ++i) {
+            uint ix = base + i;
+            if (ix < N) {
+                indices[ix] = h[i];
+            }
+        }
+        #endif
+    }
+
+    if ((gl_LocalInvocationID.x == 0)) {
+        blockCount[gl_WorkGroupID.x] = partCount;
+    }
+}

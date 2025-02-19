@@ -1,0 +1,2 @@
+subdir('atomic')
+subdir('decoupled')

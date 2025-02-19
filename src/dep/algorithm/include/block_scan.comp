@@ -1,0 +1,85 @@
+#ifndef BLOCK_SCAN_COMP_GUARD
+#define BLOCK_SCAN_COMP_GUARD
+
+#include "subgroup_scan.comp"
+
+#include "raking_smem_scan.comp"
+#include "ranked_scan.comp"
+
+float block_inclusive_scan_float(float x) {
+    #ifdef BLOCK_SCAN_USE_RANKED
+    return ranked_inclusive_scan_float(x);
+    #elif defined(BLOCK_SCAN_USE_RAKING)
+    return raking_smem_inclusive_scan_float(x);
+    #endif
+}
+
+// aggregate is only written by subgroup ID == 0.
+float block_inclusive_scan_float(float x, out float aggregate) {
+    #ifdef BLOCK_SCAN_USE_RANKED
+    return ranked_inclusive_scan_float(x, aggregate);
+    #elif defined(BLOCK_SCAN_USE_RAKING)
+    return raking_smem_inclusive_scan_float(x, aggregate);
+    #endif
+}
+
+float block_exclusive_scan_float(float x) {
+    #ifdef BLOCK_SCAN_USE_RANKED
+    return ranked_exclusive_scan_float(x);
+    #elif defined(BLOCK_SCAN_USE_RAKING)
+    return raking_smem_exclusive_scan_float(x);
+    #endif
+}
+
+// aggregate is only written by subgroup ID == 0.
+float block_exclusive_scan_float(float x, out float aggregate) {
+    #ifdef BLOCK_SCAN_USE_RANKED
+    return ranked_exclusive_scan_float(x, aggregate);
+    #elif defined(BLOCK_SCAN_USE_RAKING)
+    return raking_smem_exclusive_scan_float(x, aggregate);
+    #endif
+}
+
+uint block_inclusive_scan_uint(uint x) {
+    #ifdef BLOCK_SCAN_USE_RANKED
+    return ranked_inclusive_scan_uint(x);
+    #elif defined(BLOCK_SCAN_USE_RaAKING)
+    return raking_smem_inclusive_scan_uint(x);
+    #else
+    return 0;
+    #endif
+}
+
+// aggregate is only written by subgroup ID == 0.
+uint block_inclusive_scan_uint(uint x, out uint aggregate) {
+    #ifdef BLOCK_SCAN_USE_RANKED
+    return ranked_inclusive_scan_uint(x, aggregate);
+    #elif defined(BLOCK_SCAN_USE_RAKING)
+    return raking_smem_inclusive_scan_uint(x, aggregate);
+    #else
+    return 0;
+    #endif
+}
+
+uint block_exclusive_scan_uint(uint x) {
+    #ifdef BLOCK_SCAN_USE_RANKED
+    return ranked_exclusive_scan_uint(x);
+    #elif defined(BLOCK_SCAN_USE_RAKING)
+    return raking_smem_exclusive_scan_uint(x);
+    #else
+    return 0;
+    #endif
+}
+
+// aggregate is only written by subgroup ID == 0.
+uint block_exclusive_scan_uint(uint x, out uint aggregate) {
+    #ifdef BLOCK_SCAN_USE_RANKED
+    return ranked_exclusive_scan_uint(x, aggregate);
+    #elif defined(BLOCK_SCAN_USE_RAKING)
+    return raking_smem_exclusive_scan_uint(x, aggregate);
+    #else
+    return 0;
+    #endif
+}
+
+#endif

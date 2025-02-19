@@ -1,0 +1,6 @@
+subdir('assert')
+subdir('export')
+subdir('gen')
+subdir('memory')
+subdir('reference')
+subdir('types')

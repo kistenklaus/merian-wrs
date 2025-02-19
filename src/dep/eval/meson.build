@@ -1,0 +1,7 @@
+# src_files += files('hst_eval.cpp')
+# src_files += files('hst_std_eval.cpp')
+# src_files += files('philox_eval.cpp')
+# src_files += files('psa_eval.cpp')
+# src_files += files('psa_ref_eval.cpp')
+# src_files += files('std_eval.cpp')
+# src_files += files('sweeping_eval.cpp')

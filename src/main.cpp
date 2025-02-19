@@ -1,26 +1,15 @@
 #include "merian/vk/context.hpp"
 
+#include "merian/vk/extension/extension.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
-#include "merian/vk/extension/extension_vk_float_atomics.hpp"
-#include "merian/vk/pipeline/pipeline.hpp"
-#include "merian/vk/shader/shader_compiler_shaderc.hpp"
-#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
-#include "src/wrs/algorithm/partition/block_wise/block_scan/test.hpp"
-#include "src/wrs/algorithm/partition/block_wise/test.hpp"
-#include "src/wrs/algorithm/partition/decoupled/test.hpp"
-#include "src/wrs/algorithm/prefix_partition/decoupled/test.hpp"
-#include "src/wrs/algorithm/prefix_partition/test.hpp"
-#include "src/wrs/algorithm/prefix_sum/block_scan/test.hpp"
-#include "src/wrs/algorithm/prefix_sum/block_wise/test.hpp"
-
 #include "merian/vk/extension/extension_vk_core.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
+#include "merian/vk/extension/extension_vk_float_atomics.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
-#include "src/wrs/algorithm/prefix_sum/decoupled/test.hpp"
-#include "src/wrs/bench/memcpy.hpp"
-#include "src/wrs/bench/partition.hpp"
-#include "src/wrs/bench/prefix_sum.hpp"
-
+#include "device/mean/test.hpp"
+#include "src/device/partition/test.hpp"
+#include "src/device/prefix_partition/test.hpp"
+#include "src/device/prefix_sum/test.hpp"
 #include <dlfcn.h>
 #include <fmt/base.h>
 #include <memory>
@@ -62,38 +51,10 @@ int main() {
         throw std::runtime_error("Failed to create context!!!");
     }
 
-    wrs::test::prefix_partition::test(context);
-    /* wrs::bench::memcpy::write_bench_results(context); */
-    /* wrs::test::block_scan::test(context); */
+    device::test::mean::test(context);
+    device::test::partition::test(context);
+    device::test::prefix_sum::test(context);
+    device::test::prefix_partition::test(context);
 
-    /* wrs::bench::prefix_sum::write_bench_results(context); */
-    /* wrs::bench::partition::write_bench_results(context); */
-    /* wrs::test::decoupled_prefix_partition::test(context); */
-    /* wrs::test::decoupled_partition::test(context); */
-    /* wrs::test::block_wise_partition::test(context); */
-    /* wrs::test::partition::block_scan::test(context); */
-
-    /* wrs::test::block_wise::test(context); */
-
-    /* wrs::bench::psa::write_bench_results(context); */
-    /* wrs::test::decoupled_prefix_partition::test(context); */
-    /* wrs::test::block_scan::test(context); */
-    /* wrs::test::decoupled_prefix::test(context); */
-
-    /* wrs::test::subgroup_pack::test(context); */
-    /* wrs::test::scalar_split::test(context); */
-    /* wrs::test::scalar_pack::test(context); */
-    /* wrs::test::decoupled_prefix::test(context); */
-
-    /* wrs::test::philox::test(context); */
-    /* wrs::test::its_sampling::test(context); */
-
-    /* wrs::eval::write_philox_rmse_curve(context); */
-    /* wrs::eval::write_its_rmse_curves(context); */
-
-    /* wrs::test::splitpack::test(context); */
-    /* wrs::test::psac::test(context); */
-    /* wrs::eval::write_psa_rmse_curves(context); */
-
-    /* wrs::test::atomic_mean::test(context); */
+    /* host::test::testTests(); */
 }
