@@ -136,7 +136,7 @@ template <prefix_sum_compatible_type T> class PrefixSum {
     void run(const merian::CommandBufferHandle& cmd,
              const PrefixSumBuffers& buffers,
              host::glsl::uint N,
-             [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
+             [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
         if (std::holds_alternative<DecoupledPrefixSum>(m_method)) {
             auto method = std::get<DecoupledPrefixSum>(m_method);
             using MethodBuffers = DecoupledPrefixSum::Buffers;
