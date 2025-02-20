@@ -71,7 +71,7 @@ class ITSConfig {
     InverseTransformSamplingConfig samplingConfig;
 
     constexpr ITSConfig() : prefixSumConfig{}, samplingConfig{} {}
-    explicit constexpr ITSConfig(DecoupledPrefixSumConfig prefixSumConfig,
+    explicit constexpr ITSConfig(PrefixSumConfig prefixSumConfig,
                                  InverseTransformSamplingConfig samplingConfig)
         : prefixSumConfig(prefixSumConfig), samplingConfig(samplingConfig) {}
 };
@@ -112,6 +112,7 @@ class ITS {
            const Buffers& buffers,
            host::glsl::uint N,
            host::glsl::uint S,
+           host::glsl::uint seed = 12345u,
            [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
         using SamplingBuffers = InverseTransformSampling::Buffers;
         SamplingBuffers samplingBuffers;
@@ -121,7 +122,7 @@ class ITS {
             profiler.value()->start("Sampling");
             profiler.value()->cmd_start(cmd, "Sampling");
         }
-        m_samplingKernel.run(cmd, samplingBuffers, N, S);
+        m_samplingKernel.run(cmd, samplingBuffers, N, S, seed);
         if (profiler.has_value()) {
             profiler.value()->end();
             profiler.value()->cmd_end(cmd);

@@ -37,13 +37,13 @@ static const TestCase TEST_CASES[] = {
         .config = BlockWisePartitionConfig(512, 2, 2, BlockScanVariant::RANKED),
         .N = static_cast<host::glsl::uint>(1024 * 2048 + 1),
         .dist = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .iterations = 2,
+        .iterations = 5,
     },
     TestCase{
         .config = DecoupledPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
         .N = static_cast<host::glsl::uint>(1024 * 2048 + 1),
         .dist = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .iterations = 2,
+        .iterations = 5,
     },
 };
 
@@ -220,8 +220,6 @@ static bool runTestCase(const host::test::TestContext& context,
                     fmt::println("[{}]: {}", i, results.partitionElements[i]);
                 }
             }
-            fmt::println("HeavyCount: {}", results.heavyCount);
-
             if (testCase.N < (1 << 24)) {
                 const std::span<float> heavy{results.partitionElements.begin(), results.heavyCount};
 

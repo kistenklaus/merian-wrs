@@ -16,6 +16,8 @@
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "merian/vk/shader/shader_compiler.hpp"
+#include "src/device/statistics/chi_square/reduce/ChiSquareReduceAllocFlags.hpp"
+#include "src/device/statistics/histogram/HistogramAllocFlags.hpp"
 #include "src/host/layout/ArrayLayout.hpp"
 #include "src/host/layout/BufferView.hpp"
 #include "src/host/types/glsl.hpp"
@@ -41,20 +43,32 @@ struct AtomicHistogramBuffers {
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
                          merian::MemoryMappingType memoryMapping,
                          host::glsl::uint N,
-                         host::glsl::uint S) {
+                         host::glsl::uint S,
+                         HistogramAllocFlags allocFlags = HistogramAllocFlags::ALLOC_ALL) {
         Self buffers;
         if (memoryMapping == merian::MemoryMappingType::NONE) {
-            buffers.samples = alloc->createBuffer(
-                SamplesLayout::size(S), vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping);
-            buffers.histogram = alloc->createBuffer(HistogramLayout::size(N),
-                                                    vk::BufferUsageFlagBits::eStorageBuffer |
-                                                        vk::BufferUsageFlagBits::eTransferSrc,
-                                                    memoryMapping);
+            if ((allocFlags & HistogramAllocFlags::ALLOC_SAMPLES) != 0) {
+                buffers.samples = alloc->createBuffer(
+                    SamplesLayout::size(S), vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping);
+            }
+
+            if ((allocFlags & HistogramAllocFlags::ALLOC_HISTOGRAM) != 0) {
+                buffers.histogram = alloc->createBuffer(HistogramLayout::size(N),
+                                                        vk::BufferUsageFlagBits::eStorageBuffer |
+                                                            vk::BufferUsageFlagBits::eTransferSrc,
+                                                        memoryMapping);
+            }
 
         } else {
-            buffers.samples = nullptr;
-            buffers.histogram = alloc->createBuffer(
-                HistogramLayout::size(N), vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            if ((allocFlags & HistogramAllocFlags::ALLOC_SAMPLES) != 0) {
+                buffers.samples = alloc->createBuffer(
+                    SamplesLayout::size(S), vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping);
+            }
+
+            if ((allocFlags & HistogramAllocFlags::ALLOC_HISTOGRAM) != 0) {
+                buffers.histogram = alloc->createBuffer(
+                    HistogramLayout::size(N), vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
+            }
         }
         return buffers;
     }
@@ -91,7 +105,7 @@ class AtomicHistogram {
                 .add_binding_storage_buffer() // histogram
                 .build_push_descriptor_layout(context);
 
-        const std::string shaderPath = "src/wrs/algorithm/histogram/atomic/shader.comp";
+        const std::string shaderPath = "src/device/statistics/histogram/atomic/shader.comp";
 
         const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
             context, shaderPath, vk::ShaderStageFlagBits::eCompute);
@@ -112,7 +126,7 @@ class AtomicHistogram {
     void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              host::glsl::uint offset,
-             host::glsl::uint count) {
+             host::glsl::uint count) const {
 
         cmd->bind(m_pipeline);
         cmd->push_descriptor_set(m_pipeline, buffers.samples, buffers.histogram);

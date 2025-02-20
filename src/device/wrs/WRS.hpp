@@ -9,18 +9,60 @@
 #include <variant>
 namespace device {
 
-using WRSConfig = std::variant<device::ITS::Config>;
+using WRSConfig = std::variant<ITS::Config>;
+
+[[maybe_unused]]
+static std::string wrsConfigName(WRSConfig config) {
+    if (std::holds_alternative<ITS::Config>(config)) {
+        auto methodConfig = std::get<ITS::Config>(config);
+        if (methodConfig.samplingConfig.cooperativeSamplingSize == 0) {
+          return fmt::format("ITS-{}", methodConfig.samplingConfig.workgroupSize);
+        }else {
+          if (methodConfig.samplingConfig.pArraySearch) {
+            return fmt::format("ITS-{}-PARRAY-COOP-{}", methodConfig.samplingConfig.workgroupSize, 
+                methodConfig.samplingConfig.cooperativeSamplingSize);
+          }else {
+            return fmt::format("ITS-{}-BINARY-COOP-{}", methodConfig.samplingConfig.workgroupSize, 
+                methodConfig.samplingConfig.cooperativeSamplingSize);
+          }
+        }
+    } else {
+        throw std::runtime_error("NOT-IMPLEMENTED");
+    }
+}
 
 struct WRSBuffers {
   public:
     using Self = WRSBuffers;
+    static constexpr auto storageQualifier = host::glsl::StorageQualifier::std430;
+
     merian::BufferHandle weights;
+    using WeightsLayout = host::layout::ArrayLayout<float, storageQualifier>;
+    using WeightsView = host::layout::BufferView<WeightsLayout>;
 
     merian::BufferHandle samples;
+    using SamplesLayout = host::layout::ArrayLayout<host::glsl::uint, storageQualifier>;
+    using SamplesView = host::layout::BufferView<SamplesLayout>;
 
-    using Internals = std::variant<device::ITS::Buffers>;
+    std::variant<device::ITS::Buffers> m_internals;
 
-    Internals m_internals;
+    static Self allocate(const merian::ResourceAllocatorHandle& alloc,
+                         merian::MemoryMappingType memoryMapping,
+                         std::size_t N,
+                         std::size_t S,
+                         WRSConfig config) {
+        Self buffers;
+        if (std::holds_alternative<ITS::Config>(config)) {
+            ITS::Buffers methodBuffers = ITS::Buffers::allocate(
+                alloc, memoryMapping, N, S, std::get<ITS::Config>(config).prefixSumConfig);
+            buffers.weights = methodBuffers.weights;
+            buffers.samples = methodBuffers.samples;
+            buffers.m_internals = methodBuffers;
+        } else {
+            throw std::runtime_error("NOT-IMPLEMENTED");
+        }
+        return buffers;
+    }
 };
 
 class WRS {
@@ -62,10 +104,11 @@ class WRS {
     void sample(const merian::CommandBufferHandle& cmd,
                 const WRSBuffers& buffers,
                 host::glsl::uint N,
-                host::glsl::uint S) {
+                host::glsl::uint S,
+                host::glsl::uint seed = 12345u) {
         if (std::holds_alternative<ITS>(m_method)) {
             const ITS& method = std::get<ITS>(m_method);
-            method.sample(cmd, std::get<ITS::Buffers>(buffers.m_internals), N, S);
+            method.sample(cmd, std::get<ITS::Buffers>(buffers.m_internals), N, S, seed);
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }

@@ -10,6 +10,8 @@
 #include "src/device/partition/test.hpp"
 #include "src/device/prefix_partition/test.hpp"
 #include "src/device/prefix_sum/test.hpp"
+#include "src/device/wrs/test.hpp"
+#include "src/host/assert/test.hpp"
 #include <dlfcn.h>
 #include <fmt/base.h>
 #include <memory>
@@ -51,10 +53,13 @@ int main() {
         throw std::runtime_error("Failed to create context!!!");
     }
 
+    host::test::testTests();
+
     device::test::mean::test(context);
     device::test::partition::test(context);
     device::test::prefix_sum::test(context);
     device::test::prefix_partition::test(context);
 
-    /* host::test::testTests(); */
+    device::test::wrs::test(context);
+
 }

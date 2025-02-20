@@ -38,14 +38,14 @@ static constexpr TestCase TEST_CASES[] = {
         .N = 1024 * 2048,
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
         .pivot = 0.5,
-        .iterations = 1,
+        .iterations = 5,
     },
     TestCase{ 
         .config = DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 32),
         .N = 1024 * 2048, 
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, 
         .pivot = 0.5, 
-        .iterations = 1, 
+        .iterations = 5, 
     }, 
 };
 

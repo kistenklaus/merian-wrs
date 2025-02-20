@@ -1,0 +1,73 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_ARB_gpu_shader_int64 : enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint ROWS = 8;
+layout(constant_id = 2) const uint SUBGROUP_SIZE = 32;
+const uint PARTITION_SIZE = WORKGROUP_SIZE * ROWS;
+const uint SUBPARTITION_SIZE = SUBGROUP_SIZE * ROWS;
+const uint MAX_NUMBER_OF_SUBGROUPS = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
+
+layout(set = 0, binding = 0) readonly buffer in_samples {
+    uint64_t histogram[];
+};
+
+layout(set = 0, binding = 1) readonly buffer in_weights {
+    float weights[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer out_chiSquare {
+    float chiSquare;
+};
+
+layout(push_constant) uniform PushConstant {
+    uint N;
+    uint S;
+    float totalWeight;
+} pc;
+
+shared float sh_subgroupAggregates[MAX_NUMBER_OF_SUBGROUPS];
+
+void main(void) {
+    const uint gid = gl_GlobalInvocationID.x;
+
+    const uint N = pc.N;
+    const uint S = pc.S;
+    const float totalWeight = pc.totalWeight;
+
+    const uint base = gl_WorkGroupID.x * PARTITION_SIZE + gl_SubgroupID.x * SUBPARTITION_SIZE + gl_SubgroupInvocationID.x;
+
+    float threadAgg = 0;
+    for (uint i = 0; i < ROWS; ++i) {
+        uint index = base + i * SUBGROUP_SIZE;
+        if (index < N) {
+            uint64_t o = histogram[index];
+            float e = (weights[index] * S) / totalWeight;
+            threadAgg += pow(float(o) - e, 2.0f) / e;
+        }
+    }
+
+    float subgroupAgg = subgroupAdd(threadAgg);
+    if (subgroupElect()) {
+        sh_subgroupAggregates[gl_SubgroupID] = subgroupAgg;
+    }
+    barrier();
+
+    if (gl_SubgroupID == 0) {
+        if (gl_SubgroupInvocationID < MAX_NUMBER_OF_SUBGROUPS) {
+            float workgroupAgg = subgroupAdd(sh_subgroupAggregates[gl_SubgroupInvocationID]);
+            if (subgroupElect()) {
+                atomicAdd(chiSquare, workgroupAgg);
+            }
+        }
+    }
+}

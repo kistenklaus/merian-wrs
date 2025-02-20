@@ -70,7 +70,7 @@ class DecoupledPrefixSumConfig {
 
     constexpr DecoupledPrefixSumConfig()
         : workgroupSize(512), rows(8), parallelLookbackDepth(32),
-          blockScanVariant(BlockScanVariant::RAKING) {}
+          blockScanVariant(BlockScanVariant::RANKED_STRIDED) {}
     constexpr explicit DecoupledPrefixSumConfig(
         host::glsl::uint workgroupSize,
         host::glsl::uint rows,

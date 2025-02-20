@@ -70,12 +70,14 @@ class InverseTransformSamplingConfig {
   public:
     host::glsl::uint workgroupSize;
     host::glsl::uint cooperativeSamplingSize;
+    bool pArraySearch;
 
     constexpr InverseTransformSamplingConfig()
-        : workgroupSize(512), cooperativeSamplingSize(4096) {}
+        : workgroupSize(512), cooperativeSamplingSize(4096), pArraySearch(true) {}
     explicit constexpr InverseTransformSamplingConfig(host::glsl::uint workgroupSize,
-                                                      host::glsl::uint cooperativeSamplingSize)
-        : workgroupSize(workgroupSize), cooperativeSamplingSize(cooperativeSamplingSize) {}
+                                                      host::glsl::uint cooperativeSamplingSize,
+                                                      bool pArraySearch = false)
+        : workgroupSize(workgroupSize), cooperativeSamplingSize(cooperativeSamplingSize), pArraySearch(pArraySearch) {}
 };
 
 class InverseTransformSampling {
@@ -99,7 +101,7 @@ class InverseTransformSampling {
                 .add_binding_storage_buffer()
                 .build_push_descriptor_layout(context);
 
-        const std::string shaderPath = "src/wrs/algorithm/its/sampling/shader.comp";
+        const std::string shaderPath = "src/device/wrs/its/sampling/shader.comp";
 
         const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
             context, shaderPath, vk::ShaderStageFlagBits::eCompute);

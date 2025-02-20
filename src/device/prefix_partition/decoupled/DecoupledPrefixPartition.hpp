@@ -174,6 +174,12 @@ template <decoupled_prefix_partition_compatible T> class DecoupledPrefixPartitio
     void run(const merian::CommandBufferHandle& cmd,
              const DecoupledPrefixPartitionBuffers& buffers,
              uint32_t N) {
+        cmd->fill(buffers.decoupledStates, 0);
+        cmd->barrier(vk::PipelineStageFlagBits::eTransfer,
+                     vk::PipelineStageFlagBits::eComputeShader,
+                     buffers.decoupledStates->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
+                                                             vk::AccessFlagBits::eShaderRead));
+
         cmd->bind(m_pipeline);
         cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.pivot,
                                  buffers.decoupledStates, buffers.heavyCount,

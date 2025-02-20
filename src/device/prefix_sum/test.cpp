@@ -37,13 +37,13 @@ static TestCase TEST_CASES[] = {
             512, 8, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::SUBGROUP_SCAN_SHFL, 32),
         .N = static_cast<host::glsl::uint>((1024 * 2048 + 1)),
         .distribution = host::Distribution::UNIFORM,
-        .iterations = 1,
+        .iterations = 5,
     },
     TestCase{
        .config = BlockWiseScanConfig(512, 4, 1, BlockScanVariant::RANKED_STRIDED),
        .N = static_cast<host::glsl::uint>((1024 * 2048 + 1)),
        .distribution = host::Distribution::UNIFORM,
-       .iterations = 1,
+       .iterations = 5,
     },
 };
 

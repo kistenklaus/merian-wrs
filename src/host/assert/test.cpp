@@ -19,6 +19,7 @@
 #include "src/host/reference/reduce.hpp"
 #include "src/host/reference/split.hpp"
 #include "src/host/reference/sweeping_alias_table.hpp"
+#include "src/host/statistics/chi_square.hpp"
 #include "src/host/types/alias_table.hpp"
 #include "src/host/types/split.hpp"
 #include <cassert>
@@ -27,6 +28,7 @@
 #include <functional>
 #include <memory_resource>
 #include <numeric>
+#include <random>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -344,6 +346,33 @@ static void testAliasTableTest(std::pmr::memory_resource* resource) {
     }
 }
 
+[[maybe_unused]]
+static void testChiSquare(std::pmr::memory_resource* resource) {
+    constexpr std::size_t N = 1024 * 1024;
+    constexpr std::size_t S = 1024 * 2048 * 8;
+
+    std::pmr::vector<double> weights =
+        host::pmr::generate_weights<double>(Distribution::UNIFORM, N, resource);
+
+    std::random_device deviceRng;
+    std::uniform_int_distribution<long long> seedDist;
+    std::mt19937 rng(seedDist(deviceRng));
+    /* std::uniform_int_distribution<host::glsl::uint> dist( */
+    /*     0, static_cast<host::glsl::uint>(weights.size() - 1)); */
+    std::discrete_distribution<host::glsl::uint> dist{weights.begin(), weights.end()};
+
+    std::pmr::vector<uint32_t> samples(S, resource);
+    for (std::size_t s = 0; s < S; ++s) {
+        samples[s] = dist(rng);
+    }
+
+    double chi2 = host::chi_square<uint32_t, double>(samples, weights);
+    double p = host::chi_square_p_value(chi2, weights.size() - 1);
+    fmt::println("X² : {}", chi2);
+    fmt::println("pValue : {}", p);
+    fmt::println("zScore : {}", host::chi_square_z_score(chi2, weights.size() - 1));
+}
+
 void host::test::testTests() {
     SPDLOG_INFO("Testing tests...");
     host::memory::StackResource stackResource{10000 * sizeof(float)};
@@ -369,6 +398,10 @@ void host::test::testTests() {
     SPDLOG_INFO("Testing alias table assertion tests");
     stackResource.reset();
     testAliasTableTest(&resource);
+
+    /* SPDLOG_INFO("Testing chi square tests"); */
+    /* stackResource.reset(); */
+    /* testChiSquare(&resource); */
 
     SPDLOG_INFO("Tested tests and references successfully!");
 }

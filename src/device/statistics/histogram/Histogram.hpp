@@ -22,7 +22,7 @@ class Histogram {
     void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              host::glsl::uint offset,
-             host::glsl::uint count) {
+             host::glsl::uint count) const {
         m_method.run(cmd, buffers, offset, count);
     }
 
