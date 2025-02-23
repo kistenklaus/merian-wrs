@@ -18,6 +18,7 @@
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "merian/vk/shader/shader_compiler.hpp"
+#include "merian/vk/utils/profiler.hpp"
 #include "src/device/mean/MeanAllocFlags.hpp"
 #include "src/host/layout/ArrayLayout.hpp"
 #include "src/host/layout/BufferView.hpp"
@@ -130,7 +131,16 @@ class AtomicMean {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd,
+             const Buffers& buffers,
+             host::glsl::uint N,
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->start("Atomic-Mean");
+            profiler.value()->cmd_start(cmd, "Atomic-Mean");
+        }
+#endif
 
         cmd->fill(buffers.mean, 0);
         cmd->barrier(vk::PipelineStageFlagBits::eTransfer,
@@ -145,6 +155,13 @@ class AtomicMean {
                                                       });
         const uint32_t workgroupCount = (N + m_partitionSize - 1) / m_partitionSize;
         cmd->dispatch(workgroupCount, 1, 1);
+
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
+#endif
     }
 
   private:

@@ -10,6 +10,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "merian/vk/shader/shader_compiler.hpp"
+#include "merian/vk/utils/profiler.hpp"
 #include "src/device/prefix_partition/PrefixPartitionAllocFlags.hpp"
 #include "src/device/prefix_sum/block_scan/BlockScanVariant.hpp"
 #include "src/host/layout/ArrayLayout.hpp"
@@ -18,6 +19,8 @@
 #include "src/host/layout/PrimitiveLayout.hpp"
 #include "src/host/layout/StructLayout.hpp"
 #include "src/host/types/glsl.hpp"
+#include <memory>
+#include <unistd.h>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_enums.hpp>
 
@@ -135,23 +138,31 @@ template <decoupled_prefix_partition_compatible T> class DecoupledPrefixPartitio
 
     explicit DecoupledPrefixPartition(const merian::ContextHandle& context,
                                       const merian::ShaderCompilerHandle& shaderCompiler,
-                                      DecoupledPrefixPartitionConfig config = {})
-        : m_blockSize(config.blockSize()) {
+                                      DecoupledPrefixPartitionConfig config,
+                                      bool writePartitionElements)
+        : m_blockSize(config.blockSize()), m_writePartitionElements(writePartitionElements) {
+        auto setBuilder = merian::DescriptorSetLayoutBuilder()
+                              .add_binding_storage_buffer()  // elements
+                              .add_binding_storage_buffer()  // pivot
+                              .add_binding_storage_buffer()  // decoupled states
+                              .add_binding_storage_buffer()  // heavy count
+                              .add_binding_storage_buffer()  // partition indices
+                              .add_binding_storage_buffer(); // partition prefix
+        if (m_writePartitionElements) {
+            setBuilder.add_binding_storage_buffer(); // partition elements
+        }
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
-            merian::DescriptorSetLayoutBuilder()
-                .add_binding_storage_buffer() // elements
-                .add_binding_storage_buffer() // pivot
-                .add_binding_storage_buffer() // decoupled states
-                .add_binding_storage_buffer() // heavy count
-                .add_binding_storage_buffer() // partition indices
-                .add_binding_storage_buffer() // partition prefix
-                .add_binding_storage_buffer() // partition elements
-                .build_push_descriptor_layout(context);
+            setBuilder.build_push_descriptor_layout(context);
 
         std::string shaderPath = "src/device/prefix_partition/decoupled/shader.comp";
 
+        std::map<std::string, std::string> defines;
+        if (m_writePartitionElements) {
+            defines["WRITE_PARTITION_ELEMENTS"];
+        }
+
         const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
-            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute, {}, defines);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -173,7 +184,15 @@ template <decoupled_prefix_partition_compatible T> class DecoupledPrefixPartitio
     }
     void run(const merian::CommandBufferHandle& cmd,
              const DecoupledPrefixPartitionBuffers& buffers,
-             uint32_t N) {
+             uint32_t N,
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->start("Decoupled-Prefix-Partition");
+            profiler.value()->cmd_start(cmd, "Decoupled-Prefix-Partition");
+        }
+#endif
+
         cmd->fill(buffers.decoupledStates, 0);
         cmd->barrier(vk::PipelineStageFlagBits::eTransfer,
                      vk::PipelineStageFlagBits::eComputeShader,
@@ -181,14 +200,27 @@ template <decoupled_prefix_partition_compatible T> class DecoupledPrefixPartitio
                                                              vk::AccessFlagBits::eShaderRead));
 
         cmd->bind(m_pipeline);
-        cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.pivot,
-                                 buffers.decoupledStates, buffers.heavyCount,
-                                 buffers.partitionIndices, buffers.partitionPrefix,
-                                 buffers.partitionElements);
+        if (m_writePartitionElements) {
+            cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.pivot,
+                                     buffers.decoupledStates, buffers.heavyCount,
+                                     buffers.partitionIndices, buffers.partitionPrefix,
+                                     buffers.partitionElements);
+        } else {
+            cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.pivot,
+                                     buffers.decoupledStates, buffers.heavyCount,
+                                     buffers.partitionIndices, buffers.partitionPrefix);
+        }
 
         cmd->push_constant(m_pipeline, N);
         uint32_t workgroupCount = (N + m_blockSize - 1) / m_blockSize;
         cmd->dispatch(workgroupCount, 1, 1);
+
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
+#endif
     }
 
     inline host::glsl::uint blockSize() const {
@@ -198,6 +230,7 @@ template <decoupled_prefix_partition_compatible T> class DecoupledPrefixPartitio
   private:
     const uint32_t m_blockSize;
     merian::PipelineHandle m_pipeline;
+    const bool m_writePartitionElements;
 };
 
 } // namespace device

@@ -7,9 +7,11 @@
 #include "merian/vk/extension/extension_vk_float_atomics.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
 #include "device/mean/test.hpp"
+#include "src/bench/wrs.hpp"
 #include "src/device/partition/test.hpp"
 #include "src/device/prefix_partition/test.hpp"
 #include "src/device/prefix_sum/test.hpp"
+#include "src/device/wrs/alias/psa/test.hpp"
 #include "src/device/wrs/test.hpp"
 #include "src/host/assert/test.hpp"
 #include <dlfcn.h>
@@ -34,7 +36,7 @@ int main() {
             "shaderBufferFloat32AtomicAdd",
         });
 
-    const auto debug_utils = std::make_shared<merian::ExtensionVkDebugUtils>(false);
+    const auto debug_utils = std::make_shared<merian::ExtensionVkDebugUtils>(true);
     const auto resources = std::make_shared<merian::ExtensionResources>();
     const auto push_descriptor = std::make_shared<merian::ExtensionVkPushDescriptor>();
     const std::vector<std::shared_ptr<merian::Extension>> extensions = {
@@ -53,13 +55,17 @@ int main() {
         throw std::runtime_error("Failed to create context!!!");
     }
 
-    host::test::testTests();
+    /* host::test::testTests(); */
 
-    device::test::mean::test(context);
-    device::test::partition::test(context);
-    device::test::prefix_sum::test(context);
-    device::test::prefix_partition::test(context);
+    /* device::test::mean::test(context); */
+    /* device::test::partition::test(context); */
+    /* device::test::prefix_sum::test(context); */
+    /* device::test::prefix_partition::test(context); */
 
-    device::test::wrs::test(context);
+    /* device::test::wrs::test(context); */
+
+    device::wrs::benchmark(context);
+
+    /* device::test::psa::test(context); */
 
 }

@@ -1,0 +1,197 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint SUBGROUP_SIZE = 32;
+
+const uint SPLIT_SIZE = 2;
+
+struct Split {
+    uint i;
+    uint j;
+    float spill;
+};
+
+struct AliasTableEntry {
+    float p;
+    uint a;
+};
+
+layout(set = 0, binding = 0) readonly buffer in_partitions {
+    uint heavyCountG;
+    uint heavyLightIndices[];
+};
+
+layout(set = 0, binding = 1) readonly buffer in_weights {
+    float weights[];
+};
+
+layout(set = 0, binding = 2) readonly buffer in_mean {
+    float mean;
+};
+
+layout(set = 0, binding = 3) readonly buffer in_splits {
+    Split splits[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer out_aliastable {
+    AliasTableEntry table[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint size;
+    uint K;
+} pc;
+
+const uint WHY = 1;
+shared uint cachedPartitionIndices[WORKGROUP_SIZE * (SPLIT_SIZE + WHY)];
+shared float cachedWeights[WORKGROUP_SIZE * (SPLIT_SIZE + WHY)];
+
+void pack(uint i0, uint i1, uint j0, uint j1, float spill,
+float averageWeight, uint lastLightIndex,
+uint lightCount, uint heavyCount) {
+  
+    uint minI = subgroupMin(i0);
+    uint maxI = subgroupMax(i1);
+    uint minJ = subgroupMin(j0);
+    uint maxJ = subgroupMax(j1);
+    uint base = gl_SubgroupID * SUBGROUP_SIZE * (SPLIT_SIZE + WHY);
+    uint last = (gl_SubgroupID + 1) * SUBGROUP_SIZE * (SPLIT_SIZE + WHY) - 1;
+
+    // loading the heavy partition indices!
+    uint subgroupHeavyCount = (maxJ - minJ) + 1; // inclusive bound!
+    for (uint jx = gl_SubgroupInvocationID; jx < subgroupHeavyCount; jx += SUBGROUP_SIZE) {
+      cachedPartitionIndices[base + jx] = heavyLightIndices[minJ + jx];
+    }
+
+    // loading the light partition indices!
+    uint subgroupLightBase = base + subgroupHeavyCount;
+    uint subgroupLightCount = (maxI - minI) + 1;
+    for (uint ix = gl_SubgroupInvocationID; ix < subgroupLightCount; ix += SUBGROUP_SIZE) {
+      cachedPartitionIndices[subgroupLightBase + ix] = heavyLightIndices[lastLightIndex - (minI + ix)];
+    }
+
+    for (uint x = gl_SubgroupInvocationID; x < (subgroupHeavyCount + subgroupLightCount); x += SUBGROUP_SIZE) {
+      cachedWeights[base + x] = weights[cachedPartitionIndices[base + x]];
+    }
+
+    subgroupMemoryBarrierShared(); // we require read 
+
+    uint i = i0;
+    uint j = j0;
+
+    float w = spill;
+    if (w == 0.0f) {
+        // uint h = heavyLightIndices[j];
+        uint h = cachedPartitionIndices[j - minJ];
+        w = weights[h];
+    }
+
+    int x = 0;
+    while (i < i1 || j < j1) {
+        bool packHeavy;
+        // Checking bounds before the numerical comparision avoids
+        // Floating point inaccuracies while comparing!
+        if (j == j1 || j == heavyCount) {
+            // Only light buckets left.
+            packHeavy = false;
+        } else if (i == i1 || i == lightCount) {
+            // Only heavy buckets left.
+            packHeavy = true;
+        } else {
+            packHeavy = w <= averageWeight;
+        }
+        // if (j >= N) {
+        //   break;
+        // }
+        // uint h = heavyLightIndices[j];
+        uint h = cachedPartitionIndices[base + j - minJ];
+        uint weightIdx;
+        float weight;
+        if (packHeavy) {
+            // if (j + 1 >= heavyCount) {
+            //   break;
+            // }
+            weightIdx = cachedPartitionIndices[base + ((j + 1) - minJ)];
+            // weight = weights[weightIdx];
+            weight = cachedWeights[base + ((j + 1) - minJ)];
+        } else {
+            // if (lastLightIndex - i >= N) {
+            //   break;
+            // }
+            // weightIdx = heavyLightIndices[lastLightIndex - i];
+            weightIdx = cachedPartitionIndices[subgroupLightBase + (i - minI)];
+            // weight = weights[weightIdx];
+            weight = cachedWeights[subgroupLightBase + (i - minI)];
+        }
+        // if (weightIdx >= N) {
+        //   break;
+        // }
+        float p;
+        uint idx, a;
+        if (packHeavy) {
+            // Pack heavy bucket!
+            p = w / averageWeight;
+            a = weightIdx;
+            idx = h;
+            j += 1;
+        } else {
+            // Pack light bucket
+            p = weight / averageWeight;
+            a = h;
+            idx = weightIdx;
+            i += 1;
+        }
+        // if (idx >= N) {
+        //   break;
+        // }
+        table[idx].p = p;
+        table[idx].a = a;
+        w = (w + weight) - averageWeight;
+    }
+    if (j1 == heavyCount - 1) {
+        // Last heavy element overal has to be handled seperately otherwise,
+        // we access heavyIndices out of bound.
+        // Maybe this would actually be fine because of our layout. Then the residual of the
+        // last element which should always be zero, but numerical instabilities would be
+        // reassigned to the last light element, both are probably fine, but here we choose to
+        // redirect to not have the last heavy element redirect to anything makes it easier to debug!
+        uint h = cachedPartitionIndices[base + j - minJ];
+        table[h].p = 1.0f;
+        table[h].a = h;
+    }
+}
+
+void main(void) {
+    uint k = gl_GlobalInvocationID.x;
+    if (k >= pc.K) {
+        return;
+    }
+    float spill;
+    uint i0, j0;
+    if (k == 0) {
+        i0 = 0;
+        j0 = 0;
+        spill = 0;
+    } else {
+        i0 = splits[k - 1].i;
+        j0 = splits[k - 1].j;
+        spill = splits[k - 1].spill;
+    }
+    uint i1 = splits[k].i;
+    uint j1 = splits[k].j;
+    float averageWeight = mean;
+    const uint N = pc.size;
+    const uint heavyCount = heavyCountG;
+    const uint lightCount = N - heavyCount;
+    const uint lastLightIndex = N - 1;
+
+    pack(min(i0, i1), max(i1, i0), min(j0, j1), max(j1, j0), spill, averageWeight, lastLightIndex, lightCount, heavyCount);
+}

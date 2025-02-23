@@ -225,7 +225,13 @@ template <block_wise_prefix_partition_compatible T> class BlockWisePrefixPartiti
     void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              host::glsl::uint N,
-             std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->start("Block-Wise-Prefix-Partition");
+            profiler.value()->cmd_start(cmd, "Block-Wise-Prefix-Partition");
+        }
+#endif
 
         typename BlockWisePrefixPartitionBlockReduce<T>::Buffers reduceBuffers;
         reduceBuffers.elements = buffers.elements;
@@ -234,17 +240,21 @@ template <block_wise_prefix_partition_compatible T> class BlockWisePrefixPartiti
         reduceBuffers.blockHeavyReductions = buffers.blockHeavyReductions;
         reduceBuffers.blockLightReductions = buffers.blockLightReductions;
 
+#ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->start("Reduce");
             profiler.value()->cmd_start(cmd, "Reduce");
         }
+#endif
 
         m_reduce.run(cmd, reduceBuffers, N);
 
+#ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->end();
             profiler.value()->cmd_end(cmd);
         }
+#endif
 
         cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
                      vk::PipelineStageFlagBits::eComputeShader,
@@ -255,10 +265,12 @@ template <block_wise_prefix_partition_compatible T> class BlockWisePrefixPartiti
                       buffers.blockLightReductions->buffer_barrier(
                           vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead)});
 
+#ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->start("BlockScan");
             profiler.value()->cmd_start(cmd, "BlockScan");
         }
+#endif
 
         host::glsl::uint blockCount = (N + m_reduce.blockSize() - 1) / m_reduce.blockSize();
 
@@ -281,10 +293,12 @@ template <block_wise_prefix_partition_compatible T> class BlockWisePrefixPartiti
 
         m_lightBlockScan.run(cmd, lightBlockScanBuffers, blockCount);
 
+#ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->end();
             profiler.value()->cmd_end(cmd);
         }
+#endif
 
         cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
                      vk::PipelineStageFlagBits::eComputeShader,
@@ -305,15 +319,26 @@ template <block_wise_prefix_partition_compatible T> class BlockWisePrefixPartiti
         scanBuffers.partitionElements = buffers.partitionElements;
         scanBuffers.partitionPrefix = buffers.partitionPrefix;
 
+#ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->start("PrefixPartitionScan");
             profiler.value()->cmd_start(cmd, "PrefixPartitionScan");
         }
+#endif
         m_scan.run(cmd, scanBuffers, N);
+#ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->end();
             profiler.value()->cmd_end(cmd);
         }
+#endif
+
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
+#endif
     }
 
   private:

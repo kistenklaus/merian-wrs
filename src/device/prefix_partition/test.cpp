@@ -145,7 +145,7 @@ static bool runTestCase(const host::test::TestContext& context,
     Buffers stage = Buffers::allocate<base>(
         context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, testCase.config, testCase.N);
 
-    Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
+    Algorithm kernel{context.context, context.shaderCompiler, testCase.config, true};
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {

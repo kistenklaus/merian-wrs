@@ -3,29 +3,35 @@
 #include "merian/vk/context.hpp"
 #include "merian/vk/memory/resource_allocations.hpp"
 #include "merian/vk/shader/shader_compiler.hpp"
+#include "src/device/wrs/alias/AliasTable.hpp"
 #include "src/device/wrs/its/ITS.hpp"
 #include "src/host/types/glsl.hpp"
 #include <stdexcept>
 #include <variant>
 namespace device {
 
-using WRSConfig = std::variant<ITS::Config>;
+using WRSConfig = std::variant<ITS::Config, AliasTable::Config>;
 
 [[maybe_unused]]
 static std::string wrsConfigName(WRSConfig config) {
     if (std::holds_alternative<ITS::Config>(config)) {
         auto methodConfig = std::get<ITS::Config>(config);
         if (methodConfig.samplingConfig.cooperativeSamplingSize == 0) {
-          return fmt::format("ITS-{}", methodConfig.samplingConfig.workgroupSize);
-        }else {
-          if (methodConfig.samplingConfig.pArraySearch) {
-            return fmt::format("ITS-{}-PARRAY-COOP-{}", methodConfig.samplingConfig.workgroupSize, 
-                methodConfig.samplingConfig.cooperativeSamplingSize);
-          }else {
-            return fmt::format("ITS-{}-BINARY-COOP-{}", methodConfig.samplingConfig.workgroupSize, 
-                methodConfig.samplingConfig.cooperativeSamplingSize);
-          }
+            return fmt::format("ITS-{}", methodConfig.samplingConfig.workgroupSize);
+        } else {
+            if (methodConfig.samplingConfig.pArraySearch) {
+                return fmt::format("ITS-{}-PARRAY-COOP-{}",
+                                   methodConfig.samplingConfig.workgroupSize,
+                                   methodConfig.samplingConfig.cooperativeSamplingSize);
+            } else {
+                return fmt::format("ITS-{}-BINARY-COOP-{}",
+                                   methodConfig.samplingConfig.workgroupSize,
+                                   methodConfig.samplingConfig.cooperativeSamplingSize);
+            }
         }
+    } else if (std::holds_alternative<AliasTable::Config>(config)) {
+        auto methodConfig = std::get<AliasTable::Config>(config);
+        return methodConfig.name();
     } else {
         throw std::runtime_error("NOT-IMPLEMENTED");
     }
@@ -44,7 +50,7 @@ struct WRSBuffers {
     using SamplesLayout = host::layout::ArrayLayout<host::glsl::uint, storageQualifier>;
     using SamplesView = host::layout::BufferView<SamplesLayout>;
 
-    std::variant<device::ITS::Buffers> m_internals;
+    std::variant<device::ITS::Buffers, device::AliasTable::Buffers> m_internals;
 
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
                          merian::MemoryMappingType memoryMapping,
@@ -55,6 +61,12 @@ struct WRSBuffers {
         if (std::holds_alternative<ITS::Config>(config)) {
             ITS::Buffers methodBuffers = ITS::Buffers::allocate(
                 alloc, memoryMapping, N, S, std::get<ITS::Config>(config).prefixSumConfig);
+            buffers.weights = methodBuffers.weights;
+            buffers.samples = methodBuffers.samples;
+            buffers.m_internals = methodBuffers;
+        } else if (std::holds_alternative<AliasTable::Config>(config)) {
+            AliasTable::Buffers methodBuffers = AliasTable::Buffers::allocate(
+                alloc, memoryMapping, std::get<AliasTable::Config>(config), N, S);
             buffers.weights = methodBuffers.weights;
             buffers.samples = methodBuffers.samples;
             buffers.m_internals = methodBuffers;
@@ -69,7 +81,7 @@ class WRS {
   public:
     using Buffers = WRSBuffers;
     using Config = WRSConfig;
-    using Method = std::variant<ITS>;
+    using Method = std::variant<ITS, AliasTable>;
 
   private:
     static Method createMethod(const merian::ContextHandle& context,
@@ -78,6 +90,9 @@ class WRS {
         if (std::holds_alternative<ITSConfig>(config)) {
             const auto& methodConfig = std::get<ITSConfig>(config);
             return ITS(context, shaderCompiler, methodConfig);
+        } else if (std::holds_alternative<AliasTable::Config>(config)) {
+            const auto& methodConfig = std::get<AliasTable::Config>(config);
+            return AliasTable(context, shaderCompiler, methodConfig);
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }
@@ -92,10 +107,17 @@ class WRS {
     void build(const merian::CommandBufferHandle& cmd,
                const WRSBuffers& buffers,
                host::glsl::uint N,
-               std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
+               std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
         if (std::holds_alternative<ITS>(m_method)) {
             const ITS& method = std::get<ITS>(m_method);
-            method.build(cmd, std::get<ITS::Buffers>(buffers.m_internals), N, profiler);
+            ITS::Buffers itsBuffers = std::get<ITS::Buffers>(buffers.m_internals);
+            itsBuffers.weights = buffers.weights;
+            method.build(cmd, itsBuffers, N, profiler);
+        } else if (std::holds_alternative<AliasTable>(m_method)) {
+            const auto& alias = std::get<AliasTable>(m_method);
+            AliasTable::Buffers aliasBuffers = std::get<AliasTable::Buffers>(buffers.m_internals);
+            aliasBuffers.weights = buffers.weights;
+            alias.build(cmd, aliasBuffers, N, profiler);
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }
@@ -105,10 +127,17 @@ class WRS {
                 const WRSBuffers& buffers,
                 host::glsl::uint N,
                 host::glsl::uint S,
-                host::glsl::uint seed = 12345u) {
+                host::glsl::uint seed = 12345u) const {
         if (std::holds_alternative<ITS>(m_method)) {
             const ITS& method = std::get<ITS>(m_method);
-            method.sample(cmd, std::get<ITS::Buffers>(buffers.m_internals), N, S, seed);
+            ITS::Buffers itsBuffers = std::get<ITS::Buffers>(buffers.m_internals);
+            itsBuffers.samples = buffers.samples;
+            method.sample(cmd, itsBuffers, N, S, seed);
+        } else if (std::holds_alternative<AliasTable>(m_method)) {
+            const AliasTable& method = std::get<AliasTable>(m_method);
+            AliasTable::Buffers aliasBuffers = std::get<AliasTable::Buffers>(buffers.m_internals);
+            aliasBuffers.samples = buffers.samples;
+            method.sample(cmd, aliasBuffers, N, S, seed);
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }

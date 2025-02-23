@@ -12,6 +12,7 @@ enum class PrefixPartitionAllocFlags {
     ALLOC_HEAVY_COUNT = 0x20,
     ALLOC_ALL = ALLOC_ELEMENTS | ALLOC_PIVOT | ALLOC_PARTITION_INDICES | ALLOC_PARTITION_ELEMENTS |
                 ALLOC_PARTITION_PREFIX | ALLOC_HEAVY_COUNT,
+    ALLOC_ONLY_INTERNALS = 0x0,
 };
 
 // Enable bitwise operations for the enum

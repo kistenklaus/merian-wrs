@@ -174,7 +174,7 @@ template <typename T = float> class BlockScan {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N) const {
 
         cmd->bind(m_pipeline);
         if (buffers.reductions == nullptr) {

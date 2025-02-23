@@ -1,0 +1,133 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_EXT_scalar_block_layout    : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+#extension GL_ARB_gpu_shader_int64 : enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+struct Split {
+    uint i;
+    uint j;
+    float spill;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer in_partitionPrefixSums {
+    float heavyLight[];
+} partitionPrefix;
+
+layout(set = 0, binding = 1, std430) readonly buffer in_PartitionInfo {
+    uint heavyCount;
+} partitionInfo;
+
+layout(set = 0, binding = 2, std430) readonly buffer in_weightAverage {
+    float mean;
+} meta;
+
+layout(set = 0, binding = 3, std430) writeonly buffer out_splits {
+    Split splits[];
+};
+
+layout(push_constant) uniform push_constants {
+    uint K;
+    uint N;
+} pc;
+
+uint heavyCount;
+uint lightCount;
+uint lightPrefixFirst;
+
+bool heavyPrefixAt(uint i, out float heavyPrefix) {
+    if (i < heavyCount) {
+        heavyPrefix = partitionPrefix.heavyLight[i];
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool lightPrefixAt(uint i, out float lightPrefix) {
+    if (i < lightCount) {
+        lightPrefix = partitionPrefix.heavyLight[lightPrefixFirst - i];
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// computes the ceiling division of a * b by c
+// assumes that a > c > b
+uint ceilMulDiv(uint a, uint b, uint c) {
+    return uint((uint64_t(a) * uint64_t(b) + c - 1) / c);
+    // uint div = a / c;
+    // uint rem = a % c;
+    // uint safe_part = div * b;
+    // uint rem_part = (rem * b + c - 1) / c;
+    // return safe_part + rem_part;
+}
+
+Split computeSplit(uint k, uint N, uint K, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {
+    const uint n = ceilMulDiv(N, k, K);
+
+    const float target = mean * n;
+
+    uint a = 0;
+    uint b = heavyCount - 1;
+
+    uint j = 0, i = 0;
+
+    float heavy, light, sigma;
+    while (a <= b) {
+        j = (a + b) / 2;
+        i = min(n - j, lightCount - 1);
+
+        heavy = j == 0 ? 0 : partitionPrefix.heavyLight[j - 1];
+        light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
+
+        sigma = light + heavy;
+
+        if (sigma <= target) {
+            a = j + 1;
+        } else {
+            b = j - 1;
+        }
+    }
+    j = b; //lower bound
+    i = min(n - j, lightCount - 1);
+
+    light = i == 0 ? 0 : partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
+    float heavy2 = partitionPrefix.heavyLight[j];
+    float sigma2 = heavy2 + light;
+    Split split;
+    split.i = i;
+    split.j = j;
+    split.spill = sigma2 - target;
+    return split;
+}
+
+void main(void) {
+    const uint N = pc.N;
+    const uint K = pc.K;
+    const float mean = meta.mean;
+    heavyCount = partitionInfo.heavyCount;
+    lightCount = N - heavyCount;
+    lightPrefixFirst = N - 1;
+
+    const uint k = gl_GlobalInvocationID.x + 1;
+
+    if (k >= K) {
+        return; // Ensure k does not exceed or equal the number of splits (K)
+    }
+
+    if (gl_GlobalInvocationID.x == 0) {
+        splits[K - 1].i = lightCount;
+        splits[K - 1].j = heavyCount;
+        splits[K - 1].spill = 0;
+    }
+
+    const Split split = computeSplit(k, N, K, mean, heavyCount, lightCount, lightPrefixFirst);
+    splits[k - 1] = split;
+}

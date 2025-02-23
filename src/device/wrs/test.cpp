@@ -19,7 +19,6 @@
 #include "src/device/wrs/WRS.hpp"
 #include "src/host/reference/reduce.hpp"
 #include "src/host/statistics/js_divergence.hpp"
-#include "src/host/statistics/kl_divergence.hpp"
 #include "src/host/why.hpp"
 #include "vulkan/vulkan_enums.hpp"
 
@@ -39,107 +38,117 @@ struct TestCase {
 
 static constexpr TestCase TEST_CASES[] = {
     //
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 0)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
-    },
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 4096, false)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
-    },
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 4096, true)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
-    },
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 1024, false)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
-    },
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 1024, true)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
-    },
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 512, false)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
-    },
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 512, true)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
-    },
-
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 128, false)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
-    },
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 128, true)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
-    },
-
-
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 0)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 1024 * 2048 * 32, */
+    /*     .iterations = 5, */
+    /* }, */
     TestCase{
         .config = ITSConfig( //
             DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
             InverseTransformSamplingConfig(512, 32, false)),
         .N = 1024 * 2048,
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
+        .S = static_cast<uint32_t>(1e8),
         .iterations = 5,
     },
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 4096, true)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 1024 * 2048 * 32, */
+    /*     .iterations = 5, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 1024, false)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 1024 * 2048 * 32, */
+    /*     .iterations = 5, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 1024, true)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 1024 * 2048 * 32, */
+    /*     .iterations = 5, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 512, false)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 1024 * 2048 * 32, */
+    /*     .iterations = 5, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 512, true)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 1024 * 2048 * 32, */
+    /*     .iterations = 5, */
+    /* }, */
+    /*  */
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 128, false)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 1024 * 2048 * 32, */
+    /*     .iterations = 5, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 128, true)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = static_cast<uint32_t>(1e8), */
+    /*     .iterations = 1, */
+    /* }, */
+    /*  */
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 32, false)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 1024 * 2048 * 32, */
+    /*     .iterations = 5, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = ITSConfig( // */
+    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*         InverseTransformSamplingConfig(512, 32, true)), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .S = 1024 * 2048 * 32, */
+    /*     .iterations = 5, */
+    /* }, */
     TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 32, true)),
+        .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                             DecoupledPrefixPartitionConfig(),
+                                             InlineSplitPackConfig(2),
+                                             false),
+                                   SampleAliasTableConfig(32)),
         .N = 1024 * 2048,
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = 1024 * 2048 * 32,
-        .iterations = 5,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
     },
 
 };

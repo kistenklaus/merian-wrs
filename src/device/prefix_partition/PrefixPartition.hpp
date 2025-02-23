@@ -79,8 +79,8 @@ struct PrefixPartitionBuffers {
     struct DecoupledInternals {
         merian::BufferHandle decoupledStates;
     };
-
-    std::variant<DecoupledInternals, BlockWiseInternals> m_internalBuffers;
+    using Internals = std::variant<DecoupledInternals, BlockWiseInternals>;
+    Internals m_internalBuffers;
 
     template <prefix_partition_compatible T>
     static Self
@@ -142,11 +142,14 @@ template <prefix_partition_compatible T> class PrefixPartition {
     using Method = std::variant<DecoupledPrefixPartition<T>, BlockWisePrefixPartition<T>>;
     static Method createMethod(const merian::ContextHandle& context,
                                const merian::ShaderCompilerHandle& shaderCompiler,
-                               const PrefixPartitionConfig& config) {
+                               const PrefixPartitionConfig& config,
+                               bool writePartitionElements) {
         if (std::holds_alternative<DecoupledPrefixPartitionConfig>(config)) {
             return DecoupledPrefixPartition<T>(context, shaderCompiler,
-                                               std::get<DecoupledPrefixPartitionConfig>(config));
+                                               std::get<DecoupledPrefixPartitionConfig>(config),
+                                               writePartitionElements);
         } else if (std::holds_alternative<BlockWisePrefixPartitionConfig>(config)) {
+            assert(writePartitionElements); // NOT implemented yet!
             return BlockWisePrefixPartition<T>(context, shaderCompiler,
                                                std::get<BlockWisePrefixPartitionConfig>(config));
         } else {
@@ -157,13 +160,14 @@ template <prefix_partition_compatible T> class PrefixPartition {
   public:
     PrefixPartition(const merian::ContextHandle& context,
                     const merian::ShaderCompilerHandle& shaderCompiler,
-                    const PrefixPartitionConfig config)
-        : m_method(createMethod(context, shaderCompiler, config)) {}
+                    const PrefixPartitionConfig config,
+                    bool writePartitionElements)
+        : m_method(createMethod(context, shaderCompiler, config, writePartitionElements)) {}
 
     void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              host::glsl::uint N,
-             std::optional<merian::ProfilerHandle> profiler = std::nullopt) {
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
         if (std::holds_alternative<DecoupledPrefixPartition<T>>(m_method)) {
             assert(std::holds_alternative<Buffers::DecoupledInternals>(buffers.m_internalBuffers));
             using MethodBuffers = DecoupledPrefixPartition<T>::Buffers;
@@ -177,7 +181,7 @@ template <prefix_partition_compatible T> class PrefixPartition {
             methodBuffers.decoupledStates =
                 std::get<Buffers::DecoupledInternals>(buffers.m_internalBuffers).decoupledStates;
 
-            std::get<DecoupledPrefixPartition<T>>(m_method).run(cmd, methodBuffers, N);
+            std::get<DecoupledPrefixPartition<T>>(m_method).run(cmd, methodBuffers, N, profiler);
         } else if (std::holds_alternative<BlockWisePrefixPartition<T>>(m_method)) {
             assert(std::holds_alternative<Buffers::BlockWiseInternals>(buffers.m_internalBuffers));
             using MethodBuffers = BlockWisePrefixPartition<T>::Buffers;

@@ -18,6 +18,7 @@
 #include "merian/vk/pipeline/pipeline_layout_builder.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "merian/vk/shader/shader_compiler.hpp"
+#include "merian/vk/utils/profiler.hpp"
 #include "src/device/mean/MeanAllocFlags.hpp"
 #include "src/host/layout/ArrayLayout.hpp"
 #include "src/host/layout/Attribute.hpp"
@@ -152,7 +153,16 @@ class DecoupledMean {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(merian::CommandBufferHandle cmd, const DecoupledMeanBuffers& buffers, uint32_t N) {
+    void run(merian::CommandBufferHandle cmd,
+             const DecoupledMeanBuffers& buffers,
+             uint32_t N,
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->start("Decoupled-Mean");
+            profiler.value()->cmd_start(cmd, "Decoupled-Mean");
+        }
+#endif
 
         // NOTE restrictive API, would be nice to only zero a portion of the buffer
         cmd->fill(buffers.decoupledStates, 0);
@@ -168,6 +178,13 @@ class DecoupledMean {
 
         const uint32_t workgroupCount = (N + m_blockSize - 1) / m_blockSize;
         cmd->dispatch(workgroupCount, 1, 1);
+        
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
+#endif
     }
 
     inline uint32_t getPartitionSize() const {

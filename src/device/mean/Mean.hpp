@@ -37,11 +37,13 @@ class MeanBuffers {
     static constexpr auto storageQualifier = host::glsl::StorageQualifier::std430;
 
     merian::BufferHandle elements;
-    template <mean_compatible T> using ElementsLayout = host::layout::ArrayLayout<T, storageQualifier>;
+    template <mean_compatible T>
+    using ElementsLayout = host::layout::ArrayLayout<T, storageQualifier>;
     template <mean_compatible T> using ElementsView = host::layout::BufferView<ElementsLayout<T>>;
 
     merian::BufferHandle mean;
-    template <mean_compatible T> using MeanLayout = host::layout::PrimitiveLayout<T, storageQualifier>;
+    template <mean_compatible T>
+    using MeanLayout = host::layout::PrimitiveLayout<T, storageQualifier>;
     template <mean_compatible T> using MeanView = host::layout::BufferView<MeanLayout<T>>;
 
     struct DecoupledInternals {
@@ -50,7 +52,8 @@ class MeanBuffers {
 
     struct AtomicInternals {};
 
-    std::variant<DecoupledInternals, AtomicInternals> m_internalBuffers;
+    using Internals = std::variant<DecoupledInternals, AtomicInternals>;
+    Internals m_internalBuffers;
 
     template <mean_compatible T>
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
@@ -70,7 +73,8 @@ class MeanBuffers {
         } else if (std::holds_alternative<DecoupledMeanConfig>(config)) {
             const auto methodConfig = std::get<DecoupledMeanConfig>(config);
             using MethodBuffers = DecoupledMean::Buffers;
-            host::glsl::uint blockCount = (N + methodConfig.blockSize() - 1) / methodConfig.blockSize();
+            host::glsl::uint blockCount =
+                (N + methodConfig.blockSize() - 1) / methodConfig.blockSize();
             auto methodBuffers =
                 MethodBuffers::allocate(alloc, N, blockCount, memoryMapping, allocFlags);
             buffers.elements = methodBuffers.elements;
@@ -109,13 +113,16 @@ template <mean_compatible T> class Mean {
          const MeanConfig& config)
         : m_method(createMethod(context, shaderCompiler, config)) {}
 
-    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd,
+             const Buffers& buffers,
+             host::glsl::uint N,
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
         if (std::holds_alternative<AtomicMean>(m_method)) {
             assert(std::holds_alternative<Buffers::AtomicInternals>(buffers.m_internalBuffers));
             AtomicMean::Buffers methodBuffers;
             methodBuffers.elements = buffers.elements;
             methodBuffers.mean = buffers.mean;
-            std::get<AtomicMean>(m_method).run(cmd, methodBuffers, N);
+            std::get<AtomicMean>(m_method).run(cmd, methodBuffers, N, profiler);
         } else if (std::holds_alternative<DecoupledMean>(m_method)) {
             assert(std::holds_alternative<Buffers::DecoupledInternals>(buffers.m_internalBuffers));
             DecoupledMean::Buffers methodBuffers;
@@ -124,7 +131,7 @@ template <mean_compatible T> class Mean {
             methodBuffers.decoupledStates =
                 std::get<Buffers::DecoupledInternals>(buffers.m_internalBuffers).decoupledStates;
 
-            std::get<DecoupledMean>(m_method).run(cmd, methodBuffers, N);
+            std::get<DecoupledMean>(m_method).run(cmd, methodBuffers, N, profiler);
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }
@@ -133,4 +140,4 @@ template <mean_compatible T> class Mean {
   private:
     Method m_method;
 };
-}; // namespace wrs
+}; // namespace device

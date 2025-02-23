@@ -38,10 +38,11 @@ layout(set = 0, binding = 5) writeonly buffer out_prefix {
     float heavyLight[];
 } g_prefix;
 
+#ifdef WRITE_PARTITION_ELEMENTS
 layout(set = 0, binding = 6) writeonly buffer out_partitionElements {
     float heavyLight[];
 } g_partitionElements;
-
+#endif
 
 #define state_t uint
 #define STATE_NOT_READY 0u
@@ -338,23 +339,24 @@ void main(void) {
             uint ix = localExclusiveHeavyCount[i];
             float p;
             if (isHeavy) {
-              p = localPrefix[i].x;
-            }else {
-              p = localPrefix[i].y;
-              ix = (N - 1) - (index - ix);
+                p = localPrefix[i].x;
+            } else {
+                p = localPrefix[i].y;
+                ix = (N - 1) - (index - ix);
             }
             g_prefix.heavyLight[ix] = p;
             g_partition.heavyLight[ix] = index;
+            #ifdef WRITE_PARTITION_ELEMENTS
             g_partitionElements.heavyLight[ix] = w;
-            
+            #endif
+
             if (index == N - 1) {
-              uint heavyCount = localExclusiveHeavyCount[i];
-              if (isHeavy) {
-                heavyCount += 1;
-              }
-              g_stat.heavyCount = heavyCount;
+                uint heavyCount = localExclusiveHeavyCount[i];
+                if (isHeavy) {
+                    heavyCount += 1;
+                }
+                g_stat.heavyCount = heavyCount;
             }
         }
     }
-
 }

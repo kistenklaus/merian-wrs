@@ -1,0 +1,128 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+// #extension GL_EXT_shader_atomic_float : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint COOPERATIVE_SAMPLE_SIZE = 32;
+
+struct AliasTableEntry {
+    float p;
+    uint a;
+};
+
+layout(set = 0, binding = 0) readonly buffer inAliasTable {
+    AliasTableEntry table[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer outSamples {
+    uint samples[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint N;
+    uint S;
+    uint seed;
+} pc;
+
+// Constants for Philox2x32-10
+const uint PHILOX_M2x32 = 0xD256D193u; // Multiplication constant
+const uint PHILOX_W32 = 0x9E3779B9u; // Weyl constant
+const uint PHILOX_ROUNDS = 10;
+
+void philoxRound(inout uint x0, inout uint x1, uint k) {
+    uint lo0 = x0 & 0xFFFFu; // Lower 16 bits of x0
+    uint hi0 = x0 >> 16; // Upper 16 bits of x0
+
+    uint lo1 = PHILOX_M2x32 & 0xFFFFu; // Lower 16 bits of PHILOX_M2x32
+    uint hi1 = PHILOX_M2x32 >> 16; // Upper 16 bits of PHILOX_M2x32
+
+    // Full 64-bit multiplication emulation
+    uint lo = lo0 * lo1; // Low 32 bits of multiplication
+    uint mid1 = lo0 * hi1; // Cross-product
+    uint mid2 = hi0 * lo1; // Cross-product
+    uint hi = hi0 * hi1; // High 32 bits of multiplication
+
+    hi += (mid1 >> 16) + (mid2 >> 16); // Accumulate carries
+    lo += (mid1 << 16); // Combine lower bits
+    lo += (mid2 << 16); // Combine lower bits
+    if (lo < (mid1 << 16)) hi++; // Handle carry
+    if (lo < (mid2 << 16)) hi++; // Handle carry
+
+    x0 = hi ^ x1 ^ k; // Use the computed high 32 bits
+    x1 = lo; // Use the low 32 bits directly
+}
+
+// Philox2x32-10 implementation
+void philox2x32_10(inout uint x0, inout uint x1, uint key) {
+    uint k = key;
+    for (int i = 0; i < PHILOX_ROUNDS; i++) {
+        philoxRound(x0, x1, k);
+        k += PHILOX_W32; // Update the key with the Weyl constant
+    }
+}
+
+// Generate a random number using Philox2x32-10
+vec2 philoxRandom(uvec2 counter, uint key) {
+    uint x0 = counter.x;
+    uint x1 = counter.y;
+
+    // Apply 10 rounds of Philox
+    philox2x32_10(x0, x1, key);
+
+    // Return a single random number normalized to [0, 1)
+    return vec2(clamp(float(x0) / 4294967296.0, 0.0, 1.0), clamp(float(x1) / 4294967296.0, 0.0, 1.0)); // Normalize to [0, 1)
+}
+
+void narrowSection(inout ivec2 section, uint target, inout uvec2 counter, uint key) {
+    if (subgroupElect()) {
+        const vec2 u = philoxRandom(counter, key);
+        const int ix = int(mix(section.x, section.y, u.x));
+        section.x = ix - int(target) / 2;
+        section.y = ix + int(target) / 2;
+    }
+    section = subgroupBroadcastFirst(section);
+}
+
+uint N;
+
+uint sampleSection(ivec2 section, inout uvec2 counter, uint key) {
+    const vec2 u = philoxRandom(counter, key);
+
+    const int ix = clamp(int(mix(section.x, section.y, u.x)), 0, int(N - 1));
+    const float p = table[ix].p;
+    if (u.y >= p) {
+        return table[ix].a;
+    } else {
+        return ix;
+    }
+}
+
+void main(void) {
+    const uint gid = gl_GlobalInvocationID.x;
+
+    N = pc.N;
+    const uint S = pc.S;
+
+    if (gid >= S) {
+        return;
+    }
+
+    const uint key = pc.seed;
+    uvec2 counter = uvec2(0, gid);
+
+    ivec2 section = ivec2(0, N); // [0,N) (inclusive, exclusive)
+    if (COOPERATIVE_SAMPLE_SIZE != 0) {
+        narrowSection(section, COOPERATIVE_SAMPLE_SIZE, counter, key);
+    }
+
+    // uint sectionStartIdx = min(uint(U * N), N - SECTION_SIZE);
+
+    samples[gid] = sampleSection(section, counter, key);
+}

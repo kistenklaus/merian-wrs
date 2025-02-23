@@ -154,7 +154,7 @@ template <block_wise_prefix_partition_compatible T> class BlockWisePrefixPartiti
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N) {
+    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N) const {
 
         cmd->bind(m_pipeline);
         cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.pivot,

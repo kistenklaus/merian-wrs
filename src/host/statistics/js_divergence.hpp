@@ -2,10 +2,47 @@
 
 #include "src/host/reference/reduce.hpp"
 #include "src/host/statistics/histogram.hpp"
+#include <cassert>
 #include <concepts>
 #include <span>
 #include <spdlog/spdlog.h>
 namespace host {
+
+template <std::floating_point T>
+T js_weight_divergence(std::span<const T> observedWeights, std::span<const T> expectedWeights) {
+    if (observedWeights.size() != expectedWeights.size()) {
+        throw std::invalid_argument(
+            "Observed and expected distributions must have the same number of bins.");
+    }
+
+    // Compute midpoint distribution
+    std::vector<T> midpointWeights(observedWeights.size());
+
+    for (std::size_t i = 0; i < observedWeights.size(); ++i) {
+        midpointWeights[i] = (observedWeights[i] + expectedWeights[i]) / T(2.0);
+    }
+
+    // Compute JS divergence as the average of two KL divergences
+    auto kl_divergence = [&](std::span<const T> P, std::span<const T> Q) -> T {
+        assert(P.size() == Q.size());
+        T sum = 0, c = 0; // Kahan summation for numerical stability
+        for (std::size_t i = 0; i < P.size(); ++i) {
+            if (P[i] > 0 && Q[i] > 0) { // Avoid log(0) issues
+                T element = P[i]  * std::log(P[i] / Q[i]);
+                T y = element - c;
+                T t = sum + y;
+                c = (t - sum) - y;
+                sum = t;
+            }
+        }
+        return sum / P.size();
+    };
+
+    T kl1 = kl_divergence(observedWeights, midpointWeights);
+    T kl2 = kl_divergence(expectedWeights, midpointWeights);
+
+    return (kl1 + kl2) / T(2.0);
+}
 
 template <std::integral I, std::floating_point T>
 T js_divergence(std::span<const I> samples, std::span<const T> weights) {
@@ -50,7 +87,6 @@ T js_divergence(std::span<const I> samples, std::span<const T> weights) {
     }
 
     T kl2 = sum;
-
 
     return (kl1 + kl2) / T(2.0);
 }
