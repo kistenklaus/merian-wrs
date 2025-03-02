@@ -3,35 +3,37 @@
 
 #include "subgroup_scan.comp"
 
-shared float raking_scatch[gl_WorkGroupSize.x];
 
 const uint RAKING_THREADS = SUBGROUP_SIZE;
 const uint RAKING_STEPS = (gl_WorkGroupSize.x + RAKING_THREADS - 1) / RAKING_THREADS;
+const uint SHARED_MEMORY_BANKS = SUBGROUP_SIZE;
+
+#define NO_BANK_CONFLICTS(x) ((x) + (x) / SHARED_MEMORY_BANKS)
+
+shared float raking_scatch[NO_BANK_CONFLICTS(gl_WorkGroupSize.x)];
 
 float raking_smem_inclusive_scan_float(float x) {
     if (gl_WorkGroupSize.x == gl_SubgroupSize.x) {
         return subgroup_inclusive_scan_float(x);
     }
-    raking_scatch[gl_LocalInvocationID.x] = x;
+    raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)] = x;
     barrier();
     if (gl_LocalInvocationID.x < RAKING_THREADS) {
         // Rake only with one subgroup!
         float partial = 0;
         const uint rakingBase = gl_SubgroupInvocationID * RAKING_STEPS;
-        #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            partial += raking_scatch[rakingBase + i];
+            partial += raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)];
         }
         float exclusive = subgroup_exclusive_scan_float(partial);
-        #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            float smem = raking_scatch[rakingBase + i];
-            raking_scatch[rakingBase + i] = smem + exclusive;
+            float smem = raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)];
+            raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)] = smem + exclusive;
             exclusive += smem;
         }
     }
     barrier();
-    x = raking_scatch[gl_LocalInvocationID.x];
+    x = raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)];
     return x;
 }
 
@@ -40,7 +42,7 @@ float raking_smem_inclusive_scan_float(float x, out float aggregate) {
     if (gl_WorkGroupSize.x == gl_SubgroupSize.x) {
         return subgroup_inclusive_scan_float(x);
     }
-    raking_scatch[gl_LocalInvocationID.x] = x;
+    raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)] = x;
     barrier();
     if (gl_LocalInvocationID.x < RAKING_THREADS) {
         // Rake only with one subgroup!
@@ -48,18 +50,18 @@ float raking_smem_inclusive_scan_float(float x, out float aggregate) {
         const uint rakingBase = gl_SubgroupInvocationID * RAKING_STEPS;
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            partial += raking_scatch[rakingBase + i];
+            partial += raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)];
         }
         float exclusive = subgroup_exclusive_scan_float(partial, aggregate);
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            float smem = raking_scatch[rakingBase + i];
-            raking_scatch[rakingBase + i] = smem + exclusive;
+            float smem = raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)];
+            raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)] = smem + exclusive;
             exclusive += smem;
         }
     }
     barrier();
-    x = raking_scatch[gl_LocalInvocationID.x];
+    x = raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)];
     return x;
 }
 
@@ -67,7 +69,7 @@ float raking_smem_exclusive_scan_float(float x) {
     if (gl_WorkGroupSize.x == gl_SubgroupSize.x) {
         return subgroup_exclusive_scan_float(x);
     }
-    raking_scatch[gl_LocalInvocationID.x] = x;
+    raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)] = x;
     barrier();
     if (gl_LocalInvocationID.x < RAKING_THREADS) {
         // Rake only with one subgroup!
@@ -75,18 +77,18 @@ float raking_smem_exclusive_scan_float(float x) {
         const uint rakingBase = gl_SubgroupInvocationID * RAKING_STEPS;
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            partial += raking_scatch[rakingBase + i];
+            partial += raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)];
         }
         float exclusive = subgroup_exclusive_scan_float(partial);
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            float smem = raking_scatch[rakingBase + i];
-            raking_scatch[rakingBase + i] = smem + exclusive;
+            float smem = raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)];
+            raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)] = smem + exclusive;
             exclusive += smem;
         }
     }
     barrier();
-    x = gl_LocalInvocationID.x > 0 ? raking_scatch[gl_LocalInvocationID.x - 1] : 0.0f;
+    x = gl_LocalInvocationID.x > 0 ? raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x - 1)] : 0.0f;
     return x;
 }
 
@@ -95,7 +97,7 @@ float raking_smem_exclusive_scan_float(float x, out float aggregate) {
     if (gl_WorkGroupSize.x == gl_SubgroupSize.x) {
         return subgroup_exclusive_scan_float(x);
     }
-    raking_scatch[gl_LocalInvocationID.x] = x;
+    raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)] = x;
     barrier();
     if (gl_LocalInvocationID.x < RAKING_THREADS) {
         // Rake only with one subgroup!
@@ -103,18 +105,18 @@ float raking_smem_exclusive_scan_float(float x, out float aggregate) {
         const uint rakingBase = gl_SubgroupInvocationID * RAKING_STEPS;
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            partial += raking_scatch[rakingBase + i];
+            partial += raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)];
         }
         float exclusive = subgroup_exclusive_scan_float(partial, aggregate);
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            float smem = raking_scatch[rakingBase + i];
-            raking_scatch[rakingBase + i] = smem + exclusive;
+            float smem = raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)];
+            raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)] = smem + exclusive;
             exclusive += smem;
         }
     }
     barrier();
-    x = gl_LocalInvocationID.x > 0 ? raking_scatch[gl_LocalInvocationID.x - 1] : 0.0f;
+    x = gl_LocalInvocationID.x > 0 ? raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x - 1)] : 0.0f;
     return x;
 }
 
@@ -122,7 +124,7 @@ uint raking_smem_inclusive_scan_uint(uint x) {
     if (gl_WorkGroupSize.x == gl_SubgroupSize.x) {
         return subgroup_inclusive_scan_uint(x);
     }
-    raking_scatch[gl_LocalInvocationID.x] = uintBitsToFloat(x);
+    raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)] = uintBitsToFloat(x);
     barrier();
     if (gl_LocalInvocationID.x < RAKING_THREADS) {
         // Rake only with one subgroup!
@@ -130,18 +132,18 @@ uint raking_smem_inclusive_scan_uint(uint x) {
         const uint rakingBase = gl_SubgroupInvocationID * RAKING_STEPS;
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            partial += floatBitsToUint(raking_scatch[rakingBase + i]);
+            partial += floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)]);
         }
         uint exclusive = subgroup_exclusive_scan_uint(partial);
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            uint smem = floatBitsToUint(raking_scatch[rakingBase + i]);
-            raking_scatch[rakingBase + i] = uintBitsToFloat(smem + exclusive);
+            uint smem = floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)]);
+            raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)] = uintBitsToFloat(smem + exclusive);
             exclusive += smem;
         }
     }
     barrier();
-    x = floatBitsToUint(raking_scatch[gl_LocalInvocationID.x]);
+    x = floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)]);
     return x;
 }
 
@@ -150,7 +152,7 @@ uint raking_smem_inclusive_scan_uint(uint x, out uint aggregate) {
     if (gl_WorkGroupSize.x == gl_SubgroupSize.x) {
         return subgroup_inclusive_scan_uint(x);
     }
-    raking_scatch[gl_LocalInvocationID.x] = uintBitsToFloat(x);
+    raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)] = uintBitsToFloat(x);
     barrier();
     if (gl_LocalInvocationID.x < RAKING_THREADS) {
         // Rake only with one subgroup!
@@ -158,18 +160,18 @@ uint raking_smem_inclusive_scan_uint(uint x, out uint aggregate) {
         const uint rakingBase = gl_SubgroupInvocationID * RAKING_STEPS;
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            partial += floatBitsToUint(raking_scatch[rakingBase + i]);
+            partial += floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)]);
         }
         uint exclusive = subgroup_exclusive_scan_uint(partial, aggregate);
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            uint smem = floatBitsToUint(raking_scatch[rakingBase + i]);
-            raking_scatch[rakingBase + i] = uintBitsToFloat(smem + exclusive);
+            uint smem = floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)]);
+            raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)] = uintBitsToFloat(smem + exclusive);
             exclusive += smem;
         }
     }
     barrier();
-    x = floatBitsToUint(raking_scatch[gl_LocalInvocationID.x]);
+    x = floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)]);
     return x;
 }
 
@@ -177,7 +179,7 @@ uint raking_smem_exclusive_scan_uint(uint x) {
     if (gl_WorkGroupSize.x == gl_SubgroupSize.x) {
         return subgroup_exclusive_scan_uint(x);
     }
-    raking_scatch[gl_LocalInvocationID.x] = uintBitsToFloat(x);
+    raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)] = uintBitsToFloat(x);
     barrier();
     if (gl_LocalInvocationID.x < RAKING_THREADS) {
         // Rake only with one subgroup!
@@ -185,18 +187,18 @@ uint raking_smem_exclusive_scan_uint(uint x) {
         const uint rakingBase = gl_SubgroupInvocationID * RAKING_STEPS;
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            partial += floatBitsToUint(raking_scatch[rakingBase + i]);
+            partial += floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)]);
         }
         uint exclusive = subgroup_exclusive_scan_uint(partial);
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            uint smem = floatBitsToUint(raking_scatch[rakingBase + i]);
-            raking_scatch[rakingBase + i] = uintBitsToFloat(smem + exclusive);
+            uint smem = floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)]);
+            raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)] = uintBitsToFloat(smem + exclusive);
             exclusive += smem;
         }
     }
     barrier();
-    x = gl_LocalInvocationID.x > 0 ? floatBitsToUint(raking_scatch[gl_LocalInvocationID.x - 1]) : 0;
+    x = gl_LocalInvocationID.x > 0 ? floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x - 1)]) : 0;
     return x;
 }
 
@@ -205,7 +207,7 @@ uint raking_smem_exclusive_scan_uint(uint x, out uint aggregate) {
     if (gl_WorkGroupSize.x == gl_SubgroupSize.x) {
         return subgroup_exclusive_scan_uint(x);
     }
-    raking_scatch[gl_LocalInvocationID.x] = uintBitsToFloat(x);
+    raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x)] = uintBitsToFloat(x);
     barrier();
     if (gl_LocalInvocationID.x < RAKING_THREADS) {
         // Rake only with one subgroup!
@@ -213,18 +215,18 @@ uint raking_smem_exclusive_scan_uint(uint x, out uint aggregate) {
         const uint rakingBase = gl_SubgroupInvocationID * RAKING_STEPS;
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            partial += floatBitsToUint(raking_scatch[rakingBase + i]);
+            partial += floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)]);
         }
         uint exclusive = subgroup_exclusive_scan_uint(partial, aggregate);
         #pragma unroll
         for (uint i = 0; i < RAKING_STEPS; ++i) {
-            uint smem = floatBitsToUint(raking_scatch[rakingBase + i]);
-            raking_scatch[rakingBase + i] = uintBitsToFloat(smem + exclusive);
+            uint smem = floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)]);
+            raking_scatch[NO_BANK_CONFLICTS(rakingBase + i)] = uintBitsToFloat(smem + exclusive);
             exclusive += smem;
         }
     }
     barrier();
-    x = gl_LocalInvocationID.x > 0 ? floatBitsToUint(raking_scatch[gl_LocalInvocationID.x - 1]) : 0;
+    x = gl_LocalInvocationID.x > 0 ? floatBitsToUint(raking_scatch[NO_BANK_CONFLICTS(gl_LocalInvocationID.x - 1)]) : 0;
     return x;
 }
 

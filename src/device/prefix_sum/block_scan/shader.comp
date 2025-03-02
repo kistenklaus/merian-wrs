@@ -149,12 +149,11 @@ void main(void) {
         MONOID blockAgg;
 
         #ifdef USE_UINT
-
         MONOID exclusive = block_exclusive_scan_uint(threadAgg, blockAgg);
-
         #else
         MONOID exclusive = block_exclusive_scan_float(threadAgg, blockAgg);
         #endif
+
         if (gl_LocalInvocationID.x == 0) {
             sh_blockExclusive = partAgg;
             partAgg += blockAgg;

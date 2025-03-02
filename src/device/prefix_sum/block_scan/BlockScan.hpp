@@ -100,11 +100,12 @@ template <typename T = float> class BlockScan {
 
   public:
     using Buffers = BlockScanBuffers<T>;
+    using Config = BlockScanConfig;
 
     explicit BlockScan(const merian::ContextHandle& context,
                        const merian::ShaderCompilerHandle& shaderCompiler,
                        BlockScanConfig config = {})
-        : m_blockSize(config.blockSize()) {
+        : m_blockSize(config.blockSize()), m_writeReductions(config.writeBlockReductions) {
 
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
@@ -174,14 +175,16 @@ template <typename T = float> class BlockScan {
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
     }
 
-    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N) const {
+    void
+    run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N) const {
 
         cmd->bind(m_pipeline);
-        if (buffers.reductions == nullptr) {
-            cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.prefixSum);
-        } else {
+        if (m_writeReductions) {
+            assert(buffers.reductions != nullptr);
             cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.prefixSum,
                                      buffers.reductions);
+        } else {
+            cmd->push_descriptor_set(m_pipeline, buffers.elements, buffers.prefixSum);
         }
         cmd->push_constant<PushConstants>(m_pipeline, PushConstants{.N = N});
         const uint32_t workgroupCount = (N + m_blockSize - 1) / m_blockSize;
@@ -195,6 +198,7 @@ template <typename T = float> class BlockScan {
   private:
     merian::PipelineHandle m_pipeline;
     host::glsl::uint m_blockSize;
+    bool m_writeReductions;
 };
 
 } // namespace device

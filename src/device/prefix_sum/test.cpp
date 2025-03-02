@@ -32,19 +32,46 @@ struct TestCase {
 };
 
 static TestCase TEST_CASES[] = {
+    /* TestCase{ */
+    /*     .config = DecoupledPrefixSumConfig( */
+    /*         512, 4, BlockScanVariant::RAKING | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC, 32), */
+    /*     .N = static_cast<host::glsl::uint>((1024 * 2048 + 1)), */
+    /*     .distribution = host::Distribution::UNIFORM, */
+    /*     .iterations = 5, */
+    /* }, */
+    /* TestCase{ */
+    /*     .config = DecoupledPrefixSumConfig( */
+    /*         512, 8, BlockScanVariant::RAKING | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC, 32), */
+    /*     .N = static_cast<host::glsl::uint>((1024 * 2048 + 1)), */
+    /*     .distribution = host::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
     TestCase{
-        .config = DecoupledPrefixSumConfig(
-            512, 8, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::SUBGROUP_SCAN_SHFL, 32),
-        .N = static_cast<host::glsl::uint>((1024 * 2048 + 1)),
+        .config = BlockWiseScanConfig(
+            BlockScanConfig(512, // workgroups size
+                            2,   // rows
+                            BlockScanVariant::RANKED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC,
+                            1, // sequential block scan length
+                            true),
+            BlockScanConfig(512,
+                            4,
+                            BlockScanVariant::RANKED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC |
+                                BlockScanVariant::EXCLUSIVE,
+                            4,
+                            false),
+            BlockCombineConfig(512, 2, 1, 2)),
+        .N = static_cast<host::glsl::uint>((1 << 21)),
         .distribution = host::Distribution::UNIFORM,
-        .iterations = 5,
+        .iterations = 1,
     },
-    TestCase{
-       .config = BlockWiseScanConfig(512, 4, 1, BlockScanVariant::RANKED_STRIDED),
-       .N = static_cast<host::glsl::uint>((1024 * 2048 + 1)),
-       .distribution = host::Distribution::UNIFORM,
-       .iterations = 5,
-    },
+
+    /* TestCase{ */
+    /*     .config = DecoupledPrefixSumConfig( */
+    /*         512, 8, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::SUBGROUP_SCAN_SHFL, 32), */
+    /*     .N = static_cast<host::glsl::uint>((1024 * 2048 + 1)), */
+    /*     .distribution = host::Distribution::UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
 };
 
 static void uploadTestCase(const merian::CommandBufferHandle cmd,
@@ -91,8 +118,8 @@ static bool runTestCase(const host::test::TestContext& context,
                                         testCase.config, testCase.N);
     Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
                                       testCase.config, testCase.N);
-    std::string testName = fmt::format("{{{},N={}}}",
-                                       prefixSumConfigName(testCase.config), testCase.N);
+    std::string testName =
+        fmt::format("{{{},N={}}}", prefixSumConfigName(testCase.config), testCase.N);
     SPDLOG_INFO("Running test case:{}", testName);
 
     Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
@@ -134,7 +161,7 @@ static bool runTestCase(const host::test::TestContext& context,
         {
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, fmt::format("Execute algorithm"));
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.N);
+            kernel.run(cmd, buffers, testCase.N, context.profiler);
         }
 
         // 5. Download results to stage

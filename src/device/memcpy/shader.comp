@@ -1,0 +1,38 @@
+#version 460
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
+layout(constant_id = 1) const uint ROWS = 8;
+layout(constant_id = 2) const uint SUBGROUP_SIZE = 32;
+
+const uint BLOCK_SIZE = WORKGROUP_SIZE * ROWS;
+
+layout(set = 0, binding = 0) readonly buffer in_Src {
+    float src[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer out_Dst {
+    float dst[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint N;
+} pc;
+
+void main(void) {
+    uint N = pc.N;
+
+    const uint blockBase = gl_WorkGroupID.x * BLOCK_SIZE;
+
+    uint ix = blockBase + gl_LocalInvocationID.x;
+    for (uint i = 0; i < ROWS; ++i) {
+        if (ix < N) {
+            dst[ix] = src[ix] * 2;
+        }
+        ix += WORKGROUP_SIZE;
+    }
+}

@@ -8,6 +8,7 @@
 #extension GL_KHR_shader_subgroup_shuffle_relative : enable
 #extension GL_KHR_shader_subgroup_shuffle : enable
 
+#extension GL_EXT_control_flow_attributes : enable
 #extension GL_ARB_shading_language_include : enable
 
 #pragma use_vulkan_memory_model
@@ -75,7 +76,7 @@ void globalMemoryRead(uint blockID) {
 
     const uint base = blockBase + gl_SubgroupID * (ROWS * SUBGROUP_SIZE) + gl_SubgroupInvocationID.x;
 
-    #pragma unroll
+    // [[unroll]]
     for (uint i = 0, ix = base; i < ROWS; ++i, ix += SUBGROUP_SIZE) {
         v[i] = elements[ix];
     }
@@ -83,7 +84,7 @@ void globalMemoryRead(uint blockID) {
     #else
     // ========== VECTOR STYLE LOADING =============
     const uint base = blockBase + gl_LocalInvocationID.x * ROWS;
-    #pragma unroll
+    // [[unroll]]
     for (uint i = 0; i < ROWS; ++i) {
         v[i] = elements[base + i];
     }
@@ -138,18 +139,19 @@ float blockScan() {
     return blockAgg;
 
     // =================== NONE STRIDED BLOCK SCAN ===============
+
     #else
     // thread scan
     #ifdef EXCLUSIVE
     MONOID threadAgg = 0;
-    #pragma unroll
+    // [[unroll]]
     for (uint i = 0; i < ROWS; ++i) {
         float temp = v[i];
         v[i] = threadAgg;
         threadAgg += temp;
     }
     #else
-    #pragma unroll
+    // [[unroll]]
     for (uint i = 1; i < ROWS; ++i) {
         v[i] += v[i - 1];
     }
@@ -188,7 +190,6 @@ void globalMemoryWrite(uint blockID) {
     #else
 
     const uint base = blockBase + gl_LocalInvocationID.x * ROWS;
-    #pragma unroll
     for (uint i = 0; i < ROWS; ++i) {
         prefixSum[base + i] = v[i];
     }
@@ -243,8 +244,6 @@ float decoupledLookback(in uint partID, in float aggregate) {
     }
     // == Decoupled lookback
     float exclusive = 0;
-    uint i = 0;
-    const uint MAX_IT = 100000;
     if (partID != 0) {
         if (gl_SubgroupID == 0) {
             uint lookBackBase = partID - 1;
@@ -297,11 +296,6 @@ float decoupledLookback(in uint partID, in float aggregate) {
                     break;
                 }
                 lookBackBase = subgroupBroadcastFirst(lookBackBase);
-
-                i++;
-                if (i >= MAX_IT) {
-                    break;
-                }
             }
             if (subgroupElect()) {
                 float inclusive = exclusive + aggregate;
@@ -332,7 +326,7 @@ void main(void) {
     float blockAggregate = blockScan();
 
     float blockExclusive = decoupledLookback(blockID, blockAggregate);
-    // float blockExclusive = 0;
+    //float blockExclusive = 0;
     combine(blockExclusive);
 
     globalMemoryWrite(blockID);

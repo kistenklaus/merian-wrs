@@ -112,8 +112,9 @@ template <prefix_sum_compatible_type T> class PrefixSum {
             return DecoupledPrefixSum(context, shaderCompiler, instanceConfig, reverseMemoryOrder);
         } else if (std::holds_alternative<BlockWiseScanConfig>(config)) {
             if (reverseMemoryOrder) {
-                throw std::runtime_error("Reversing the memory order of prefix sums is not "
-                                         "supported for block-wise prefix scans. Use DecoupledPrefixSum instead");
+                throw std::runtime_error(
+                    "Reversing the memory order of prefix sums is not "
+                    "supported for block-wise prefix scans. Use DecoupledPrefixSum instead");
             }
             const auto& instanceConfig = std::get<BlockWiseScanConfig>(config);
             return BlockWiseScan(context, shaderCompiler, instanceConfig);
@@ -137,6 +138,8 @@ template <prefix_sum_compatible_type T> class PrefixSum {
              const PrefixSumBuffers& buffers,
              host::glsl::uint N,
              [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+        assert(N <= maxElementCount());
+
         if (std::holds_alternative<DecoupledPrefixSum>(m_method)) {
             auto method = std::get<DecoupledPrefixSum>(m_method);
             using MethodBuffers = DecoupledPrefixSum::Buffers;
@@ -176,11 +179,7 @@ template <prefix_sum_compatible_type T> class PrefixSum {
                 profiler.value()->cmd_start(cmd, label);
             }
 #endif
-#ifdef MERIAN_PROFILER_ENABLE
             method.run(cmd, methodBuffers, N, profiler);
-#else
-            method.run(cmd, methodBuffers, N);
-#endif
 
 #ifdef MERIAN_PROFILER_ENABLE
             if (profiler.has_value()) {

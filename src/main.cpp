@@ -1,5 +1,7 @@
 #include "merian/vk/context.hpp"
 
+#include "src/bench/memcpy.hpp"
+#include "src/bench/block_scan.hpp"
 #include "merian/vk/extension/extension.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_core.hpp"
@@ -7,9 +9,11 @@
 #include "merian/vk/extension/extension_vk_float_atomics.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
 #include "device/mean/test.hpp"
+#include "src/bench/scan.hpp"
 #include "src/bench/wrs.hpp"
 #include "src/device/partition/test.hpp"
 #include "src/device/prefix_partition/test.hpp"
+#include "src/device/prefix_sum/block_wise/test.hpp"
 #include "src/device/prefix_sum/test.hpp"
 #include "src/device/wrs/alias/psa/test.hpp"
 #include "src/device/wrs/test.hpp"
@@ -57,6 +61,7 @@ int main() {
 
     /* host::test::testTests(); */
 
+
     /* device::test::mean::test(context); */
     /* device::test::partition::test(context); */
     /* device::test::prefix_sum::test(context); */
@@ -64,7 +69,11 @@ int main() {
 
     /* device::test::wrs::test(context); */
 
-    device::wrs::benchmark(context);
+    /* device::wrs::benchmark(context); */
+    device::scan::benchmark(context);
+    /* device::block_scan::benchmark(context); */
+
+    /* device::memcpy::benchmark(context); */
 
     /* device::test::psa::test(context); */
 

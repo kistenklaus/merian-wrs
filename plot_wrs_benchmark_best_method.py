@@ -2,9 +2,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+import tikzplotlib
+tikzplotlib.save("heatmap.tex")
 
 # Load CSV file
-file_path = "wrs_benchmark.csv"  # Change this to your actual file path
+file_path = "wrs_benchmark_1000.csv"  # Change this to your actual file path
 df = pd.read_csv(file_path)
 
 # Step 1: Remove duplicates for (N, S, method), keeping only the lowest total_latency

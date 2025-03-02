@@ -35,8 +35,7 @@ static const TestCase TEST_CASES[] = {
         .config = BlockWiseScanConfig(
             BlockScanConfig(256, // workgroups size
                             2,   // rows
-                            BlockScanVariant::RAKING | BlockScanVariant::SUBGROUP_SCAN_SHFL |
-                                BlockScanVariant::EXCLUSIVE,
+                            BlockScanVariant::RAKING | BlockScanVariant::SUBGROUP_SCAN_SHFL,
                             2, // sequential block scan length
                             true),
             BlockScanConfig(512,
@@ -215,11 +214,10 @@ static bool runTestCase(const host::test::TestContext& context,
                 for (std::size_t i = 0; i < results.prefixSum.size(); ++i) {
                     fmt::println("[{}]: {}", i, results.prefixSum[i]);
                 }
-            }
-
-            fmt::println("BlockScan:");
-            for (std::size_t i = 0; i < results.reductions.size(); ++i) {
-                fmt::println("[{}]: {}", i, results.reductions[i]);
+                fmt::println("BlockScan:");
+                for (std::size_t i = 0; i < results.reductions.size(); ++i) {
+                    fmt::println("[{}]: {}", i, results.reductions[i]);
+                }
             }
         }
         context.profiler->collect(true, true);

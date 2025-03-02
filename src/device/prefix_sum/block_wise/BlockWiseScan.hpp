@@ -80,7 +80,7 @@ struct BlockWiseScanConfig {
 
     constexpr BlockWiseScanConfig()
         : elementScanConfig(512, 2, BlockScanVariant::RAKING, 2, true),
-          blockScanConfig(512, 1, BlockScanVariant::RAKING, 1, false),
+          blockScanConfig(512, 1, BlockScanVariant::RAKING | BlockScanVariant::EXCLUSIVE, 1, false),
           blockCombineConfig(elementScanConfig) {
         assert(elementScanConfig.blockSize() == blockCombineConfig.blockSize());
         assert((blockScanConfig.variant & BlockScanVariant::EXCLUSIVE) ==
@@ -182,9 +182,8 @@ class BlockWiseScan {
                      vk::PipelineStageFlagBits::eComputeShader,
                      {buffers.reductions->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
                                                          vk::AccessFlagBits::eShaderRead),
-                      buffers.prefixSum->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                        vk::AccessFlagBits::eShaderRead |
-                                                            vk::AccessFlagBits::eShaderWrite)});
+                      buffers.prefixSum->buffer_barrier(vk::AccessFlagBits::eShaderRead,
+                                                        vk::AccessFlagBits::eShaderWrite)});
 
         // Combine scan over blocks with scan over elements
         CombineKernel::Buffers blockCombineBuffers;

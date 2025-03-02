@@ -87,7 +87,7 @@ static constexpr std::size_t S = (1 << 28);
 static constexpr std::size_t N_min = (1 << 12);
 static constexpr std::size_t S_min = (1 << 21);
 
-static constexpr std::size_t ticks = 1000;
+static constexpr std::size_t ticks = 25;
 static constexpr std::size_t iterations = 1;
 
 struct ConfigResult {

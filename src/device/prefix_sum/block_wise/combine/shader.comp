@@ -27,11 +27,11 @@ layout(constant_id = 4) const uint BLOCKS_PER_WORKGROUP = 1;
 #define MONOID void
 #endif
 
-layout(set = 0, binding = 0) readonly buffer in_BlockScan {
+layout(set = 0, binding = 0, std430) readonly buffer in_BlockScan {
     MONOID blockScan[];
 };
 
-layout(set = 0, binding = 1) buffer inout_ElementScan {
+layout(set = 0, binding = 1, std430) buffer inout_ElementScan {
     MONOID elementScan[];
 };
 
@@ -53,7 +53,7 @@ void main(void) {
     for (uint t = 0; t < BLOCKS_PER_WORKGROUP; ++t) {
         const uint partBase = (tileBase + t) * PARTITION_SIZE;
 
-        const MONOID blockExclusive = blockScan[gl_WorkGroupID.x];
+        const MONOID blockExclusive = blockScan[tileBase + t];
 
         for (uint p = 0; p < SEQUENTIAL_COMBINE_LENGTH; ++p) {
             const uint blockBase = partBase + p * BLOCK_SIZE;
@@ -61,7 +61,11 @@ void main(void) {
             MONOID v[ROWS];
             for (uint ix = blockBase + gl_LocalInvocationID.x, i = 0;
                 i < ROWS; ix += WORKGROUP_SIZE, ++i) {
-                v[i] = elementScan[ix];
+                if (ix < N) {
+                    v[i] = elementScan[ix];
+                } else {
+                    v[i] = 0;
+                }
             }
 
             for (uint i = 0; i < ROWS; ++i) {
@@ -70,7 +74,9 @@ void main(void) {
 
             for (uint ix = blockBase + gl_LocalInvocationID.x, i = 0;
                 i < ROWS; ix += WORKGROUP_SIZE, ++i) {
-                elementScan[ix] = v[i];
+                if (ix < N) {
+                    elementScan[ix] = v[i];
+                }
             }
         }
     }
