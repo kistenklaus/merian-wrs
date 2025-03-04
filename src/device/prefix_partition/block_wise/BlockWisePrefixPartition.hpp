@@ -178,9 +178,10 @@ struct BlockWisePrefixPartitionConfig {
 
     constexpr explicit BlockWisePrefixPartitionConfig(host::glsl::uint workgroupSize,
                                                       host::glsl::uint rows,
-                                                      BlockScanVariant variant)
+                                                      BlockScanVariant variant,
+                                                      host::glsl::uint seq = 1)
         : reduceConfig(workgroupSize, rows),
-          blockScanConfig(512, 8, BlockScanVariant::RANKED | BlockScanVariant::EXCLUSIVE, 1, true),
+          blockScanConfig(512, 8, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::EXCLUSIVE, seq, true),
           scanConfig(workgroupSize, rows, 1, variant) {}
 
     inline host::glsl::uint blockSize() const {
@@ -339,6 +340,10 @@ template <block_wise_prefix_partition_compatible T> class BlockWisePrefixPartiti
             profiler.value()->cmd_end(cmd);
         }
 #endif
+    }
+
+    std::size_t maxElementCount() const {
+        return m_countBlockScan.blockSize() * m_reduce.blockSize();
     }
 
   private:

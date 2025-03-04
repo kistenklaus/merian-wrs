@@ -38,6 +38,17 @@ struct TestCase {
 
 static constexpr TestCase TEST_CASES[] = {
     //
+
+     TestCase{
+        .config = CutpointConfig( //
+            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
+            32),
+        .N = static_cast<uint32_t>(1e7),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e7),
+        .iterations = 5,
+    },
+
     /* TestCase{ */
     /*     .config = ITSConfig( // */
     /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
@@ -47,15 +58,15 @@ static constexpr TestCase TEST_CASES[] = {
     /*     .S = 1024 * 2048 * 32, */
     /*     .iterations = 5, */
     /* }, */
-    TestCase{
-        .config = ITSConfig( //
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-            InverseTransformSamplingConfig(512, 32, false)),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = static_cast<uint32_t>(1e8),
-        .iterations = 5,
-    },
+    // TestCase{
+    //    .config = ITSConfig( //
+    //        DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
+    //        InverseTransformSamplingConfig(512, 128, false)),
+    //    .N = 1024 * 2048,
+    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+    //    .S = static_cast<uint32_t>(1e8),
+    //    .iterations = 5,
+    //},
     /* TestCase{ */
     /*     .config = ITSConfig( // */
     /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
@@ -144,11 +155,11 @@ static constexpr TestCase TEST_CASES[] = {
                                              DecoupledPrefixPartitionConfig(),
                                              InlineSplitPackConfig(2),
                                              false),
-                                   SampleAliasTableConfig(32)),
+                                   SampleAliasTableConfig(128)),
         .N = 1024 * 2048,
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = static_cast<uint32_t>(1e8),
-        .iterations = 1,
+        .S = static_cast<uint32_t>(1e7),
+        .iterations = 5,
     },
 
 };
@@ -274,7 +285,7 @@ static bool runTestCase(const host::test::TestContext& context,
             {
                 MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Building WRS");
                 SPDLOG_DEBUG("Building WRS");
-                kernel.build(cmd, buffers, testCase.N);
+                kernel.build(cmd, buffers, testCase.N, context.profiler);
             }
 
             { // 5. Samples WRS
@@ -319,6 +330,7 @@ static bool runTestCase(const host::test::TestContext& context,
         // Test results
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
+
             /* SPDLOG_DEBUG("Testing results"); */
             float jsDivergence =
                 host::js_divergence<host::glsl::uint, host::glsl::f32>(results.samples, weights);

@@ -1,23 +1,16 @@
 #include "merian/vk/context.hpp"
 
-#include "src/bench/memcpy.hpp"
-#include "src/bench/block_scan.hpp"
+#include "src/bench/cutpoint_latency.hpp"
+#include "src/bench/sample_throughput.hpp"
+#include "src/bench/psa_split.hpp"
+#include "src/bench/psa_split2.hpp"
 #include "merian/vk/extension/extension.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/extension/extension_vk_core.hpp"
 #include "merian/vk/extension/extension_vk_debug_utils.hpp"
 #include "merian/vk/extension/extension_vk_float_atomics.hpp"
 #include "merian/vk/extension/extension_vk_push_descriptor.hpp"
-#include "device/mean/test.hpp"
-#include "src/bench/scan.hpp"
-#include "src/bench/wrs.hpp"
-#include "src/device/partition/test.hpp"
-#include "src/device/prefix_partition/test.hpp"
-#include "src/device/prefix_sum/block_wise/test.hpp"
-#include "src/device/prefix_sum/test.hpp"
-#include "src/device/wrs/alias/psa/test.hpp"
 #include "src/device/wrs/test.hpp"
-#include "src/host/assert/test.hpp"
 #include <dlfcn.h>
 #include <fmt/base.h>
 #include <memory>
@@ -70,11 +63,16 @@ int main() {
     /* device::test::wrs::test(context); */
 
     /* device::wrs::benchmark(context); */
-    device::scan::benchmark(context);
+    /* device::scan::benchmark(context); */
     /* device::block_scan::benchmark(context); */
+    /* device::partition_scan::benchmark(context); */
 
     /* device::memcpy::benchmark(context); */
 
     /* device::test::psa::test(context); */
+    /* device::sample_throughput::benchmark(context); */
+    /* device::cutpoint_latency::benchmark(context); */
+    /* device::psa_split::benchmark(context); */
+    device::psa_split2::benchmark(context);
 
 }

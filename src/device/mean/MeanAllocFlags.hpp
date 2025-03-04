@@ -8,6 +8,7 @@ enum class MeanAllocFlags {
     ALLOC_MEAN = 2,
     ALLOC_ALL = ALLOC_ELEMENTS | ALLOC_MEAN,
     ALLOC_ONLY_INTERNALS = 0x0,
+    ALLOC_ONLY_OUTPUT = ALLOC_MEAN,
 };
 
 // Thank you GPT .....

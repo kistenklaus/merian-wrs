@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator
 import pandas as pd
 
-numPoints = 20
+numPoints = 100
 maxN = 2e8
 minN = 1e5
 

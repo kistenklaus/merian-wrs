@@ -4,13 +4,14 @@
 #include "merian/vk/memory/resource_allocations.hpp"
 #include "merian/vk/shader/shader_compiler.hpp"
 #include "src/device/wrs/alias/AliasTable.hpp"
+#include "src/device/wrs/cutpoint/Cutpoint.hpp"
 #include "src/device/wrs/its/ITS.hpp"
 #include "src/host/types/glsl.hpp"
 #include <stdexcept>
 #include <variant>
 namespace device {
 
-using WRSConfig = std::variant<ITS::Config, AliasTable::Config>;
+using WRSConfig = std::variant<ITS::Config, AliasTable::Config, Cutpoint::Config>;
 
 [[maybe_unused]]
 static std::string wrsConfigName(WRSConfig config) {
@@ -32,6 +33,9 @@ static std::string wrsConfigName(WRSConfig config) {
     } else if (std::holds_alternative<AliasTable::Config>(config)) {
         auto methodConfig = std::get<AliasTable::Config>(config);
         return methodConfig.name();
+    } else if (std::holds_alternative<Cutpoint::Config>(config)) {
+        auto methodConfig = std::get<Cutpoint::Config>(config);
+        return methodConfig.name();
     } else {
         throw std::runtime_error("NOT-IMPLEMENTED");
     }
@@ -50,7 +54,8 @@ struct WRSBuffers {
     using SamplesLayout = host::layout::ArrayLayout<host::glsl::uint, storageQualifier>;
     using SamplesView = host::layout::BufferView<SamplesLayout>;
 
-    std::variant<device::ITS::Buffers, device::AliasTable::Buffers> m_internals;
+    std::variant<device::ITS::Buffers, device::AliasTable::Buffers, device::Cutpoint::Buffers>
+        m_internals;
 
     static Self allocate(const merian::ResourceAllocatorHandle& alloc,
                          merian::MemoryMappingType memoryMapping,
@@ -70,6 +75,12 @@ struct WRSBuffers {
             buffers.weights = methodBuffers.weights;
             buffers.samples = methodBuffers.samples;
             buffers.m_internals = methodBuffers;
+        } else if (std::holds_alternative<Cutpoint::Config>(config)) {
+            Cutpoint::Buffers methodBuffers = Cutpoint::Buffers::allocate(
+                alloc, memoryMapping, N, S, std::get<Cutpoint::Config>(config));
+            buffers.weights = methodBuffers.weights;
+            buffers.samples = methodBuffers.samples;
+            buffers.m_internals = methodBuffers;
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }
@@ -81,7 +92,7 @@ class WRS {
   public:
     using Buffers = WRSBuffers;
     using Config = WRSConfig;
-    using Method = std::variant<ITS, AliasTable>;
+    using Method = std::variant<ITS, AliasTable, Cutpoint>;
 
   private:
     static Method createMethod(const merian::ContextHandle& context,
@@ -93,6 +104,9 @@ class WRS {
         } else if (std::holds_alternative<AliasTable::Config>(config)) {
             const auto& methodConfig = std::get<AliasTable::Config>(config);
             return AliasTable(context, shaderCompiler, methodConfig);
+        } else if (std::holds_alternative<Cutpoint::Config>(config)) {
+            const auto& methodConfig = std::get<Cutpoint::Config>(config);
+            return Cutpoint(context, shaderCompiler, methodConfig);
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }
@@ -118,6 +132,11 @@ class WRS {
             AliasTable::Buffers aliasBuffers = std::get<AliasTable::Buffers>(buffers.m_internals);
             aliasBuffers.weights = buffers.weights;
             alias.build(cmd, aliasBuffers, N, profiler);
+        } else if (std::holds_alternative<Cutpoint>(m_method)) {
+            const auto& cutpoint = std::get<Cutpoint>(m_method);
+            Cutpoint::Buffers internals = std::get<Cutpoint::Buffers>(buffers.m_internals);
+            internals.weights = buffers.weights;
+            cutpoint.build(cmd, internals, N, profiler);
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }
@@ -138,6 +157,11 @@ class WRS {
             AliasTable::Buffers aliasBuffers = std::get<AliasTable::Buffers>(buffers.m_internals);
             aliasBuffers.samples = buffers.samples;
             method.sample(cmd, aliasBuffers, N, S, seed);
+        } else if (std::holds_alternative<Cutpoint>(m_method)) {
+            const auto& cutpoint = std::get<Cutpoint>(m_method);
+            Cutpoint::Buffers internals = std::get<Cutpoint::Buffers>(buffers.m_internals);
+            internals.samples = buffers.samples;
+            cutpoint.sample(cmd, internals, N, S, seed);
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }

@@ -1,0 +1,54 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_KHR_shader_subgroup_vote : enable
+#pragma use_vulkan_memory_model
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 1) const uint COOPERATIVE_SAMPLE_SIZE = 4096;
+layout(constant_id = 2) const bool USE_P_ARRAY_SEARCH = true;
+
+layout(set = 0, binding = 0) readonly buffer in_cmf {
+    float cmf[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer out_GuidingTable {
+    uint guidingTable[];
+};
+
+layout(push_constant) uniform PushConstant {
+    uint N; // weight count
+    uint guidingTableSize; // sample count
+} pc;
+
+void binarySearch(inout uvec2 searchRange, float u) {
+    while (searchRange.x < searchRange.y) {
+        uint mid = (searchRange.x + searchRange.y) / 2;
+        if (u > cmf[mid]) {
+            searchRange.x = mid + 1;
+        } else {
+            searchRange.y = mid;
+        }
+    }
+}
+
+void main(void) {
+    const uint gid = gl_GlobalInvocationID.x;
+
+    const uint N = pc.N;
+    const uint guidingTableSize = pc.guidingTableSize;
+    if (gid >= guidingTableSize) return;
+
+    uvec2 searchRange = uvec2(0, N - 1);
+
+    const float totalWeight = cmf[searchRange.y];
+    const float step = totalWeight / float(guidingTableSize);
+
+    float u = step * gid;
+
+    binarySearch(searchRange, u);
+
+    guidingTable[gid] = searchRange.x; // Store the final sample
+}

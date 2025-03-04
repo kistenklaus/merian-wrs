@@ -10,6 +10,7 @@ enum class SplitAllocFlags {
     ALLOC_HEAVY_COUNT = 0x8,
     ALLOC_ALL = ALLOC_PARTITION_PREFIX | ALLOC_MEAN | ALLOC_SPLITS | ALLOC_HEAVY_COUNT,
     ALLOC_NONE = 0x0,
+    ALLOC_ONLY_OUTPUTS = ALLOC_SPLITS,
 };
 
 // Enable bitwise operations for SplitAllocFlags

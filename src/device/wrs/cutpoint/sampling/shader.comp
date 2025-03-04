@@ -14,13 +14,18 @@ layout(set = 0, binding = 0) readonly buffer in_cmf {
     float cmf[];
 };
 
-layout(set = 0, binding = 1) writeonly buffer out_samples {
+layout(set = 0, binding = 1) readonly buffer in_GuidingTable {
+    uint guidingTable[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer out_Samples {
     uint samples[];
 };
 
 layout(push_constant) uniform PushConstant {
     uint N; // weight count
     uint S; // sample count
+    uint guidingTableSize;
     uint seed;
 } pc;
 
@@ -58,15 +63,6 @@ vec2 philoxRandom(uvec2 counter, uint key) {
     return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
 }
 
-float rand_xorshift(uint rng_state)
-{
-    // Xorshift algorithm from George Marsaglia's paper
-    rng_state ^= (rng_state << 13);
-    rng_state ^= (rng_state >> 17);
-    rng_state ^= (rng_state << 5);
-    return float(rng_state) / 4294967296.0;
-}
-
 float wang_hash(uint seed)
 {
     seed = (seed ^ 61) ^ (seed >> 16);
@@ -80,9 +76,8 @@ float wang_hash(uint seed)
 float sampleSearchRange(in uvec2 searchRange, uint seed) {
     uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, gl_GlobalInvocationID.x); // Use subgroup ID for random sample
     uint key = seed;
-    // float u = rand_xorshift(seed + gl_GlobalInvocationID.x);
-    float u = wang_hash(seed + gl_GlobalInvocationID.x);
-    // float u = philoxRandom(counter, seed).x;
+    // float u = philoxRandom(counter, key).x;
+    float u = wang_hash(key + gl_GlobalInvocationID.x);
     float lowCmf;
     if (searchRange.x > 0) {
         lowCmf = cmf[searchRange.x - 1];
@@ -91,41 +86,6 @@ float sampleSearchRange(in uvec2 searchRange, uint seed) {
     }
     float highCmf = cmf[searchRange.y];
     return lowCmf + (highCmf - lowCmf) * u;
-}
-
-uint searchRangeSize(in uvec2 searchRange) {
-    return searchRange.y - searchRange.x + 1;
-}
-
-void binaryNarrow(inout uvec2 searchRange, uint bound, float u) {
-    while (searchRangeSize(searchRange) > bound) {
-        uint mid = (searchRange.x + searchRange.y) / 2;
-        if (u > cmf[mid]) {
-            searchRange.x = mid + 1;
-        } else {
-            searchRange.y = mid;
-        }
-    }
-}
-
-void pArrayNarrow(inout uvec2 searchRange, uint bound, float u) {
-    uint range = searchRangeSize(searchRange);
-    while (range > bound) {
-        uint basePartitionSize = range / gl_SubgroupSize;
-
-        uint partitionSize = basePartitionSize;
-        uint start = searchRange.x + gl_SubgroupInvocationID * partitionSize;
-        uint end = min(start + partitionSize - 1, searchRange.y); // Ensure `end` stays within bounds
-
-        // Check if u1 is in this partition
-        bool targetIsLowerThanEnd = u < cmf[end];
-        uvec4 ballot = subgroupBallot(targetIsLowerThanEnd);
-        uint partitionId = subgroupBallotFindLSB(ballot);
-        searchRange.x = subgroupBroadcast(start, partitionId);
-        searchRange.y = subgroupBroadcast(end, partitionId);
-
-        range = searchRangeSize(searchRange);
-    }
 }
 
 void binarySearch(inout uvec2 searchRange, float u) {
@@ -144,32 +104,30 @@ void main(void) {
 
     const uint N = pc.N;
     const uint S = pc.S;
+    const uint guidingTableSize = pc.guidingTableSize;
     const uint seed = pc.seed;
     if (gid >= S) return;
 
     uvec2 searchRange = uvec2(0, N - 1);
 
-    if (COOPERATIVE_SAMPLE_SIZE != 0) { // cooperative narrowing disabled!
+    float u1; // subgroup wide uniform sample!
+    if (subgroupElect()) {
+        uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, gl_GlobalInvocationID.x); // Use subgroup ID for random sample
+        uint key = seed;
+        // u1 = philoxRandom(counter, key).x;
+        u1 = wang_hash(key + gl_GlobalInvocationID.x);
+    }
+    u1 = subgroupBroadcastFirst(u1); // Broadcast u1 to all threads in the subgroup
 
-        // Step 1: Generate shared random number for the subgroup
-        float u1;
-        if (subgroupElect()) {
-            u1 = sampleSearchRange(searchRange, seed);
-        }
-        u1 = subgroupBroadcastFirst(u1); // Broadcast u1 to all threads in the subgroup
-
-        if (USE_P_ARRAY_SEARCH) {
-            pArrayNarrow(searchRange, COOPERATIVE_SAMPLE_SIZE, u1);
-        } else {
-            binaryNarrow(searchRange, COOPERATIVE_SAMPLE_SIZE, u1);
-        }
+    // cutpoint (narrow search range with guiding table)
+    uint lowGuideIdx = min(uint(u1 * guidingTableSize), guidingTableSize - 1); // floors
+    searchRange.x = guidingTable[lowGuideIdx]; // low guide
+    if (lowGuideIdx != (guidingTableSize - 1)) {
+        searchRange.y = guidingTable[lowGuideIdx + 1];
     }
 
-    // Step 3: Continue Binary Search Independently
-    uvec2 counter = uvec2(gl_GlobalInvocationID.x, 0); // Independent counter for each thread
-    uint key = seed ^ 0xA9EC5C80; // Independent key for each thread
-    // float u2 = cmf[searchRange.x] + philoxRandom(counter, key).x * (cmf[searchRange.y] - cmf[searchRange.x]);
-    float u2 = sampleSearchRange(searchRange, seed ^ 0xA9EC5C80);
+    // Independent inverse transform sampling
+    float u2 = sampleSearchRange(searchRange, seed ^ 0x079145147);
 
     binarySearch(searchRange, u2);
 
