@@ -15,6 +15,7 @@
 #include <bit>
 #include <fmt/base.h>
 #include <memory>
+#include <spdlog/spdlog.h>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_handles.hpp>
 
@@ -33,17 +34,17 @@ struct SubgroupPackBuffers {
                                    host::layout::Attribute<host::glsl::uint*, "heavyLightIndices">>;
     using PartitionIndicesView = host::layout::BufferView<PartitionIndicesLayout>;
 
-    merian::BufferHandle heavyCount;
+    merian::BufferHandle heavyCount; // bind = 1
 
-    merian::BufferHandle weights; // binding = 1
+    merian::BufferHandle weights; // binding = 2
     using WeightsLayout = host::layout::ArrayLayout<weight_type, storageQualifier>;
     using WeightsView = host::layout::BufferView<WeightsLayout>;
 
-    merian::BufferHandle mean; // binding = 2
+    merian::BufferHandle mean; // binding = 3
     using MeanLayout = host::layout::PrimitiveLayout<weight_type, storageQualifier>;
     using MeanView = host::layout::BufferView<MeanLayout>;
 
-    merian::BufferHandle splits; // binding = 3
+    merian::BufferHandle splits; // binding = 4
     using SplitStructLayout =
         host::layout::StructLayout<storageQualifier,
                                    host::layout::Attribute<host::glsl::uint, "i">,
@@ -52,7 +53,7 @@ struct SubgroupPackBuffers {
     using SplitsLayout = host::layout::ArrayLayout<SplitStructLayout, storageQualifier>;
     using SplitsView = host::layout::BufferView<SplitsLayout>;
 
-    merian::BufferHandle aliasTable; // binding = 4
+    merian::BufferHandle aliasTable; // binding = 5
     using AliasTableEntryLayout =
         host::layout::StructLayout<storageQualifier,
                                    host::layout::Attribute<weight_type, "p">,
@@ -60,13 +61,9 @@ struct SubgroupPackBuffers {
     using AliasTableLayout = host::layout::ArrayLayout<AliasTableEntryLayout, storageQualifier>;
     using AliasTableView = host::layout::BufferView<AliasTableLayout>;
 
-    merian::BufferHandle partition; // binding = 5
+    merian::BufferHandle partitionElements; // binding = 6
     using PartitionLayout = host::layout::ArrayLayout<float, storageQualifier>;
     using PartitionView = host::layout::BufferView<PartitionLayout>;
-
-    merian::BufferHandle partitionPrefix; // binding = 6
-    using PartitionPrefixLayout = host::layout::ArrayLayout<float, storageQualifier>;
-    using PartitionPrefixView = host::layout::BufferView<PartitionPrefixLayout>;
 
     static SubgroupPackBuffers allocate(merian::ResourceAllocatorHandle alloc,
                                         std::size_t weightCount,
@@ -82,8 +79,9 @@ struct SubgroupPackConfig {
     constexpr SubgroupPackConfig() : splitSize(2), workgroupSize(512), subgroupSplit(4) {}
     explicit constexpr SubgroupPackConfig(host::glsl::uint splitSize,
                                           host::glsl::uint subgroupSplit = 4,
-                                          host::glsl::uint workgroupSize = 512)
-        : splitSize(splitSize), workgroupSize(workgroupSize), subgroupSplit(subgroupSplit) {}
+                                          host::glsl::uint workgroupSize = 128)
+        : splitSize(splitSize), workgroupSize(workgroupSize), subgroupSplit(subgroupSplit) {
+        }
 };
 
 class SubgroupPack {
@@ -120,7 +118,7 @@ class SubgroupPack {
 
         std::map<std::string, std::string> defines;
         if (m_usePartitionElements) {
-            defines["USE_PARTITION_ELEMENTS"];
+            defines["USE_PARTITION_ELEMENTS"] = 1;
         }
 
         const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
@@ -141,7 +139,11 @@ class SubgroupPack {
         /* glsl::uint log2SubgroupSize = std::bit_width(subgroupSize) - 1; // floor(log2( . )) */
         /* specInfoBuilder.add_entry(log2SubgroupSize); */
 
+        assert(subgroupSize % config.subgroupSplit == 0);
         host::glsl::uint threadsPerSubproblem = subgroupSize / config.subgroupSplit;
+
+        assert(threadsPerSubproblem <= config.splitSize);
+
         specInfoBuilder.add_entry(threadsPerSubproblem); // 2
         host::glsl::uint log2ThreadsPerSubgroup = std::bit_width(threadsPerSubproblem) - 1;
         specInfoBuilder.add_entry(log2ThreadsPerSubgroup); // 3
@@ -169,17 +171,22 @@ class SubgroupPack {
 
         cmd->bind(m_pipeline);
         if (m_usePartitionElements) {
-            assert(buffers.partition != nullptr);
+            assert(buffers.partitionElements != nullptr);
             cmd->push_descriptor_set(m_pipeline, buffers.partitionIndices, buffers.heavyCount,
                                      buffers.weights, buffers.mean, buffers.splits,
-                                     buffers.aliasTable, buffers.partition);
+                                     buffers.aliasTable, buffers.partitionElements);
         } else {
-            cmd->push_descriptor_set(m_pipeline, buffers.partitionIndices, buffers.heavyCount,
-                                     buffers.weights, buffers.mean, buffers.splits,
-                                     buffers.aliasTable);
+            cmd->push_descriptor_set(m_pipeline,
+                                     buffers.partitionIndices, // binding = 0
+                                     buffers.heavyCount,       // binding = 1
+                                     buffers.weights,          // binding = 2
+                                     buffers.mean,             // binding = 3
+                                     buffers.splits,           // binding = 4
+                                     buffers.aliasTable        // binding = 5
+            );
         }
 
-        host::glsl::uint K = ((N + m_splitSize - 1) / m_splitSize);
+        host::glsl::uint K = (N + m_splitSize - 1) / m_splitSize;
         cmd->push_constant<PushConstants>(m_pipeline, PushConstants{
                                                           .N = N,
                                                           .K = K,
@@ -203,8 +210,8 @@ class SubgroupPack {
   private:
     merian::PipelineHandle m_pipeline;
     host::glsl::uint m_subproblemsPerWorkgroup;
-    host::glsl::uint m_splitSize;
-    bool m_usePartitionElements;
+    const host::glsl::uint m_splitSize;
+    const bool m_usePartitionElements;
 };
 
 } // namespace device

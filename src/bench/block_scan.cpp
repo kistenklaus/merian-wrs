@@ -361,7 +361,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     ConfigBenchmark results;
     results.entries.reserve(ticks);
 
-    PRNG prng(context, shaderCompiler, PhiloxConfig(512));
+    PRNG prng(context, shaderCompiler, PhiloxConfig());
     PRNGBuffers prngBuffers;
     prngBuffers.samples = local.elements;
     PRNGBuffers flushBuffers;

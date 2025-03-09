@@ -26,13 +26,26 @@ constexpr host::glsl::uint packConfigSplitSize(const PackConfig& config) {
     }
 }
 
+constexpr host::glsl::uint packConfigInvocPerPack(const merian::ContextHandle& context,
+                                                    const PackConfig& config) {
+    if (std::holds_alternative<ScalarPack::Config>(config)) {
+        return 1;
+    } else if (std::holds_alternative<SubgroupPack::Config>(config)) {
+        return context->physical_device.physical_device_subgroup_properties.subgroupSize /
+               std::get<SubgroupPack::Config>(config).subgroupSplit;
+    } else {
+        throw std::runtime_error("NOT-IMPLEMENTED");
+    }
+}
+
 constexpr std::string packConfigName(const PackConfig& config) {
     if (std::holds_alternative<ScalarPack::Config>(config)) {
-        /* const auto& methodConfig = std::get<ScalarPack::Config>(config); */
-        return "ScalarPack";
+        const auto& methodConfig = std::get<ScalarPack::Config>(config);
+        return fmt::format("ScalarPack-{}", methodConfig.splitSize);
     } else if (std::holds_alternative<SubgroupPack::Config>(config)) {
         const auto& methodConfig = std::get<SubgroupPack::Config>(config);
-        return fmt::format("SubgroupPack-32/{}", methodConfig.subgroupSplit);
+        return fmt::format("SubgroupPack-32/{}-{}", methodConfig.subgroupSplit,
+            methodConfig.splitSize);
     } else {
         throw std::runtime_error("NOT-IMPLEMENTED");
     }
@@ -93,10 +106,10 @@ class Pack {
                                const bool usePartitionElements) {
         if (std::holds_alternative<ScalarPack::Config>(config)) {
             const auto& methodConfig = std::get<ScalarPack::Config>(config);
-            return ScalarPack(context, shaderCompiler, methodConfig, usePartitionElements);
+            return ScalarPack{context, shaderCompiler, methodConfig, usePartitionElements};
         } else if (std::holds_alternative<SubgroupPack::Config>(config)) {
             const auto& methodConfig = std::get<SubgroupPack::Config>(config);
-            return SubgroupPack(context, shaderCompiler, methodConfig, usePartitionElements);
+            return SubgroupPack{context, shaderCompiler, methodConfig, usePartitionElements};
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }
@@ -109,10 +122,10 @@ class Pack {
          bool usePartitionElements)
         : m_method(createMethod(context, shaderCompiler, config, usePartitionElements)) {}
 
-    void
-    run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N,
-        std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
-
+    void run(const merian::CommandBufferHandle& cmd,
+             const Buffers& buffers,
+             host::glsl::uint N,
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
         if (std::holds_alternative<ScalarPack>(m_method)) {
             const auto& method = std::get<ScalarPack>(m_method);
             ScalarPack::Buffers methodBuffers;
@@ -127,15 +140,14 @@ class Pack {
         } else if (std::holds_alternative<SubgroupPack>(m_method)) {
             const auto& method = std::get<SubgroupPack>(m_method);
             SubgroupPack::Buffers methodBuffers;
+            methodBuffers.partitionIndices = buffers.partitionIndices;
+            methodBuffers.heavyCount = buffers.heavyCount;
             methodBuffers.weights = buffers.weights;
             methodBuffers.mean = buffers.mean;
-            methodBuffers.heavyCount = buffers.heavyCount;
-            methodBuffers.partitionIndices = buffers.partitionIndices;
-            methodBuffers.partition = buffers.partitionElements;
             methodBuffers.splits = buffers.splits;
             methodBuffers.aliasTable = buffers.aliasTable;
+            methodBuffers.partitionElements = buffers.partitionElements;
             method.run(cmd, methodBuffers, N, profiler);
-
         } else {
             throw std::runtime_error("NOT-IMPLEMENTED");
         }

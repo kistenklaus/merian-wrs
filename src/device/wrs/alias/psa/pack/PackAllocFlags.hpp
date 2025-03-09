@@ -15,6 +15,7 @@ enum class PackAllocFlags {
                     ALLOC_SPLITS | ALLOC_ALIAS_TABLE,
     ALLOC_ALL = ALLOC_DEFAULT | ALLOC_PARTITION_ELEMENTS,
     ALLOC_NONE = 0x0,
+    ALLOC_ALL_OUTPUTS = ALLOC_ALIAS_TABLE
 };
 
 // Enable bitwise operations for PackAllocFlags

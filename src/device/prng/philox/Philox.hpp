@@ -8,10 +8,12 @@
 #include "merian/vk/pipeline/specialization_info.hpp"
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "merian/vk/shader/shader_compiler.hpp"
+#include "src/host/gen/weight_generator.h"
 #include "src/host/layout/ArrayLayout.hpp"
 #include "src/host/layout/BufferView.hpp"
 #include "src/host/types/glsl.hpp"
 #include <memory>
+#include <stdexcept>
 #include <vulkan/vulkan_handles.hpp>
 
 #include "merian/vk/memory/resource_allocator.hpp"
@@ -47,10 +49,12 @@ struct PhiloxBuffers {
 class PhiloxConfig {
   public:
     host::glsl::uint workgroupSize;
+    host::Distribution distribution;
 
-    constexpr PhiloxConfig() : workgroupSize(512) {}
-    explicit constexpr PhiloxConfig(host::glsl::uint workgroupSize)
-        : workgroupSize(workgroupSize) {}
+    constexpr PhiloxConfig()
+        : workgroupSize(128), distribution(host::Distribution::SEEDED_RANDOM_UNIFORM) {}
+    explicit constexpr PhiloxConfig(host::Distribution distribution, host::glsl::uint workgroupSize = 128)
+        : workgroupSize(workgroupSize), distribution(distribution) {}
 };
 
 class Philox {
@@ -73,8 +77,19 @@ class Philox {
 
         const std::string shaderPath = "src/device/prng/philox/shader.comp";
 
+        std::map<std::string, std::string> defines;
+        if ((config.distribution == host::Distribution::PSEUDO_RANDOM_UNIFORM) |
+            (config.distribution == host::Distribution::SEEDED_RANDOM_UNIFORM) |
+            (config.distribution == host::Distribution::RANDOM_UNIFORM)) {
+            defines["UNIFORM_DISTRIBUTION"];
+        } else if (config.distribution == host::Distribution::SEEDED_RANDOM_EXPONENTIAL) {
+            defines["EXP_DISTRIBUTION"];
+        } else {
+            throw std::runtime_error("Unsupported distribution");
+        }
+
         const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
-            context, shaderPath, vk::ShaderStageFlagBits::eCompute);
+            context, shaderPath, vk::ShaderStageFlagBits::eCompute, {}, defines);
 
         const merian::PipelineLayoutHandle pipelineLayout =
             merian::PipelineLayoutBuilder(context)
@@ -108,4 +123,4 @@ class Philox {
     host::glsl::uint m_workgroupSize;
 };
 
-} // namespace wrs
+} // namespace device

@@ -3,6 +3,7 @@
 #include "merian/vk/command/command_buffer.hpp"
 #include "merian/vk/context.hpp"
 #include "merian/vk/descriptors/descriptor_set_layout_builder.hpp"
+#include "merian/vk/memory/memory_allocator.hpp"
 #include "merian/vk/memory/resource_allocations.hpp"
 #include "merian/vk/pipeline/pipeline.hpp"
 #include "merian/vk/pipeline/pipeline_compute.hpp"
@@ -10,9 +11,15 @@
 #include "merian/vk/pipeline/specialization_info_builder.hpp"
 #include "merian/vk/shader/shader_compiler.hpp"
 #include "merian/vk/utils/profiler.hpp"
+#include "src/device/wrs/alias/psa/layout/split.hpp"
+#include "src/device/wrs/alias/psa/split/SplitAllocFlags.hpp"
+#include "src/host/layout/ArrayLayout.hpp"
+#include "src/host/layout/BufferView.hpp"
 #include "src/host/types/glsl.hpp"
+#include "vulkan/vulkan_enums.hpp"
 #include <fmt/base.h>
 #include <memory>
+#include <stdexcept>
 #include <tuple>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_handles.hpp>
@@ -24,12 +31,53 @@ struct ScalarSplitBuffers {
     using weight_type = host::glsl::f32;
 
     merian::BufferHandle partitionPrefix;
+    using PartitionPrefixLayout = host::layout::ArrayLayout<weight_type, storageQualifier>;
+    using PartitionPrefixView = host::layout::BufferView<PartitionPrefixLayout>;
 
     merian::BufferHandle heavyCount;
+    using HeavyCountLayout = host::layout::PrimitiveLayout<host::glsl::uint, storageQualifier>;
+    using HeavyCountView = host::layout::BufferView<HeavyCountLayout>;
 
     merian::BufferHandle mean;
+    using MeanLayout = host::layout::PrimitiveLayout<weight_type, storageQualifier>;
+    using MeanView = host::layout::BufferView<MeanLayout>;
 
     merian::BufferHandle splits;
+    using SplitsLayout = device::details::SplitsLayout;
+    using SplitsView = host::layout::BufferView<SplitsLayout>;
+
+    static ScalarSplitBuffers allocate(const merian::ResourceAllocatorHandle& alloc,
+                                       merian::MemoryMappingType memoryMapping,
+                                       std::size_t N,
+                                       std::size_t splitSize,
+                                       SplitAllocFlags allocFlags = SplitAllocFlags::ALLOC_ALL) {
+        ScalarSplitBuffers buffers;
+        std::size_t K = (N + splitSize - 1) / splitSize;
+        if (memoryMapping == merian::MemoryMappingType::NONE) {
+            if ((allocFlags & SplitAllocFlags::ALLOC_PARTITION_PREFIX) != 0) {
+                buffers.partitionPrefix =
+                    alloc->createBuffer(PartitionPrefixLayout::size(N),
+                                        vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping);
+            }
+            if ((allocFlags & SplitAllocFlags::ALLOC_HEAVY_COUNT) != 0) {
+                buffers.heavyCount =
+                    alloc->createBuffer(HeavyCountLayout::size(),
+                                        vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping);
+            }
+            if ((allocFlags & SplitAllocFlags::ALLOC_MEAN) != 0) {
+                buffers.mean = alloc->createBuffer(
+                    MeanLayout::size(), vk::BufferUsageFlagBits::eStorageBuffer, memoryMapping);
+            }
+            if ((allocFlags & SplitAllocFlags::ALLOC_SPLITS) != 0) {
+                buffers.splits = device::details::allocateSplitBuffer(
+                    alloc, merian::MemoryMappingType::NONE, vk::BufferUsageFlagBits::eStorageBuffer,
+                    K);
+            }
+        } else {
+            throw std::runtime_error("NOT-IMPLEMENTED");
+        }
+        return buffers;
+    }
 };
 
 struct ScalarSplitConfig {

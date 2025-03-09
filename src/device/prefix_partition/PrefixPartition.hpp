@@ -96,8 +96,8 @@ struct PrefixPartitionBuffers {
             using MethodBuffers = DecoupledPrefixPartition<T>::Buffers;
             host::glsl::uint blockCount =
                 (N + methodConfig.blockSize() - 1) / methodConfig.blockSize();
-            auto methodBuffers =
-                MethodBuffers::template allocate<T>(alloc, memoryMapping, N, blockCount, allocFlags);
+            auto methodBuffers = MethodBuffers::template allocate<T>(alloc, memoryMapping, N,
+                                                                     blockCount, allocFlags);
             buffers.elements = methodBuffers.elements;
             buffers.pivot = methodBuffers.pivot;
             buffers.partitionIndices = methodBuffers.partitionIndices;
@@ -113,8 +113,8 @@ struct PrefixPartitionBuffers {
             using MethodBuffers = BlockWisePrefixPartition<T>::Buffers;
             const host::glsl::uint blockCount =
                 (N + methodConfig.blockSize() - 1) / methodConfig.blockSize();
-            auto methodBuffers =
-                MethodBuffers::template allocate<T>(alloc, memoryMapping, N, blockCount, allocFlags);
+            auto methodBuffers = MethodBuffers::template allocate<T>(alloc, memoryMapping, N,
+                                                                     blockCount, allocFlags);
             buffers.elements = methodBuffers.elements;
             buffers.pivot = methodBuffers.pivot;
             buffers.partitionIndices = methodBuffers.partitionIndices;
@@ -202,6 +202,17 @@ template <prefix_partition_compatible T> class PrefixPartition {
                     .blockLightReductions;
 
             std::get<BlockWisePrefixPartition<T>>(m_method).run(cmd, methodBuffers, N, profiler);
+        }
+    }
+
+    std::size_t maxElementCount() const {
+        if (std::holds_alternative<DecoupledPrefixPartition<T>>(m_method)) {
+            return (1 << 28);
+
+        } else if (std::holds_alternative<BlockWisePrefixPartition<T>>(m_method)) {
+            return std::get<BlockWisePrefixPartition<T>>(m_method).maxElementCount();
+        } else {
+          throw std::runtime_error("NOT-IMPLEMENTED");
         }
     }
 

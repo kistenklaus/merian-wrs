@@ -104,6 +104,8 @@ template <mean_compatible T> class Mean {
         } else if (std::holds_alternative<DecoupledMeanConfig>(config)) {
             const auto methodConfig = std::get<DecoupledMeanConfig>(config);
             return DecoupledMean(context, shaderCompiler, methodConfig);
+        } else {
+          throw std::runtime_error("NOT-IMPLEMENTED");
         }
     }
 

@@ -20,6 +20,7 @@
 #include <spdlog/spdlog.h>
 
 #include "src/host/reference/reduce.hpp"
+#include "vulkan/vulkan_enums.hpp"
 
 namespace device::test::psa {
 
@@ -35,37 +36,49 @@ struct TestCase {
     uint32_t iterations;
 };
 
-static constexpr TestCase TEST_CASES[] = {
+static const TestCase TEST_CASES[] = {
     //
-    /* TestCase{ */
-    /*     .config = */
-    /*         PSAConfig(AtomicMeanConfig(512, 8), */
-    /*                   DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 32), */
-    /*                   SerialSplitPackConfig(ScalarSplitConfig(2), ScalarPackConfig(2)), */
-    /*                   true), */
-    /*     .N = (1 << 28), */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .iterations = 5, */
-    /* }, */
-    /* TestCase{ */
-    /*     .config = */
-    /*         PSAConfig(AtomicMeanConfig(512, 8), */
-    /*                   DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 32), */
-    /*                   SerialSplitPackConfig(ScalarSplitConfig(16), SubgroupPackConfig(16, 4)), */
-    /*                   true), */
-    /*     .N = (1 << 28), */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .iterations = 5, */
-    /* }, */
+    // TestCase{
+    //    .config =
+    //        PSAConfig(AtomicMeanConfig(512, 8),
+    //                  DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED,
+    //                  32),
+    //                  InlineSplitPackConfig(2),
+    //                  true),
+    //    .N = (1024 * 2048),
+    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+    //    .iterations = 5,
+    //},
+    // TestCase{
+    //    .config =
+    //        PSAConfig(AtomicMeanConfig(512, 8),
+    //                  DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED,
+    //                  32),
+    //                  SerialSplitPackConfig(ScalarSplitConfig(2), ScalarPackConfig(2)),
+    //                  false),
+    //    .N = (1024 * 2048),
+    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+    //    .iterations = 2,
+    //},
+    //TestCase{
+    //    .config =
+    //        PSAConfig(AtomicMeanConfig(512, 8),
+    //                  DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 32),
+    //                  InlineSplitPackConfig(2),
+    //                  true),
+    //    .N = static_cast<uint32_t>(1024 * 2048),
+    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+    //    .iterations = 1,
+    //},
     TestCase{
         .config =
             PSAConfig(AtomicMeanConfig(512, 8),
-                      DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 32),
-                      InlineSplitPackConfig(2),
-                      true),
-        .N = (1 << 28),
+                      DecoupledPrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED, 32),
+                      InlineSplitPackConfig(20, 4),
+                      false),
+        .N = static_cast<uint32_t>(1e8),
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .iterations = 5,
+        .iterations = 1,
     },
 };
 
@@ -196,6 +209,12 @@ static bool runTestCase(const host::test::TestContext& context,
         context.profiler->end();
         context.profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
+
+        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                     vk::PipelineStageFlagBits::eTransfer,
+                     buffers.weights->buffer_barrier(vk::AccessFlagBits::eShaderRead,
+                                                     vk::AccessFlagBits::eTransferWrite));
+
         cmd->end();
         context.queue->submit_wait(cmd);
 
@@ -203,13 +222,14 @@ static bool runTestCase(const host::test::TestContext& context,
         context.profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
         [[maybe_unused]] Results results = downloadFromStage(stage, testCase.N, resource);
+
         context.profiler->end();
 
         // Test results
         {
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
 
-            if (testCase.N <= 1024) {
+            if ((testCase.N <= 1024)) {
 
                 fmt::println("ALIAS-TABLE:");
                 for (std::size_t i = 0; i < results.aliasTable.size(); ++i) {
@@ -241,7 +261,7 @@ static bool runTestCase(const host::test::TestContext& context,
                 const auto errAliasTable =
                     host::test::pmr::assert_is_alias_table<weight_type, weight_type,
                                                            host::glsl::uint>(
-                        weights, results.aliasTable, totalWeight, 0.01, resource);
+                        weights, results.aliasTable, totalWeight, 0.0001, resource);
                 if (errAliasTable) {
                     SPDLOG_ERROR("PSA-XXX constructs invalid alias table\n{}",
                                  errAliasTable.message());
@@ -271,7 +291,7 @@ static bool runTestCase(const host::test::TestContext& context,
 }
 
 void test(const merian::ContextHandle& context) {
-    SPDLOG_INFO("Testing TODO algorithm");
+    SPDLOG_INFO("Testing PSA algorithm");
 
     const host::test::TestContext testContext = host::test::setupTestContext(context);
 

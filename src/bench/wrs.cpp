@@ -19,38 +19,38 @@ struct NamedConfig {
 };
 
 static const NamedConfig CONFIGURATIONS[] = {
-    NamedConfig{
-        .name = "PSA-InlineSplitPack",
-        .config = AliasTableConfig(               //*/
-            PSAConfig(                            //*/
-                AtomicMeanConfig(),               //*/
-                DecoupledPrefixPartitionConfig(), //*/
-                InlineSplitPackConfig(2),         //*/
-                false),                           //*/
-            SampleAliasTableConfig(32)),          //*/
-    },                                            //*/
-    NamedConfig{
-        .name = "PSA-SerialSplitSubgroupPack",
-        .config = AliasTableConfig(               //
-            PSAConfig(                            //
-                AtomicMeanConfig(),               //
-                DecoupledPrefixPartitionConfig(), //
-                SerialSplitPackConfig(ScalarSplitConfig(16),
-                                      SubgroupPackConfig(16)), //
-                false),                                        //
-            SampleAliasTableConfig(32)),                       //
-    },                                                         //
-    NamedConfig{
-        .name = "PSA-SerialSplitSubgroupPack",
-        .config = AliasTableConfig(               //
-            PSAConfig(                            //
-                AtomicMeanConfig(),               //
-                DecoupledPrefixPartitionConfig(), //
-                SerialSplitPackConfig(ScalarSplitConfig(32),
-                                      SubgroupPackConfig(32)), //
-                false),                                        //
-            SampleAliasTableConfig(32)),                       //
-    },                                                         //
+    // NamedConfig{
+    //    .name = "PSA-InlineSplitPack",
+    //    .config = AliasTableConfig(               //*/
+    //        PSAConfig(                            //*/
+    //            AtomicMeanConfig(),               //*/
+    //            DecoupledPrefixPartitionConfig(), //*/
+    //            InlineSplitPackConfig(2),         //*/
+    //            false),                           //*/
+    //        SampleAliasTableConfig(32)),          //*/
+    //},                                            //*/
+    // NamedConfig{
+    //    .name = "PSA-SerialSplitSubgroupPack",
+    //    .config = AliasTableConfig(               //
+    //        PSAConfig(                            //
+    //            AtomicMeanConfig(),               //
+    //            DecoupledPrefixPartitionConfig(), //
+    //            SerialSplitPackConfig(ScalarSplitConfig(16),
+    //                                  SubgroupPackConfig(16)), //
+    //            false),                                        //
+    //        SampleAliasTableConfig(32)),                       //
+    //},                                                         //
+    // NamedConfig{
+    //    .name = "PSA-SerialSplitSubgroupPack",
+    //    .config = AliasTableConfig(               //
+    //        PSAConfig(                            //
+    //            AtomicMeanConfig(),               //
+    //            DecoupledPrefixPartitionConfig(), //
+    //            SerialSplitPackConfig(ScalarSplitConfig(32),
+    //                                  SubgroupPackConfig(32)), //
+    //            false),                                        //
+    //        SampleAliasTableConfig(32)),                       //
+    //},                                                         //
     /* NamedConfig{ */
     /*     .name = "PSA-SerialSplitSubgroupPack-16-2/32", */
     /*     .config = AliasTableConfig(               // */
@@ -73,12 +73,15 @@ static const NamedConfig CONFIGURATIONS[] = {
     /*             true),                                        // */
     /*         SampleAliasTableConfig(32)),                       // */
     /* },                                                         // */
-    NamedConfig{
-        .name = "ITS-COOP",
-        .config = ITSConfig(                                 //*/
-            DecoupledPrefixSumConfig(),                      //*/
-            InverseTransformSamplingConfig(512, 128, false)) //*/
-    },                                                       //*/
+    NamedConfig{.name = "ITS-BINARY",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(512, 0, false))},
+    NamedConfig{.name = "ITS-COOP",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(512, 128, false))},
+    NamedConfig{.name = "ITS-COOP-PARRAY",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(512, 128, true))},
 };
 
 static constexpr std::size_t N = (1 << 26);
@@ -205,8 +208,8 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
 
         /* fmt::println("{}", merian::Profiler::get_report_str(profiler->get_report())); */
 
-        double buildLatency;
-        double buildStdVar;
+        double buildLatency = -1;
+        double buildStdVar = -1;
         std::vector<std::tuple<std::size_t, double, double>> samplingReport;
         samplingReport.reserve(S_ticks);
         for (const merian::Profiler::ReportEntry& entry : profiler->get_report().gpu_report) {
@@ -220,7 +223,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
             }
         }
 
-        for (const auto report : samplingReport) {
+        for (const auto& report : samplingReport) {
             results.entries.push_back(ConfigResult{
                 .N = n,
                 .S = std::get<0>(report),

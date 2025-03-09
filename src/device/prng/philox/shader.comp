@@ -17,11 +17,11 @@ const uint PHILOX_W32 = 0x9E3779B9u; // Weyl constant
 const uint PHILOX_ROUNDS = 7;
 
 void philox2x32Round(inout uint x0, inout uint x1, uint k) {
-  uint hi;
-  uint lo;
-  umulExtended(x0, PHILOX_M2x32, hi, lo);
-  x0 = x1 ^ hi;
-  x1 = lo + k;
+    uint hi;
+    uint lo;
+    umulExtended(x0, PHILOX_M2x32, hi, lo);
+    x0 = x1 ^ hi;
+    x1 = lo + k;
 }
 
 // Philox2x32-10 implementation
@@ -45,11 +45,24 @@ vec2 philoxRandom(uvec2 counter, uint key) {
     return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
 }
 
+// Function to generate an exponentially distributed value
+float exponentialDist(float u, float lambda) {
+    return -1.0 / lambda * log(u);
+}
+
 void main() {
     const uint gid = gl_GlobalInvocationID.x;
     const uvec2 counter = uvec2(gid, 0);
     const uint key = pc.seed; // Example seed key
 
     float u = philoxRandom(counter, key).y;
+
+    #ifdef UNIFORM_DISTRIBUTION
     samples[gid] = u;
+    #elif defined(EXP_DISTRIBUTION)
+    samples[gid] = exponentialDist(max(u, 1e-6), 1);
+    #else 
+    UNSUPPORTED-DISTRIBUTION
+    #endif
 }
+

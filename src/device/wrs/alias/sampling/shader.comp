@@ -34,36 +34,21 @@ layout(push_constant) uniform PushConstant {
 // Constants for Philox2x32-10
 const uint PHILOX_M2x32 = 0xD256D193u; // Multiplication constant
 const uint PHILOX_W32 = 0x9E3779B9u; // Weyl constant
-const uint PHILOX_ROUNDS = 10;
+const uint PHILOX_ROUNDS = 7;
 
-void philoxRound(inout uint x0, inout uint x1, uint k) {
-    uint lo0 = x0 & 0xFFFFu; // Lower 16 bits of x0
-    uint hi0 = x0 >> 16; // Upper 16 bits of x0
-
-    uint lo1 = PHILOX_M2x32 & 0xFFFFu; // Lower 16 bits of PHILOX_M2x32
-    uint hi1 = PHILOX_M2x32 >> 16; // Upper 16 bits of PHILOX_M2x32
-
-    // Full 64-bit multiplication emulation
-    uint lo = lo0 * lo1; // Low 32 bits of multiplication
-    uint mid1 = lo0 * hi1; // Cross-product
-    uint mid2 = hi0 * lo1; // Cross-product
-    uint hi = hi0 * hi1; // High 32 bits of multiplication
-
-    hi += (mid1 >> 16) + (mid2 >> 16); // Accumulate carries
-    lo += (mid1 << 16); // Combine lower bits
-    lo += (mid2 << 16); // Combine lower bits
-    if (lo < (mid1 << 16)) hi++; // Handle carry
-    if (lo < (mid2 << 16)) hi++; // Handle carry
-
-    x0 = hi ^ x1 ^ k; // Use the computed high 32 bits
-    x1 = lo; // Use the low 32 bits directly
+void philox2x32Round(inout uint x0, inout uint x1, uint k) {
+    uint hi;
+    uint lo;
+    umulExtended(x0, PHILOX_M2x32, hi, lo);
+    x0 = x1 ^ hi;
+    x1 = lo + k;
 }
 
 // Philox2x32-10 implementation
-void philox2x32_10(inout uint x0, inout uint x1, uint key) {
+void philox2x32(inout uint x0, inout uint x1, uint key) {
     uint k = key;
     for (int i = 0; i < PHILOX_ROUNDS; i++) {
-        philoxRound(x0, x1, k);
+        philox2x32Round(x0, x1, k);
         k += PHILOX_W32; // Update the key with the Weyl constant
     }
 }
@@ -74,10 +59,10 @@ vec2 philoxRandom(uvec2 counter, uint key) {
     uint x1 = counter.y;
 
     // Apply 10 rounds of Philox
-    philox2x32_10(x0, x1, key);
+    philox2x32(x0, x1, key);
 
     // Return a single random number normalized to [0, 1)
-    return vec2(clamp(float(x0) / 4294967296.0, 0.0, 1.0), clamp(float(x1) / 4294967296.0, 0.0, 1.0)); // Normalize to [0, 1)
+    return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
 }
 
 void narrowSection(inout ivec2 section, uint target, inout uvec2 counter, uint key) {
@@ -121,8 +106,6 @@ void main(void) {
     if (COOPERATIVE_SAMPLE_SIZE != 0) {
         narrowSection(section, COOPERATIVE_SAMPLE_SIZE, counter, key);
     }
-
-    // uint sectionStartIdx = min(uint(U * N), N - SECTION_SIZE);
 
     samples[gid] = sampleSection(section, counter, key);
 }

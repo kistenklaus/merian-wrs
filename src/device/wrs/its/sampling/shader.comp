@@ -58,10 +58,31 @@ vec2 philoxRandom(uvec2 counter, uint key) {
     return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
 }
 
+float rand_xorshift(uint rng_state)
+{
+    // Xorshift algorithm from George Marsaglia's paper
+    rng_state ^= (rng_state << 13);
+    rng_state ^= (rng_state >> 17);
+    rng_state ^= (rng_state << 5);
+    return float(rng_state) / 4294967296.0;
+}
+
+float wang_hash(uint seed)
+{
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return float(seed) / 4294967296.0;
+}
+
 float sampleSearchRange(in uvec2 searchRange, uint seed) {
     uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, gl_GlobalInvocationID.x); // Use subgroup ID for random sample
     uint key = seed;
-    float u = philoxRandom(counter, key).x;
+    // float u = rand_xorshift(seed + gl_GlobalInvocationID.x);
+    float u = wang_hash(seed + gl_GlobalInvocationID.x);
+    // float u = philoxRandom(counter, seed).x;
     float lowCmf;
     if (searchRange.x > 0) {
         lowCmf = cmf[searchRange.x - 1];

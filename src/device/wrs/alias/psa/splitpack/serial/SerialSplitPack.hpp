@@ -33,8 +33,10 @@ struct SerialSplitPackConfig {
     const SplitConfig splitConfig;
     const PackConfig packConfig;
 
-    constexpr explicit SerialSplitPackConfig(SplitConfig splitConfig, PackConfig packConfig)
-        : splitConfig(splitConfig), packConfig(packConfig) {}
+    explicit SerialSplitPackConfig(SplitConfig splitConfig, PackConfig packConfig)
+        : splitConfig(splitConfig), packConfig(packConfig) {
+        assert(splitConfigSplitSize(splitConfig) == packConfigSplitSize(packConfig));
+    }
 };
 
 class SerialSplitPack {
@@ -53,6 +55,7 @@ class SerialSplitPack {
              const Buffers& buffers,
              host::glsl::uint N,
              std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+
 #ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->start("Serial-SplitPack");

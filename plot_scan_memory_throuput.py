@@ -6,7 +6,7 @@ from scipy.signal import savgol_filter
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
 # Load the data
-df = pd.read_csv("scan_benchmark.csv")
+df = pd.read_csv("scan_benchmark_flushL2_2.csv")
 property = "memory_throughput"
 
 # Group by N and method, then take the maximum throughput for each group

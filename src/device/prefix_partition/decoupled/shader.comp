@@ -346,6 +346,7 @@ void main(void) {
             }
             g_prefix.heavyLight[ix] = p;
             g_partition.heavyLight[ix] = index;
+
             #ifdef WRITE_PARTITION_ELEMENTS
             g_partitionElements.heavyLight[ix] = w;
             #endif

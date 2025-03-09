@@ -1,4 +1,3 @@
-#include "./wrs.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/utils/profiler.hpp"
@@ -9,7 +8,6 @@
 #include "src/device/prng/philox/Philox.hpp"
 #include "src/host/export/csv.hpp"
 #include "src/host/export/logscale.hpp"
-#include "src/host/gen/weight_generator.h"
 #include "vulkan/vulkan_enums.hpp"
 #include <algorithm>
 #include <csignal>
@@ -31,83 +29,83 @@ static constexpr bool flushL2 = true;
 static constexpr BlockScanVariant SUBGROUP_SCAN = BlockScanVariant::SUBGROUP_SCAN_SHFL;
 
 static const NamedConfig CONFIGURATIONS[] = {
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-2-SHFL",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config =
-            DecoupledPrefixSumConfig(512, 2, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-3-SHFL",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config =
-            DecoupledPrefixSumConfig(512, 3, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-4-SHFL",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config =
-            DecoupledPrefixSumConfig(512, 4, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-6-SHFL",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config =
-            DecoupledPrefixSumConfig(512, 6, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-8-SHFL",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config =
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-12-SHFL",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config =
-            DecoupledPrefixSumConfig(512, 12, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-16-SHFL",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config =
-            DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-2",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config = DecoupledPrefixSumConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-3",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config = DecoupledPrefixSumConfig(512, 3, BlockScanVariant::RANKED_STRIDED),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-4",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config = DecoupledPrefixSumConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-6",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config = DecoupledPrefixSumConfig(512, 6, BlockScanVariant::RANKED_STRIDED),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-8",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config = DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-12",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config = DecoupledPrefixSumConfig(512, 12, BlockScanVariant::RANKED_STRIDED),
-    }, //*/
-    NamedConfig{
-        .name = "SingleDispatch-RANKED-STRIDED-16",
-        .group = "SingleDispatch-RANKED-STRIDED",
-        .config = DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    }, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-2-SHFL",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config =
+    //        DecoupledPrefixSumConfig(512, 2, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-3-SHFL",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config =
+    //        DecoupledPrefixSumConfig(512, 3, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-4-SHFL",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config =
+    //        DecoupledPrefixSumConfig(512, 4, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-6-SHFL",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config =
+    //        DecoupledPrefixSumConfig(512, 6, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-8-SHFL",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config =
+    //        DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-12-SHFL",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config =
+    //        DecoupledPrefixSumConfig(512, 12, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-16-SHFL",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config =
+    //        DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-2",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config = DecoupledPrefixSumConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-3",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config = DecoupledPrefixSumConfig(512, 3, BlockScanVariant::RANKED_STRIDED),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-4",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config = DecoupledPrefixSumConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-6",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config = DecoupledPrefixSumConfig(512, 6, BlockScanVariant::RANKED_STRIDED),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-8",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config = DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-12",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config = DecoupledPrefixSumConfig(512, 12, BlockScanVariant::RANKED_STRIDED),
+    //}, //*/
+    //NamedConfig{
+    //    .name = "SingleDispatch-RANKED-STRIDED-16",
+    //    .group = "SingleDispatch-RANKED-STRIDED",
+    //    .config = DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
+    //}, //*/
     // NamedConfig{
     //     .name = "SingleDispatch-RAKING",
     //     .config = DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RAKING | SUBGROUP_SCAN),
@@ -163,7 +161,7 @@ static const NamedConfig CONFIGURATIONS[] = {
                                 SUBGROUP_SCAN,
                             1,
                             false),
-            BlockCombineConfig(512, 4, 1, 1))},
+            BlockCombineConfig(512, 8, 1, 1))},
     NamedConfig{
         .name = "BlockWise-RANKED-STRIDED-4-3-SHFL",
         .group = "BlockWise-RANKED-STRIDED",
@@ -175,7 +173,7 @@ static const NamedConfig CONFIGURATIONS[] = {
                                 SUBGROUP_SCAN,
                             1,
                             false),
-            BlockCombineConfig(512, 4, 1, 1))},
+            BlockCombineConfig(512, 4, 3, 1))},
     NamedConfig{
         .name = "BlockWise-RANKED-STRIDED-4-4-SHFL",
         .group = "BlockWise-RANKED-STRIDED",
@@ -187,7 +185,7 @@ static const NamedConfig CONFIGURATIONS[] = {
                                 SUBGROUP_SCAN,
                             1,
                             false),
-            BlockCombineConfig(512, 4, 1, 1))},
+            BlockCombineConfig(512, 4, 4, 1))},
     NamedConfig{
         .name = "BlockWise-RANKED-STRIDED-2-2-SHFL",
         .group = "BlockWise-RANKED-STRIDED",
@@ -211,7 +209,7 @@ static const NamedConfig CONFIGURATIONS[] = {
                                 SUBGROUP_SCAN,
                             1,
                             false),
-            BlockCombineConfig(512, 4, 1, 1))},
+            BlockCombineConfig(512, 8, 1, 1))},
     NamedConfig{
         .name = "BlockWise-RANKED-STRIDED-8-1-SHFL",
         .group = "BlockWise-RANKED-STRIDED",
@@ -221,7 +219,7 @@ static const NamedConfig CONFIGURATIONS[] = {
                 512,
                 8,
                 BlockScanVariant::RANKED_STRIDED | BlockScanVariant::EXCLUSIVE | SUBGROUP_SCAN,
-                1,
+                2,
                 false),
             BlockCombineConfig(512, 8, 1, 1))},
     NamedConfig{
@@ -233,7 +231,19 @@ static const NamedConfig CONFIGURATIONS[] = {
                 512,
                 8,
                 BlockScanVariant::RANKED_STRIDED | BlockScanVariant::EXCLUSIVE | SUBGROUP_SCAN,
-                1,
+                2,
+                false),
+            BlockCombineConfig(512, 8, 2, 1))},
+    NamedConfig{
+        .name = "BlockWise-RANKED-STRIDED-8-2-SHFL",
+        .group = "BlockWise-RANKED-STRIDED",
+        .config = BlockWiseScanConfig(
+            BlockScanConfig(512, 8, BlockScanVariant::RANKED_STRIDED | SUBGROUP_SCAN, 2, true),
+            BlockScanConfig(
+                512,
+                8,
+                BlockScanVariant::RANKED_STRIDED | BlockScanVariant::EXCLUSIVE | SUBGROUP_SCAN,
+                8,
                 false),
             BlockCombineConfig(512, 8, 2, 1))},
     // NamedConfig{
@@ -371,7 +381,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     ConfigBenchmark results;
     results.entries.reserve(ticks);
 
-    PRNG prng{context, shaderCompiler, PhiloxConfig(512)};
+    PRNG prng{context, shaderCompiler, PhiloxConfig()};
     PRNGBuffers prngBuffers;
     prngBuffers.samples = local.elements;
     PRNGBuffers flushBuffers;

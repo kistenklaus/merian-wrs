@@ -10,6 +10,7 @@
 #include "merian/vk/shader/shader_compiler.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/host/types/glsl.hpp"
+#include <bit>
 #include <fmt/base.h>
 #include <fmt/format.h>
 #include <memory>
@@ -37,11 +38,13 @@ struct InlineSplitPackBuffers {
 
 struct InlineSplitPackConfig {
     const host::glsl::uint workgroupSize;
+    const host::glsl::uint subgroupSplit;
     const host::glsl::uint splitSize;
 
     constexpr explicit InlineSplitPackConfig(host::glsl::uint splitSize,
+                                             host::glsl::uint subgroupSplit = 4,
                                              const host::glsl::uint workgroupSize = 512)
-        : workgroupSize(workgroupSize), splitSize(splitSize) {}
+        : workgroupSize(workgroupSize), subgroupSplit(subgroupSplit), splitSize(splitSize) {}
 };
 
 class InlineSplitPack {
@@ -75,8 +78,7 @@ class InlineSplitPack {
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             setBuilder.build_push_descriptor_layout(context);
 
-        const std::string shaderPath =
-            "src/device/wrs/alias/psa/splitpack/inline/shader.comp";
+        const std::string shaderPath = "src/device/wrs/alias/psa/splitpack/inline/shader2.comp";
 
         std::map<std::string, std::string> defines;
         if (m_usePartitionElements) {
@@ -94,9 +96,22 @@ class InlineSplitPack {
 
         merian::SpecializationInfoBuilder specInfoBuilder;
         specInfoBuilder.add_entry(m_workgroupSize);
-        specInfoBuilder.add_entry(
-            context->physical_device.physical_device_subgroup_properties.subgroupSize);
+        host::glsl::uint subgroupSize = context->physical_device.physical_device_subgroup_properties.subgroupSize;
+        specInfoBuilder.add_entry(subgroupSize);
         specInfoBuilder.add_entry(m_splitSize);
+
+        assert(subgroupSize % config.subgroupSplit == 0);
+        host::glsl::uint threadsPerSubproblem = subgroupSize / config.subgroupSplit;
+        assert(threadsPerSubproblem <= config.splitSize);
+
+        specInfoBuilder.add_entry(threadsPerSubproblem);
+        host::glsl::uint log2ThreadsPerSubproblem = std::bit_width(threadsPerSubproblem) - 1;
+        specInfoBuilder.add_entry(log2ThreadsPerSubproblem);
+
+        host::glsl::uint subgroupCount = (config.workgroupSize + subgroupSize - 1) / subgroupSize;
+        m_subproblemsPerWorkgroup = subgroupCount * config.subgroupSplit;
+
+
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);
@@ -138,8 +153,9 @@ class InlineSplitPack {
                                                           .K = K,
                                                           .N = N,
                                                       });
-        const host::glsl::uint splitsPerDispatch = m_workgroupSize - 1;
-        const host::glsl::uint workgroupCount = (K + splitsPerDispatch - 1) / splitsPerDispatch;
+        /* const host::glsl::uint splitsPerDispatch = m_workgroupSize - 1; */
+        const uint32_t workgroupCount =
+            (K + m_subproblemsPerWorkgroup - 1) / m_subproblemsPerWorkgroup;
         cmd->dispatch(workgroupCount, 1, 1);
 
 #ifdef MERIAN_PROFILER_ENABLE
@@ -153,6 +169,7 @@ class InlineSplitPack {
   private:
     merian::PipelineHandle m_pipeline;
     const host::glsl::uint m_workgroupSize;
+    host::glsl::uint m_subproblemsPerWorkgroup;
     const host::glsl::uint m_splitSize;
     const bool m_usePartitionElements;
 };

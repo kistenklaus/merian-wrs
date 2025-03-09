@@ -34,9 +34,9 @@ struct PSAConfig {
     }
 
     inline std::string name() const {
-      return fmt::format("PSA-[{}]-[{}]-[{}]", meanConfigName(meanConfig),
-          prefixPartitionConfigName(prefixPartitionConfig),
-          splitPackConfigName(splitPackConfig));
+        return fmt::format("PSA-[{}]-[{}]-[{}]", meanConfigName(meanConfig),
+                           prefixPartitionConfigName(prefixPartitionConfig),
+                           splitPackConfigName(splitPackConfig));
     }
 };
 

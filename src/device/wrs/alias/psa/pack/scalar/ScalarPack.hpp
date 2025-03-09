@@ -14,6 +14,7 @@
 #include "src/host/types/glsl.hpp"
 #include <fmt/base.h>
 #include <memory>
+#include <spdlog/spdlog.h>
 #include <vulkan/vulkan_handles.hpp>
 
 #include "merian/vk/memory/resource_allocator.hpp"

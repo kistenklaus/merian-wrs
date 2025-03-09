@@ -26,14 +26,10 @@ device::SubgroupPackBuffers device::SubgroupPackBuffers::allocate(merian::Resour
                                                  vk::BufferUsageFlagBits::eStorageBuffer |
                                                      vk::BufferUsageFlagBits::eTransferSrc,
                                                  memoryMapping);
-        buffers.partition = alloc->createBuffer(PartitionLayout::size(weightCount),
+        buffers.partitionElements = alloc->createBuffer(PartitionLayout::size(weightCount),
                 vk::BufferUsageFlagBits::eStorageBuffer |
                 vk::BufferUsageFlagBits::eTransferDst,
                 memoryMapping);
-        buffers.partitionPrefix = alloc->createBuffer(PartitionPrefixLayout::size(weightCount),
-            vk::BufferUsageFlagBits::eStorageBuffer |
-            vk::BufferUsageFlagBits::eTransferDst,
-            memoryMapping);
     } else {
         buffers.partitionIndices =
             alloc->createBuffer(PartitionIndicesLayout::size(weightCount),
@@ -48,13 +44,9 @@ device::SubgroupPackBuffers device::SubgroupPackBuffers::allocate(merian::Resour
             alloc->createBuffer(AliasTableLayout::size(weightCount),
                                 vk::BufferUsageFlagBits::eTransferDst, memoryMapping);
 
-        buffers.partition = alloc->createBuffer(PartitionLayout::size(weightCount),
+        buffers.partitionElements = alloc->createBuffer(PartitionLayout::size(weightCount),
                 vk::BufferUsageFlagBits::eTransferSrc,
                 memoryMapping);
-
-        buffers.partitionPrefix = alloc->createBuffer(PartitionPrefixLayout::size(weightCount),
-            vk::BufferUsageFlagBits::eTransferSrc,
-            memoryMapping);
     }
     return buffers;
 }

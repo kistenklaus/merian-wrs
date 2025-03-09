@@ -1,5 +1,4 @@
 #include "./test.hpp"
-#include "merian/vk/memory/memory_allocator.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/host/assert/is_prefix.hpp"
 #include "src/device/prefix_partition/PrefixPartition.hpp"
@@ -12,7 +11,6 @@
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
-#include <memory>
 #include <memory_resource>
 #include <spdlog/spdlog.h>
 
@@ -31,7 +29,7 @@ struct TestCase {
     uint32_t iterations;
 };
 
-static constexpr TestCase TEST_CASES[] = {
+static const TestCase TEST_CASES[] = {
     //
     TestCase{
         .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
@@ -130,7 +128,7 @@ downloadFromStage(Buffers& stage, host::glsl::uint N, std::pmr::memory_resource*
         .partitionPrefix = std::move(partitionPrefix),
         .heavyCount = heavyCount,
     };
-};
+}
 
 static bool runTestCase(const host::test::TestContext& context,
                         const TestCase& testCase,
@@ -235,6 +233,18 @@ static bool runTestCase(const host::test::TestContext& context,
                     heavy, light, elements, pivot, resource);
                 if (err) {
                     SPDLOG_ERROR("{} constructs invalid partition: \n{}", testName, err.message());
+                }
+
+                for (std::size_t i = 0; i < results.heavyCount; ++i) {
+                  if (heavy[i] != elements[results.partitionIndices[i]]) {
+                    SPDLOG_ERROR("Partition indices are not correct");
+                  }
+                }
+
+                for (std::size_t i = 0; i < (testCase.N - results.heavyCount); ++i) {
+                  if (light[i] != elements[results.partitionIndices[testCase.N - 1 - i]]) {
+                    SPDLOG_ERROR("Partition indices are not correct");
+                  }
                 }
 
 
