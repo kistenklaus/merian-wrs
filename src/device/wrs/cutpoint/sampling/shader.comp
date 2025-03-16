@@ -74,13 +74,13 @@ float wang_hash(uint seed)
 }
 
 float sampleSearchRange(in uvec2 searchRange, uint seed) {
-    uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, gl_GlobalInvocationID.x); // Use subgroup ID for random sample
+    uvec2 counter = uvec2(0, gl_GlobalInvocationID.x); // Use subgroup ID for random sample
     uint key = seed;
-    // float u = philoxRandom(counter, key).x;
-    float u = wang_hash(key + gl_GlobalInvocationID.x);
+    float u = philoxRandom(counter, key).x;
+    // float u = wang_hash(key + gl_GlobalInvocationID.x);
     float lowCmf;
     if (searchRange.x > 0) {
-        lowCmf = cmf[searchRange.x - 1];
+        lowCmf = cmf[searchRange.x];
     } else {
         lowCmf = 0;
     }
@@ -112,10 +112,10 @@ void main(void) {
 
     float u1; // subgroup wide uniform sample!
     if (subgroupElect()) {
-        uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, gl_GlobalInvocationID.x); // Use subgroup ID for random sample
+        uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, 0); // Use subgroup ID for random sample
         uint key = seed;
-        // u1 = philoxRandom(counter, key).x;
-        u1 = wang_hash(key + gl_GlobalInvocationID.x);
+        u1 = philoxRandom(counter, key).y;
+        // u1 = wang_hash(key + gl_GlobalInvocationID.x);
     }
     u1 = subgroupBroadcastFirst(u1); // Broadcast u1 to all threads in the subgroup
 

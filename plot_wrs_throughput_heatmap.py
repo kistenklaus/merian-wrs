@@ -1,0 +1,193 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import matplotlib.patches as mpatches
+from matplotlib.colors import to_rgb
+
+# ------------------------------------------------------
+# 1) Load data, compute throughput, select best method
+# ------------------------------------------------------
+bench_its_cutpoint = pd.read_csv("./wrs_benchmark_its_cutpoint_heatmap.csv")
+
+bench_its = bench_its_cutpoint.loc[
+    (bench_its_cutpoint["group"] == "ITS-0") |
+    (bench_its_cutpoint["group"] == "ITS-128") |
+    (bench_its_cutpoint["group"] == "ITS-128-pArray")
+]
+bench_its.loc[bench_its["group"] == "ITS-128-pArray", "group"] = "ITS-128"
+
+bench_psa = pd.read_csv("./wrs_benchmark.csv")
+
+bench_cutpoint = bench_its_cutpoint[
+    bench_its_cutpoint["group"] == "Cutpoint-128"
+]
+
+bench = pd.concat([bench_its, bench_cutpoint, bench_psa], ignore_index=True)
+
+print(bench["group"].unique())
+
+# For each (N, group), average build_latency
+# bench["build_latency"] = (
+#     bench.groupby(["N", "group"])["build_latency"].transform("mean")
+# )
+
+# Compute total latency + throughput
+latencyBase = "latency"
+bench["latency"] = bench["build_latency"] + bench["sampling_latency"]
+bench["throughput"] = bench["S"] / (bench[latencyBase] * 1e-3) * 1e-9
+
+# Choose best method per (N, S)
+best_bench = bench.loc[bench.groupby(["N","S"])["throughput"].idxmax()]
+
+def foo(df, xAxis, yAxis, property, colormap, labels, xscale, yscale, xPixels, yPixels, xticks, yticks,
+        xlabel, ylabel):
+    df = df.copy()
+    if xscale == "log":
+        # Filter out non-positive values because log scaling requires positive numbers.
+        df = df[df[xAxis] > 0]
+        x_min = df[xAxis].min()
+        x_max = df[xAxis].max()
+        # Compute bin indices in log space.
+        df['bin_x'] = ((np.log(df[xAxis]) - np.log(x_min)) / (np.log(x_max) - np.log(x_min)) * xPixels).astype(int)
+    elif xscale == "linear":
+        x_min = df[xAxis].min()
+        x_max = df[xAxis].max()
+        # Compute bin indices in linear space.
+        df['bin_x'] = ((df[xAxis] - x_min) / (x_max - x_min) * xPixels).astype(int)
+    else:
+        raise ValueError("xscale must be either 'linear' or 'log'")
+
+    if yscale == "log":
+        # Filter out non-positive values because log scaling requires positive numbers.
+        df = df[df[yAxis] > 0]
+        y_min = df[yAxis].min()
+        y_max = df[yAxis].max()
+        # Compute bin indices in log space.
+        df['bin_y'] = ((np.log(df[yAxis]) - np.log(y_min)) / (np.log(y_max) - np.log(y_min)) * yPixels).astype(int)
+    elif yscale == "linear":
+        y_min = df[yAxis].min()
+        y_max = df[yAxis].max()
+        # Compute bin indices in linear space.
+        df['bin_y'] = ((df[yAxis] - y_min) / (y_max - y_min) * yPixels).astype(int)
+    else:
+        raise ValueError("yscale must be either 'linear' or 'log'")
+
+    df['bin_x'] = df['bin_x'].clip(upper=xPixels - 1)
+    df['bin_y'] = df['bin_y'].clip(upper=yPixels - 1)
+
+    def aggregate_group(group):
+        # Use mode to get the most common property (assuming property is a string).
+        mode_property = group[property].mode()[0]
+        # Compute representative x and y values for the bin (using the mean of the original coordinates).
+        rep_x = group[xAxis].median()
+        rep_y = group[yAxis].median()
+        bin_x = group['bin_x'].iloc[0]
+        bin_y = group['bin_y'].iloc[0]
+        return pd.Series({xAxis: rep_x, yAxis: rep_y, 'bin_x': bin_x, 'bin_y': bin_y, property: mode_property})
+
+    grouped_df = df.groupby(['bin_x', 'bin_y']).apply(aggregate_group).reset_index(drop=True)
+
+    print("Binned DataFrame:\n", df)
+    print("\nAggregated DataFrame by bin:\n", grouped_df)
+
+    # Create a blank image with a white background.
+    image = np.ones((yPixels, xPixels, 3))
+    
+    # Convert the colormap to RGB.
+    color_map_rgb = {key: to_rgb(color) for key, color in colormap.items()}
+    
+    # Populate the image: use bin_x and bin_y as pixel coordinates.
+    for _, row in grouped_df.iterrows():
+        x_idx = int(row['bin_x'])
+        y_idx = int(row['bin_y'])
+        prop_value = row[property]
+        rgb = color_map_rgb.get(prop_value, (0, 0, 0))
+        image[y_idx, x_idx, :] = rgb
+
+    # Determine the data coordinate extent from the representative x and y values.
+    # (These should reflect the overall data coordinate range.)
+    if not grouped_df.empty:
+        data_x_min = grouped_df[xAxis].min()
+        data_x_max = grouped_df[xAxis].max()
+        data_y_min = grouped_df[yAxis].min()
+        data_y_max = grouped_df[yAxis].max()
+    else:
+        data_x_min, data_x_max = 0, xPixels
+        data_y_min, data_y_max = 0, yPixels
+
+    # Transform the extent based on the scaling.
+    if xscale == "log":
+        extent_x_min = np.log10(data_x_min)
+        extent_x_max = np.log10(data_x_max)
+    else:
+        extent_x_min = data_x_min
+        extent_x_max = data_x_max
+
+    if yscale == "log":
+        extent_y_min = np.log10(data_y_min)
+        extent_y_max = np.log10(data_y_max)
+    else:
+        extent_y_min = data_y_min
+        extent_y_max = data_y_max
+
+    # Create the plot, using extent to map pixel coordinates to data coordinates.
+    plt.figure(figsize=(8, 6))
+    plt.imshow(image, origin='lower', extent=(extent_x_min, extent_x_max, extent_y_min, extent_y_max))
+    
+    # Build the legend: one entry per key in the colormap.
+    legend_handles = []
+    for key, color in colormap.items():
+        label_text = labels.get(key, key)
+        patch = mpatches.Patch(color=to_rgb(color), label=label_text)
+        legend_handles.append(patch)
+    # plt.legend(handles=legend_handles, loc='center left', bbox_to_anchor=(1, 0.5), frameon=False)
+    
+    # Get current axes to set custom ticks.
+    ax = plt.gca()
+
+    if xscale == "log":
+        # Transform tick positions to log space.
+        xtick_positions = [np.log10(t) for t in xticks]
+        x_tick_labels = [r'$10^{%d}$' % int(np.log10(t)) for t in xticks]
+    else:
+        xtick_positions = xticks
+        x_tick_labels = [str(t) for t in xticks]
+    ax.set_xticks(xtick_positions)
+    ax.set_xticklabels(x_tick_labels)
+
+    # Set custom y ticks.
+    if yscale == "log":
+        ytick_positions = [np.log10(t) for t in yticks]
+        y_tick_labels = [r'$10^{%d}$' % int(np.log10(t)) for t in yticks]
+    else:
+        ytick_positions = yticks
+        y_tick_labels = [str(t) for t in yticks]
+    ax.set_yticks(ytick_positions)
+    ax.set_yticklabels(y_tick_labels)
+    
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+plt.rcParams.update({'font.size': 20})
+
+colormap = {
+        "ITS-0" : "tab:blue",
+        "ITS-128" : "tab:orange",
+        "Cutpoint-128" : "tab:green",
+        "PSA2-0" : "tab:red",
+        "PSA2-128" : "tab:brown",
+        }
+labels ={
+        "ITS-0": "its-baseline",
+        "ITS-128" : "its-coop",
+        "Cutpoint-128" : "cutpoint",
+        "PSA2-0" : "psa-baseline",
+        "PSA2-128" : "psa-sectioned",
+        }
+# Call the function to plot the image.
+foo(best_bench, "N", "S", "group", colormap, labels, "log", "log", 250, 250,
+    [1e5,1e6,1e7], [1e5,1e6,1e7], xlabel="Amount of Items (N)", ylabel="Amount of Samples (S)")
+
+
+plt.savefig(f'wrs_throughput_heatmap.pdf', format="pdf")
+plt.show()

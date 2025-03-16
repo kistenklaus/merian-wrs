@@ -77,12 +77,28 @@ float wang_hash(uint seed)
     return float(seed) / 4294967296.0;
 }
 
+float sampleCorrelatedRange(uint seed, uint N) {
+    uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, gl_GlobalInvocationID.x); // Use subgroup ID for random sample
+    uint key = seed ^ 0x12398167;
+
+    const float totalWeight = cmf[N - 1];
+
+    const uint cooperativeSampleSections = N / COOPERATIVE_SAMPLE_SIZE;
+    const float step = totalWeight / cooperativeSampleSections;
+
+    // sample random section
+    vec2 u = philoxRandom(counter, key);
+    float u1 = subgroupBroadcastFirst(u.x);
+    float w = min(step * (uint(u1 * cooperativeSampleSections) + u.y), totalWeight);
+    return w;
+}
+
 float sampleSearchRange(in uvec2 searchRange, uint seed) {
     uvec2 counter = uvec2(gl_WorkGroupID.x * gl_NumSubgroups + gl_SubgroupID, gl_GlobalInvocationID.x); // Use subgroup ID for random sample
     uint key = seed;
     // float u = rand_xorshift(seed + gl_GlobalInvocationID.x);
-    float u = wang_hash(seed + gl_GlobalInvocationID.x);
-    // float u = philoxRandom(counter, seed).x;
+    // float u = wang_hash(seed + gl_GlobalInvocationID.x);
+    float u = philoxRandom(counter, seed).x;
     float lowCmf;
     if (searchRange.x > 0) {
         lowCmf = cmf[searchRange.x - 1];
@@ -98,7 +114,8 @@ uint searchRangeSize(in uvec2 searchRange) {
 }
 
 void binaryNarrow(inout uvec2 searchRange, uint bound, float u) {
-    while (searchRangeSize(searchRange) > bound) {
+    uvec2 backup = searchRange;
+    while (searchRangeSize(searchRange) >= bound) {
         uint mid = (searchRange.x + searchRange.y) / 2;
         if (u > cmf[mid]) {
             searchRange.x = mid + 1;
@@ -106,6 +123,8 @@ void binaryNarrow(inout uvec2 searchRange, uint bound, float u) {
             searchRange.y = mid;
         }
     }
+    searchRange.x -= 1;
+    searchRange.y += 1;
 }
 
 void pArrayNarrow(inout uvec2 searchRange, uint bound, float u) {
@@ -149,29 +168,21 @@ void main(void) {
 
     uvec2 searchRange = uvec2(0, N - 1);
 
+    float u;
     if (COOPERATIVE_SAMPLE_SIZE != 0) { // cooperative narrowing disabled!
 
-        // Step 1: Generate shared random number for the subgroup
-        float u1;
-        if (subgroupElect()) {
-            u1 = sampleSearchRange(searchRange, seed);
-        }
-        u1 = subgroupBroadcastFirst(u1); // Broadcast u1 to all threads in the subgroup
+      u = sampleCorrelatedRange(seed, N);
 
-        if (USE_P_ARRAY_SEARCH) {
-            pArrayNarrow(searchRange, COOPERATIVE_SAMPLE_SIZE, u1);
-        } else {
-            binaryNarrow(searchRange, COOPERATIVE_SAMPLE_SIZE, u1);
-        }
+      // pArrayNarrow(searchRange, COOPERATIVE_SAMPLE_SIZE, u);
+        
+    } else {
+        // Step 3: Continue Binary Search Independently
+        uvec2 counter = uvec2(gl_GlobalInvocationID.x, 0); // Independent counter for each thread
+        uint key = seed ^ 0xA9EC5C80; // Independent key for each thread
+        // float u2 = cmf[searchRange.x] + philoxRandom(counter, key).x * (cmf[searchRange.y] - cmf[searchRange.x]);
+        u = sampleSearchRange(searchRange, seed);
     }
+    binarySearch(searchRange, u);
 
-    // Step 3: Continue Binary Search Independently
-    uvec2 counter = uvec2(gl_GlobalInvocationID.x, 0); // Independent counter for each thread
-    uint key = seed ^ 0xA9EC5C80; // Independent key for each thread
-    // float u2 = cmf[searchRange.x] + philoxRandom(counter, key).x * (cmf[searchRange.y] - cmf[searchRange.x]);
-    float u2 = sampleSearchRange(searchRange, seed ^ 0xA9EC5C80);
-
-    binarySearch(searchRange, u2);
-
-    samples[gid] = searchRange.x; // Store the final sample
+    samples[gid] = searchRange.y; // Store the final sample
 }

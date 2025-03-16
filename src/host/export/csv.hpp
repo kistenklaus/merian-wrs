@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
- 
+
 namespace host::exp { // export namespace is not available (keyword)
 
 template <std::size_t HeaderCount> class CSVWriter {
@@ -103,6 +103,12 @@ template <std::size_t HeaderCount> class CSVWriter {
         buffer.push_back('\n');
     }
 
+    void flush() {
+      flushBuffer();
+      file.flush();
+    }
+
+
   private:
     std::ofstream file;
     char separator;
@@ -133,6 +139,6 @@ template <std::size_t HeaderCount> class CSVWriter {
     }
 };
 
-} // namespace wrs::exp
+} // namespace host::exp
 
 /* static_assert(std::is_same_v<std::remove_reference_t<std::string>, std::string>); */

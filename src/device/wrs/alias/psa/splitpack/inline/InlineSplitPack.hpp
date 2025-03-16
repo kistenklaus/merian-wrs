@@ -37,13 +37,13 @@ struct InlineSplitPackBuffers {
 };
 
 struct InlineSplitPackConfig {
-    const host::glsl::uint workgroupSize;
-    const host::glsl::uint subgroupSplit;
-    const host::glsl::uint splitSize;
+    host::glsl::uint workgroupSize;
+    host::glsl::uint subgroupSplit;
+    host::glsl::uint splitSize;
 
     constexpr explicit InlineSplitPackConfig(host::glsl::uint splitSize,
                                              host::glsl::uint subgroupSplit = 4,
-                                             const host::glsl::uint workgroupSize = 512)
+                                             const host::glsl::uint workgroupSize = 128)
         : workgroupSize(workgroupSize), subgroupSplit(subgroupSplit), splitSize(splitSize) {}
 };
 
@@ -109,7 +109,11 @@ class InlineSplitPack {
         specInfoBuilder.add_entry(log2ThreadsPerSubproblem);
 
         host::glsl::uint subgroupCount = (config.workgroupSize + subgroupSize - 1) / subgroupSize;
-        m_subproblemsPerWorkgroup = subgroupCount * config.subgroupSplit;
+        if (config.subgroupSplit == subgroupSize) {
+          m_subproblemsPerWorkgroup = subgroupCount * config.subgroupSplit - 1;
+        }else {
+          m_subproblemsPerWorkgroup = subgroupCount * config.subgroupSplit;
+        }
 
 
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
@@ -156,6 +160,7 @@ class InlineSplitPack {
         /* const host::glsl::uint splitsPerDispatch = m_workgroupSize - 1; */
         const uint32_t workgroupCount =
             (K + m_subproblemsPerWorkgroup - 1) / m_subproblemsPerWorkgroup;
+
         cmd->dispatch(workgroupCount, 1, 1);
 
 #ifdef MERIAN_PROFILER_ENABLE

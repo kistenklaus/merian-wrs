@@ -81,11 +81,11 @@ struct ScalarSplitBuffers {
 };
 
 struct ScalarSplitConfig {
-    const host::glsl::uint workgroupSize;
-    const host::glsl::uint splitSize;
+    host::glsl::uint workgroupSize;
+    host::glsl::uint splitSize;
 
     constexpr explicit ScalarSplitConfig(host::glsl::uint splitSize,
-                                         host::glsl::uint workgroupSize = 512)
+                                         host::glsl::uint workgroupSize = 128)
         : workgroupSize(workgroupSize), splitSize(splitSize) {}
 };
 

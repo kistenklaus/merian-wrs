@@ -1,23 +1,30 @@
+from re import A
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 
-numPoints = 100
+numPoints = 10000
 maxN = 1e8
 minN = 1e5
 
 bench_unserious = pd.read_csv("./wrs_benchmark_sample_throughput.csv")
 
-bench_1 = pd.read_csv("./wrs_benchmark_sample_throughput_1.csv")
-bench_2 = pd.read_csv("./wrs_benchmark_sample_throughput_2.csv")
-# bench_3 = pd.read_csv("./partition_scan_benchmark_3.csv")
+# bench_1 = pd.read_csv("./wrs_benchmark_sample_throughput_1.csv")
+# bench_2 = pd.read_csv("./wrs_benchmark_sample_throughput_2.csv")
+bench_3 = pd.read_csv("./wrs_benchmark_sample_throughput3.csv")
 
-bench = pd.concat([bench_1, bench_2])
+bench = pd.concat([bench_unserious, bench_3])
 
 bench = bench[(bench["N"] >= minN) & (bench["N"] <= maxN)]
 
 property = "sample_throughput"
-aggregate = "max";
+aggregate = "median";
+latencyBase = "latency"
+
+print(bench.columns)
+
+bench["latency"] = bench["build_latency"] + bench["sample_latency"]
+bench["sample_throughput"] = bench["S"] / (bench[latencyBase] * 1e-3) * 1e-9
 
 def merge_duplicates(df, property):
     methods = df.groupby(["flushL2", "method", "N", "group"]).agg(
@@ -44,11 +51,14 @@ def selectMethod(df, method):
 
     return (withL2, flushL2)
 
-binaryWithL2, binaryFlushL2 = selectMethod(groups, "ITS-Binary")
-coopWithL2, coopFlushL2 = selectMethod(groups, "ITS-BinaryCoop")
-pArrayWithL2, pArrayFlushL2 = selectMethod(groups, "ITS-pArrayCoop")
+print(groups["method"].unique())
+
+binaryWithL2, binaryFlushL2 = selectMethod(groups, "ITS-Binary128")
+coopWithL2, coopFlushL2 = selectMethod(groups, "ITS-BinaryCoop128")
+pArrayWithL2, pArrayFlushL2 = selectMethod(groups, "ITS-pArrayCoop128")
 cutpointWithL2, cutpointFlushL2 = selectMethod(groups, "Cutpoint")
-aliasInlineWithL2, aliasInlineFlushL2 = selectMethod(groups, "PSA-Inline")
+alias0, alias0FlushL2 = selectMethod(groups, "PSA2-0")
+alias128, alias128FlushL2 = selectMethod(groups, "PSA2-128")
 
 
 def binedAverage(df, B):
@@ -73,26 +83,13 @@ coopFlushL2 = binedAverage(coopFlushL2, numPoints)
 cutpointWithL2 = binedAverage( cutpointWithL2, numPoints)
 cutpointFlushL2 = binedAverage(cutpointFlushL2, numPoints)
 
-aliasInlineWithL2 = binedAverage(aliasInlineWithL2, numPoints)
-aliasInlineFlushL2 = binedAverage(aliasInlineFlushL2, numPoints)
+alias0 = binedAverage(alias0, numPoints)
+alias0FlushL2 = binedAverage(alias0FlushL2, numPoints)
+
+alias128 = binedAverage(alias128, numPoints)
+alias128FlushL2 = binedAverage(alias128FlushL2, numPoints)
 
 
-binaryWithL2["aggregate"] = binaryWithL2["aggregate"] * 1e-9;
-binaryFlushL2["aggregate"] = binaryFlushL2["aggregate"] * 1e-9;
-
-coopWithL2["aggregate"] = coopWithL2["aggregate"] * 1e-9;
-coopFlushL2["aggregate"] = coopFlushL2["aggregate"] * 1e-9;
-
-pArrayWithL2["aggregate"] = pArrayWithL2["aggregate"] * 1e-9;
-pArrayFlushL2["aggregate"] = pArrayFlushL2["aggregate"] * 1e-9;
-
-cutpointWithL2["aggregate"] =  cutpointWithL2["aggregate"] * 1e-9;
-cutpointFlushL2["aggregate"] = cutpointFlushL2["aggregate"] * 1e-9;
-
-aliasInlineWithL2["aggregate"] =  aliasInlineWithL2["aggregate"] * 1e-9;
-aliasInlineFlushL2["aggregate"] = aliasInlineFlushL2["aggregate"] * 1e-9;
-
-print(aliasInlineWithL2)
 
 plt.plot(binaryFlushL2["N"], binaryFlushL2["aggregate"], "-", color="tab:blue", label="baseline")
 plt.plot(binaryWithL2["N"], binaryWithL2["aggregate"], ':', color="tab:blue")
@@ -107,9 +104,15 @@ plt.plot(cutpointWithL2["N"],  cutpointWithL2["aggregate"], ':', color="tab:red"
 # plt.plot(pArrayFlushL2["N"], pArrayFlushL2["aggregate"], "-", color="tab:green", label="coop-pArray-128")
 # plt.plot(pArrayWithL2["N"],  pArrayWithL2["aggregate"], ':', color="tab:green")
 
-plt.plot(aliasInlineFlushL2["N"], aliasInlineFlushL2["aggregate"], "-", color="tab:green", label="alias-inline")
-plt.plot(aliasInlineWithL2["N"],  aliasInlineWithL2["aggregate"], ':', color="tab:green")
+# plt.plot(aliasInlineFlushL2["N"], aliasInlineFlushL2["aggregate"], "-", color="tab:green", label="alias-inline")
+# plt.plot(aliasInlineWithL2["N"],  aliasInlineWithL2["aggregate"], ':', color="tab:green")
 
+
+plt.plot(alias0FlushL2["N"], alias0FlushL2["aggregate"], "-", color="tab:green", label="baseline-alias")
+plt.plot(alias0["N"],  alias0["aggregate"], ':', color="tab:green")
+
+plt.plot(alias128FlushL2["N"], alias128FlushL2["aggregate"], "-", color="tab:brown", label="section-sampling-128")
+plt.plot(alias128["N"],  alias128["aggregate"], ':', color="tab:brown")
 
 
 # plt.plot(memcpyWithoutElemFlushL2["N"], memcpyWithoutElemFlushL2["aggregate"], "-", color="tab:red", label="memcpy")

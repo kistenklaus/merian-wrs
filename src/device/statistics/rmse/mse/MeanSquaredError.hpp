@@ -70,7 +70,8 @@ class MeanSquaredError {
                 .add_binding_storage_buffer() // rme
                 .build_push_descriptor_layout(context);
 
-        const std::string shaderPath = "src/wrs/algorithm/rmse/mse/shader.comp";
+
+        const std::string shaderPath = "src/device/statistics/rmse/mse/shader.comp";
 
         const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
             context, shaderPath, vk::ShaderStageFlagBits::eCompute);

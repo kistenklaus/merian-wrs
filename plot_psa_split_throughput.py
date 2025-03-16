@@ -6,7 +6,7 @@ numPoints = 100
 maxN = 1e10
 minN = 1e5
 
-bench_unserious = pd.read_csv("FUUUCK")
+bench_unserious = pd.read_csv("./psa_split_benchmark_splitSizes.csv")
 
 
 bench = pd.concat([bench_unserious])

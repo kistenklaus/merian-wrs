@@ -66,37 +66,37 @@ static const NamedConfig CONFIGURATIONS[] = {
                 .config = SubgroupPackConfig(119, 1, 128),
                 .flushL2 = true}, //
                                   //
-    NamedConfig{                  //
-                .name = "ScalarPack-128-5",
-                .group = "pack1",
-                .config = ScalarPackConfig(5, 128),
-                .flushL2 = false}, //
-    NamedConfig{                   //
-                .name = "SubgroupPack-2-128-10",
-                .group = "pack2",
-                .config = SubgroupPackConfig(10, 16, 128),
-                .flushL2 = false}, //
-    NamedConfig{                   //
-                .name = "SubgroupPack-4-128-21",
-                .group = "pack4",
-                .config = SubgroupPackConfig(21, 8, 128),
-                .flushL2 = false}, //
-    NamedConfig{                   //
-                .name = "SubgroupPack-8-128-33",
-                .group = "pack8",
-                .config = SubgroupPackConfig(33, 4, 128),
-                .flushL2 = false}, //
-    NamedConfig{                   //
-                .name = "SubgroupPack-16-128-111",
-                .group = "pack16",
-                .config = SubgroupPackConfig(111, 2, 128),
-                .flushL2 = false}, //
-    NamedConfig{                   //
-                .name = "SubgroupPack-32-128-119",
-                .group = "pack32",
-                .config = SubgroupPackConfig(119, 1, 128),
-                .flushL2 = false}, //
-
+    //    NamedConfig{                  //
+    //                .name = "ScalarPack-128-5",
+    //                .group = "pack1",
+    //                .config = ScalarPackConfig(5, 128),
+    //                .flushL2 = false}, //
+    //    NamedConfig{                   //
+    //                .name = "SubgroupPack-2-128-10",
+    //                .group = "pack2",
+    //                .config = SubgroupPackConfig(10, 16, 128),
+    //                .flushL2 = false}, //
+    //    NamedConfig{                   //
+    //                .name = "SubgroupPack-4-128-21",
+    //                .group = "pack4",
+    //                .config = SubgroupPackConfig(21, 8, 128),
+    //                .flushL2 = false}, //
+    //    NamedConfig{                   //
+    //                .name = "SubgroupPack-8-128-33",
+    //                .group = "pack8",
+    //                .config = SubgroupPackConfig(33, 4, 128),
+    //                .flushL2 = false}, //
+    //    NamedConfig{                   //
+    //                .name = "SubgroupPack-16-128-111",
+    //                .group = "pack16",
+    //                .config = SubgroupPackConfig(111, 2, 128),
+    //                .flushL2 = false}, //
+    //    NamedConfig{                   //
+    //                .name = "SubgroupPack-32-128-119",
+    //                .group = "pack32",
+    //                .config = SubgroupPackConfig(119, 1, 128),
+    //                .flushL2 = false}, //
+    //
 };
 
 static constexpr std::size_t N_min = (1 << 16); // min work coefficient
@@ -202,7 +202,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     std::uniform_int_distribution<host::glsl::uint> dist;
 
     for (std::size_t n : host::exp::log10scale(N_min, N_max, ticks)) {
-        fmt::println("{} : n = {} / {}", packConfigName(config), n, N_max);
+        /* fmt::println("{} : n = {} / {}", packConfigName(config), n, N_max); */
         std::size_t K = (n + splitSize - 1) / splitSize;
         std::size_t invoc = K * invocPerPack;
         float w = invoc / static_cast<float>(maxOccupantInvoc);
@@ -223,6 +223,15 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                              prngBuffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
                                                                  vk::AccessFlagBits::eShaderRead));
 
+                if (flushL2) {
+                    prng.run(cmd, flushBuffers, flushSize, dist(rng));
+                    cmd->barrier(
+                        vk::PipelineStageFlagBits::eComputeShader,
+                        vk::PipelineStageFlagBits::eComputeShader,
+                        prngBuffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                            vk::AccessFlagBits::eShaderRead));
+                }
+
                 mean.run(cmd, meanBuffers, n);
 
                 cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
@@ -231,26 +240,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                                                               vk::AccessFlagBits::eShaderRead));
 
                 prefixPartition.run(cmd, prefixPartitionBuffers, n);
-                cmd->barrier(
-                    vk::PipelineStageFlagBits::eComputeShader,
-                    vk::PipelineStageFlagBits::eComputeShader,
-                    {
-                        prefixPartitionBuffers.partitionPrefix->buffer_barrier(
-                            vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
-                        prefixPartitionBuffers.partitionIndices->buffer_barrier(
-                            vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
-                        prefixPartitionBuffers.heavyCount->buffer_barrier(
-                            vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
-                    });
-
-                if (flushL2) {
-                    prng.run(cmd, flushBuffers, flushSize, dist(rng));
-                    cmd->barrier(
-                        vk::PipelineStageFlagBits::eComputeShader,
-                        vk::PipelineStageFlagBits::eComputeShader,
-                        flushBuffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                             vk::AccessFlagBits::eShaderRead));
-                }
                 cmd->barrier(
                     vk::PipelineStageFlagBits::eComputeShader,
                     vk::PipelineStageFlagBits::eComputeShader,
@@ -295,8 +284,8 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                      report.cpu_total());
         auto entry = std::ranges::find_if(report.gpu_report,
                                           [](const auto& entry) { return entry.name == "Pack"; });
-        auto entrySplit = std::ranges::find_if(report.gpu_report,
-                                          [](const auto& entry) { return entry.name == "Split"; });
+        auto entrySplit = std::ranges::find_if(
+            report.gpu_report, [](const auto& entry) { return entry.name == "Split"; });
         assert(entry != report.gpu_report.end());
         double latency = entry->duration;
         double stdVar = entry->std_deviation;
@@ -327,7 +316,7 @@ void benchmark(const merian::ContextHandle& context) {
 
     BenchmarkResults results;
     std::size_t i = 0;
-    SPDLOG_INFO("Benchmarking PSA-Pack (latency relative to the work coefficient)");
+    SPDLOG_INFO("Benchmarking PSA-Pack (throughput relative to the input size)");
     for (const auto& config : CONFIGURATIONS) {
         SPDLOG_INFO(
             "[{}%] Benchmarking {} ({})",

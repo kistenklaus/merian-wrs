@@ -94,7 +94,7 @@ static const NamedConfig CONFIGURATIONS[] = {
     /*             .packsPerSubgroup = 8, */
     /*             .workgroupSize = 128, */
     /*             .flushL2 = true}, // */
-    NamedConfig{                  //
+    NamedConfig{//
                 .name = "ScalarPack-512",
                 .group = "Pack-8",
                 .packsPerSubgroup = 4,
@@ -120,7 +120,7 @@ static constexpr host::Distribution weight_distribution =
     host::Distribution::SEEDED_RANDOM_EXPONENTIAL;
 static constexpr std::size_t maxOccupantInvoc = 70656;
 static constexpr std::size_t min_SplitSize = 2;
-static constexpr std::size_t max_SplitSize = 1024;
+static constexpr std::size_t max_SplitSize = 128;
 static constexpr std::size_t step = 1;
 
 static constexpr std::size_t iterations = 250;
@@ -222,7 +222,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                      (splitSize - min_SplitSize) / (float)(max_SplitSize - min_SplitSize),
                      splitSize);
 
-
         std::size_t invoc = maxOccupantInvoc * w;
         std::size_t K = invoc;
         std::size_t n = K * splitSize;
@@ -231,7 +230,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
             break;
         }
         if (n > maxN) {
-          throw std::runtime_error("Well that's wrong");
+            throw std::runtime_error("Well that's wrong");
         }
 
         Split split{context, shaderCompiler, ScalarSplitConfig(splitSize, 128)};
@@ -263,56 +262,48 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
             std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context, 4 * iterations);
         query_pool->reset();
         profiler->set_query_pool(query_pool);
-        { // Generate uni
-            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
-            cmd->begin();
-            prng.run(cmd, prngBuffers, n, dist(rng));
-            cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
-                         vk::PipelineStageFlagBits::eComputeShader,
-                         prngBuffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                             vk::AccessFlagBits::eShaderRead));
-
-            mean.run(cmd, meanBuffers, n);
-
-            cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
-                         vk::PipelineStageFlagBits::eComputeShader,
-                         meanBuffers.mean->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                          vk::AccessFlagBits::eShaderRead));
-
-            prefixPartition.run(cmd, prefixPartitionBuffers, n);
-
-            cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
-                         vk::PipelineStageFlagBits::eComputeShader,
-                         {
-                             prefixPartitionBuffers.partitionPrefix->buffer_barrier(
-                                 vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
-                             prefixPartitionBuffers.partitionIndices->buffer_barrier(
-                                 vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
-                             prefixPartitionBuffers.heavyCount->buffer_barrier(
-                                 vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
-                         });
-
-            cmd->end();
-            queue->submit_wait(cmd);
-        }
 
         for (std::size_t i = 0; i < iterations; ++i) {
-            if (flushL2) {
-                merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
-                cmd->begin();
-                
-                prng.run(cmd, flushBuffers, flushSize, dist(rng));
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+            cmd->begin();
+            {
+                prng.run(cmd, prngBuffers, n, dist(rng));
                 cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
                              vk::PipelineStageFlagBits::eComputeShader,
                              prngBuffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
                                                                  vk::AccessFlagBits::eShaderRead));
-                
-                cmd->end();
-                queue->submit_wait(cmd);
+
+                if (flushL2) {
+                    prng.run(cmd, flushBuffers, flushSize, dist(rng));
+                    cmd->barrier(
+                        vk::PipelineStageFlagBits::eComputeShader,
+                        vk::PipelineStageFlagBits::eComputeShader,
+                        prngBuffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                            vk::AccessFlagBits::eShaderRead));
+                }
+
+                mean.run(cmd, meanBuffers, n);
+
+                cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                             vk::PipelineStageFlagBits::eComputeShader,
+                             meanBuffers.mean->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                              vk::AccessFlagBits::eShaderRead));
+
+                prefixPartition.run(cmd, prefixPartitionBuffers, n);
+
+                cmd->barrier(
+                    vk::PipelineStageFlagBits::eComputeShader,
+                    vk::PipelineStageFlagBits::eComputeShader,
+                    {
+                        prefixPartitionBuffers.partitionPrefix->buffer_barrier(
+                            vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
+                        prefixPartitionBuffers.partitionIndices->buffer_barrier(
+                            vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
+                        prefixPartitionBuffers.heavyCount->buffer_barrier(
+                            vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
+                    });
             }
             {
-                merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
-                cmd->begin();
 
                 profiler->start("Split");
                 profiler->cmd_start(cmd, "Split");
@@ -334,10 +325,9 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
 
                 profiler->end();
                 profiler->cmd_end(cmd);
-
-                cmd->end();
-                queue->submit_wait(cmd);
             }
+            cmd->end();
+            queue->submit_wait(cmd);
             profiler->collect(true, true);
         }
 
@@ -387,7 +377,7 @@ void benchmark(const merian::ContextHandle& context) {
 
     BenchmarkResults results;
     std::size_t i = 0;
-    SPDLOG_INFO("Benchmarking PSA-Pack (average subgroup latency based on split size)");
+    SPDLOG_INFO("Benchmarking PSA-SerialSplitPack (average subgroup latency based on split size)");
     for (const auto& config : CONFIGURATIONS) {
         SPDLOG_INFO(
             "[{}%] Benchmarking {} ({})",
@@ -421,4 +411,4 @@ void benchmark(const merian::ContextHandle& context) {
     }
 }
 
-} // namespace device::psa_pack
+} // namespace device::psa_splitpack

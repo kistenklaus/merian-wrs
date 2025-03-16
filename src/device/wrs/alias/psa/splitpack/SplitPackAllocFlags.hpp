@@ -15,6 +15,7 @@ enum class SplitPackAllocFlags {
                     ALLOC_HEAVY_COUNT | ALLOC_MEAN | ALLOC_ALIAS_TABLE,
     ALLOC_ALL = ALLOC_DEFAULT | ALLOC_PARTITION_ELEMENTS,
     ALLOC_ONLY_INTERNALS = 0,
+    ALLOC_ONLY_OUTPUTS = ALLOC_ALIAS_TABLE
 };
 
 // Enable bitwise operations for SplitPackAllocFlags

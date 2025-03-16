@@ -72,9 +72,9 @@ struct SubgroupPackBuffers {
 };
 
 struct SubgroupPackConfig {
-    const host::glsl::uint splitSize; // K
-    const host::glsl::uint workgroupSize;
-    const host::glsl::uint subgroupSplit;
+    host::glsl::uint splitSize; // K
+    host::glsl::uint workgroupSize;
+    host::glsl::uint subgroupSplit;
 
     constexpr SubgroupPackConfig() : splitSize(2), workgroupSize(512), subgroupSplit(4) {}
     explicit constexpr SubgroupPackConfig(host::glsl::uint splitSize,

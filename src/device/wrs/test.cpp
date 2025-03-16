@@ -9,6 +9,7 @@
 #include "src/host/memory/SafeResource.hpp"
 #include "src/host/memory/StackResource.hpp"
 #include "src/host/statistics/chi_square.hpp"
+#include <algorithm>
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
@@ -150,29 +151,29 @@ static const TestCase TEST_CASES[] = {
     /*     .S = 1024 * 2048 * 32, */
     /*     .iterations = 5, */
     /* }, */
+    //TestCase{
+    //    .config = AliasTableConfig(
+    //        PSAConfig(AtomicMeanConfig(),
+    //                  DecoupledPrefixPartitionConfig(),
+    //                  InlineSplitPackConfig(2, 32, 128),
+    //                  false),
+    //        SampleAliasTableConfig(128)),
+    //    .N = static_cast<uint32_t>(1e6),
+    //    .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+    //    .S = static_cast<uint32_t>(1e8),
+    //    .iterations = 1,
+    //},
     TestCase{
         .config = AliasTableConfig(
             PSAConfig(AtomicMeanConfig(),
                       DecoupledPrefixPartitionConfig(),
-                      InlineSplitPackConfig(2),
-                      true),
+                      SerialSplitPackConfig(ScalarSplitConfig(32), ScalarPackConfig(32)),
+                      false),
             SampleAliasTableConfig(128)),
-        .N = 1024,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = static_cast<uint32_t>(1e7),
-        .iterations = 5,
-    },
-    TestCase{
-        .config = AliasTableConfig(
-            PSAConfig(AtomicMeanConfig(),
-                      DecoupledPrefixPartitionConfig(),
-                      SerialSplitPackConfig(ScalarSplitConfig(2), SubgroupPackConfig(2)),
-                      true),
-            SampleAliasTableConfig(128)),
-        .N = 1024,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .S = static_cast<uint32_t>(1e7),
-        .iterations = 5,
+        .N = static_cast<uint32_t>(1e7),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
     },
 
 };
@@ -275,8 +276,9 @@ static bool runTestCase(const host::test::TestContext& context,
 
         // 1. Generate input
         context.profiler->start("Generate test input");
-        const auto weights =
+        auto weights =
             host::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
+        /* std::ranges::sort(weights); */
         context.profiler->end();
 
         // 2. Begin recoding

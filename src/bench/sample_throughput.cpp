@@ -2,7 +2,6 @@
 #include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/device/prefix_sum/PrefixSum.hpp"
-#include "src/device/prefix_sum/block_scan/BlockScanVariant.hpp"
 #include "src/device/prng/PRNG.hpp"
 #include "src/device/prng/philox/Philox.hpp"
 #include "src/device/wrs/WRS.hpp"
@@ -28,65 +27,72 @@ struct NamedConfig {
 };
 
 static const NamedConfig CONFIGURATIONS[] = {
-    //NamedConfig{.name = "ITS-Scan-512-8-STRIDE)-(Sample-Binary-512)",
-    //            .group = "ITS-Binary",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    //                          InverseTransformSamplingConfig(512, 0, false)),
-    //            .flushL2 = true},
-    //NamedConfig{.name = "ITS-Scan-512-8-STRIDE)-(Sample-Binary-512)",
-    //            .group = "ITS-Binary",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    //                          InverseTransformSamplingConfig(512, 0, false)),
-    //            .flushL2 = false},
-    //NamedConfig{.name = "ITS-Scan-512-8-STRIDE)-(Sample-BinaryCoop-512-128)",
-    //            .group = "ITS-BinaryCoop",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    //                          InverseTransformSamplingConfig(512, 128, false)),
-    //            .flushL2 = true},
-    //NamedConfig{.name = "ITS-Scan-512-8-STRIDE)-(Sample-BinaryCoop-512-128)",
-    //            .group = "ITS-BinaryCoop",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    //                          InverseTransformSamplingConfig(512, 128, false)),
-    //            .flushL2 = false},
-    //NamedConfig{.name = "ITS-Scan-512-8-STRIDE)-(Sample-pArrayCoop-512-128)",
-    //            .group = "ITS-pArrayCoop",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    //                          InverseTransformSamplingConfig(512, 128, true)),
-    //            .flushL2 = true},
-    //NamedConfig{.name = "ITS-Scan-512-8-STRIDE)-(Sample-pArrayCoop-512-128)",
-    //            .group = "ITS-pArrayCoop",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    //                          InverseTransformSamplingConfig(512, 128, true)),
-    //            .flushL2 = false},
-    //NamedConfig{.name = "Cutpoint-128",
-    //            .group = "Cutpoint",
-    //            .config = CutpointConfig(
-    //                DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), 128),
-    //            .flushL2 = true},
-    //NamedConfig{.name = "Cutpoint-128",
-    //            .group = "Cutpoint",
-    //            .config = CutpointConfig(
-    //                DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), 128),
-    //            .flushL2 = false},
-    NamedConfig{.name = "PSA-(Inline-2-no-elements)",
-                .group = "PSA-Inline",
+    NamedConfig{.name = "ITS-0",
+                .group = "ITS-0",
+                .config =
+                    ITSConfig(DecoupledPrefixSumConfig(),
+                              InverseTransformSamplingConfig(128, 0, false)),
+                .flushL2 = true},
+
+    NamedConfig{.name = "ITS-0",
+                .group = "ITS-0",
+                .config =
+                    ITSConfig(DecoupledPrefixSumConfig(),
+                              InverseTransformSamplingConfig(128, 0, false)),
+                .flushL2 = false},
+
+    NamedConfig{.name = "ITS-128",
+                .group = "ITS-128",
+                .config =
+                    ITSConfig(DecoupledPrefixSumConfig(),
+                              InverseTransformSamplingConfig(128, 128, false)),
+                .flushL2 = true},
+    NamedConfig{.name = "ITS-128",
+                .group = "ITS-128",
+                .config =
+                    ITSConfig(DecoupledPrefixSumConfig(),
+                              InverseTransformSamplingConfig(128, 128, false)),
+                .flushL2 = false},
+
+    NamedConfig{.name = "Cutpoint-128",
+                .group = "Cutpoint-128",
+                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
+                .flushL2 = true},
+    NamedConfig{.name = "Cutpoint-128",
+                .group = "Cutpoint-128",
+                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
+                .flushL2 = false},
+
+    NamedConfig{.name = "PSA2-0",
+                .group = "PSA2-0",
                 .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
                                                      DecoupledPrefixPartitionConfig(),
-                                                     InlineSplitPackConfig(2),
+                                                     InlineSplitPackConfig(2, 32),
+                                                     false),
+                                           SampleAliasTableConfig(0)),
+                .flushL2 = true},
+    NamedConfig{.name = "PSA2-0",
+                .group = "PSA2-0",
+                .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                                     DecoupledPrefixPartitionConfig(),
+                                                     InlineSplitPackConfig(2, 32),
+                                                     false),
+                                           SampleAliasTableConfig(0)),
+                .flushL2 = false},
+
+    NamedConfig{.name = "PSA2-128",
+                .group = "PSA2-128",
+                .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                                     DecoupledPrefixPartitionConfig(),
+                                                     InlineSplitPackConfig(2, 32),
                                                      false),
                                            SampleAliasTableConfig(128)),
                 .flushL2 = true},
-    NamedConfig{.name = "PSA-(Inline-2-no-elements)",
-                .group = "PSA-Inline",
+    NamedConfig{.name = "PSA2-128",
+                .group = "PSA2-128",
                 .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
                                                      DecoupledPrefixPartitionConfig(),
-                                                     InlineSplitPackConfig(2),
+                                                     InlineSplitPackConfig(2, 32),
                                                      false),
                                            SampleAliasTableConfig(128)),
                 .flushL2 = false},

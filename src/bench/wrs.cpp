@@ -3,6 +3,7 @@
 #include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/device/wrs/WRS.hpp"
+#include "src/device/wrs/cutpoint/sampling/CutpointSampling.hpp"
 #include "src/host/export/csv.hpp"
 #include "src/host/export/logscale.hpp"
 #include "src/host/gen/weight_generator.h"
@@ -73,24 +74,38 @@ static const NamedConfig CONFIGURATIONS[] = {
     /*             true),                                        // */
     /*         SampleAliasTableConfig(32)),                       // */
     /* },                                                         // */
-    NamedConfig{.name = "ITS-BINARY",
-                .config = ITSConfig(DecoupledPrefixSumConfig(),
-                                    InverseTransformSamplingConfig(512, 0, false))},
-    NamedConfig{.name = "ITS-COOP",
-                .config = ITSConfig(DecoupledPrefixSumConfig(),
-                                    InverseTransformSamplingConfig(512, 128, false))},
-    NamedConfig{.name = "ITS-COOP-PARRAY",
-                .config = ITSConfig(DecoupledPrefixSumConfig(),
-                                    InverseTransformSamplingConfig(512, 128, true))},
+    //NamedConfig{.name = "ITS-0",
+    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
+    //                                InverseTransformSamplingConfig(512, 0, false))},
+    //NamedConfig{.name = "ITS-128",
+    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
+    //                                InverseTransformSamplingConfig(512, 128, false))},
+    //NamedConfig{.name = "ITS-128-pArray",
+    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
+    //                                InverseTransformSamplingConfig(512, 128, true))},
+    //NamedConfig{.name = "Cutpoint-128", .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
+    NamedConfig{.name = "PSA2-0",
+                .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                                     DecoupledPrefixPartitionConfig(),
+                                                     InlineSplitPackConfig(2),
+                                                     false),
+                                           SampleAliasTableConfig(0))},
+    NamedConfig{.name = "PSA2-128",
+                .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                                     DecoupledPrefixPartitionConfig(),
+                                                     InlineSplitPackConfig(2),
+                                                     false),
+                                           SampleAliasTableConfig(128))},
+
 };
 
 static constexpr std::size_t N = (1 << 26);
-static constexpr std::size_t S = (1 << 28);
+static constexpr std::size_t S = (1 << 26);
 
-static constexpr std::size_t N_min = (1 << 12);
-static constexpr std::size_t S_min = (1 << 21);
+static constexpr std::size_t N_min = (1 << 16);
+static constexpr std::size_t S_min = (1 << 16);
 
-static constexpr std::size_t ticks = 25;
+static constexpr std::size_t ticks = 1000;
 static constexpr std::size_t iterations = 1;
 
 struct ConfigResult {
@@ -249,26 +264,17 @@ void benchmark(const merian::ContextHandle& context) {
     auto weights = host::generate_weights<float>(host::Distribution::PSEUDO_RANDOM_UNIFORM, N);
 
     BenchmarkResults results;
+
+    std::string path = "wrs_benchmark.csv";
+    host::exp::CSVWriter<8> csv({"N", "S", "method", "group", "build_latency", "build_std_derivation",
+                                 "sampling_latency", "sampling_std_derivation"},
+                                path);
     for (const auto& config : CONFIGURATIONS) {
         auto configBenchmark = benchmarkConfiguration(context, shaderCompiler, queue, config.config,
                                                       N, ticks, S, ticks, iterations, weights);
-        results.entries.push_back(BenchmarkResult{
-            .configuration = config,
-            .results = configBenchmark,
-        });
-    }
-
-    // export
-
-    std::string path = "wrs_benchmark.csv";
-    host::exp::CSVWriter<8> csv({"N", "S", "method", "build_latency", "build_std_derivation",
-                                 "sampling_latency", "sampling_std_derivation", "total_latency"},
-                                path);
-    for (const auto& r1 : results.entries) {
-        std::string method = r1.configuration.name;
-        for (const auto& r2 : r1.results.entries) {
-            csv.pushRow(r2.N, r2.S, method, r2.buildLatency, r2.buildStdVar, r2.samplingLatency,
-                        r2.samplingStdVar, r2.totalLatency);
+        for (const auto& r2 : configBenchmark.entries) {
+            csv.pushRow(r2.N, r2.S, config.name, config.name, r2.buildLatency, r2.buildStdVar, r2.samplingLatency,
+                        r2.samplingStdVar);
         }
     }
 }

@@ -22,10 +22,15 @@ const uint MAX_SUBGROUPS_PER_WORKGROUP = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / 
 const uint SUBPROBLEMS_PER_SUBGROUP = SUBGROUP_SIZE / THREADS_PER_SUBPROBLEM;
 const uint MAX_SUBPROBLEMS_PER_WORKGROUP = MAX_SUBGROUPS_PER_WORKGROUP * SUBPROBLEMS_PER_SUBGROUP;
 
+const uint THREADS_PER_SPLIT = THREADS_PER_SUBPROBLEM / 2;
+const uint LOG2_THREADS_PER_SPLIT = LOG2_THREADS_PER_SUBPROBLEM - 1;
+
 // only applicable to subgroupSplitPack
 // defines how invocations within a subproblem compute splits k & k + 1
 // current mask computes the split k with the first half and the second half performs k+1
-const uint SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK = 1;
+const uint SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK = 1 << (LOG2_THREADS_PER_SUBPROBLEM - 1);
+
+const bool COOPERATIVE_SPLIT = false;
 
 struct AliasTableEntry {
     float p;
@@ -72,20 +77,6 @@ layout(push_constant) uniform PushConstant {
     uint K;
     uint N;
 } pc;
-
-// computes the ceiling division of a * b by c
-// assumes that a > c > b
-uint ceilMulDiv(uint a, uint b, uint c) {
-    uint div = a / c;
-    uint rem = a % c;
-    uint safe_part = div * b;
-    uint rem_part = (rem * b + c - 1) / c;
-    return safe_part + rem_part;
-}
-
-bool ballotIsZero(in uvec4 ballot) {
-    return (ballot.x | ballot.y | ballot.z | ballot.w) == 0;
-}
 
 Split computeSplit(uint n, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {
     uint a = 0;
@@ -253,7 +244,7 @@ void subgroupPack(uint i0, uint i1, uint j0, uint j1,
     if (j < j1) {
         h2 = g_partitionIndices.heavyLight[j];
         #ifdef USE_PARTITION_ELEMENTS
-        hw = g_partition.heavyLight[j];
+        hw = g_partitionIndices.heavyLight[j];
         #else
         hw = g_distribution.weights[h2];
         #endif
@@ -269,7 +260,7 @@ void subgroupPack(uint i0, uint i1, uint j0, uint j1,
     if (i < i1) {
         l2 = g_partitionIndices.heavyLight[lastLightIndex - i];
         #ifdef USE_PARTITION_ELEMENTS
-        lw = g_partition.heavyLight[lastLightIndex - i];
+        lw = g_partitionIndices.heavyLight[lastLightIndex - i];
         #else
         lw = g_distribution.weights[l2];
         // lw = 0;
@@ -336,7 +327,7 @@ void subgroupPack(uint i0, uint i1, uint j0, uint j1,
                 if (j < j1) {
                     h2 = g_partitionIndices.heavyLight[j];
                     #ifdef USE_PARTITION_ELEMENTS
-                    hw = g_partition.heavyLight[j];
+                    hw = g_partitionIndices.heavyLight[j];
                     #else
                     hw = g_distribution.weights[h2];
                     #endif
@@ -350,7 +341,7 @@ void subgroupPack(uint i0, uint i1, uint j0, uint j1,
                 if (i < i1) {
                     l2 = g_partitionIndices.heavyLight[lastLightIndex - i];
                     #ifdef USE_PARTITION_ELEMENTS
-                    lw = g_partition.heavyLight[lastLightIndex - i];
+                    lw = g_partitionIndices.heavyLight[lastLightIndex - i];
                     #else
                     lw = g_distribution.weights[l2];
                     // lw = 0;
@@ -383,6 +374,111 @@ void subgroupPack(uint i0, uint i1, uint j0, uint j1,
     }
 }
 
+uint SubgroupClusteredBallotBitCountForSplitCoop(bool value,
+    uint clusterBase) {
+    uvec4 ballot = subgroupBallot(value);
+    uint count = 0;
+    count += bitCount(ballot.x
+                & (
+                ((1 << THREADS_PER_SPLIT) - 1) << clusterBase
+                )
+        );
+    if (SUBGROUP_SIZE > 32) {
+        // NOTE: THIS PROBABLY DOES NOT WORK!!! IT'S NOT TESTED I DONT HAVE THE HARDWARE!!!!!
+        count += bitCount(ballot.y
+                    & (
+                    ((1 << THREADS_PER_SPLIT) - 1) << (clusterBase % 32)
+                    )
+            );
+    }
+
+    return count;
+}
+
+Split computeSplitCoop(uint n, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst,
+    uint baseInvoc, uint relativeSubInvoc) {
+    // Implement cooperative binary search with THREADS_PER_SUBPROBLEM invocations within.
+    // baseInvoc is the first gl_SubgroupInvocationID, which is participating
+    // relativeSubInvoc is the index of the invocation which is participating between 0 and THREADS_PER_SUBPROBLEM - 1
+    uint a = 0;
+    uint b = heavyCount - 1;
+    float heavy, light, sigma;
+    uint j = 0, i = 0;
+
+    const float target = mean * n;
+    uint range = b - a;
+    while (range < THREADS_PER_SPLIT) {
+        j = a + (range * (relativeSubInvoc + 1)) / (THREADS_PER_SPLIT + 1);
+
+        // j = (a + b) / 2;
+        i = min(n - j, lightCount - 1);
+
+        heavy = j == 0 ? 0 : g_partitionPrefix.heavyLight[j - 1];
+        light = i == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
+
+        sigma = light + heavy;
+
+        // uvec4 ballot = subgroupBallot(sigma <= target);
+
+        uint amountOfInvocWhichAreLower = SubgroupClusteredBallotBitCountForSplitCoop(sigma <= target, baseInvoc);
+
+        //
+
+        if (amountOfInvocWhichAreLower == 0) {
+            b = subgroupShuffle(j - 1, baseInvoc);
+        } else if (amountOfInvocWhichAreLower == THREADS_PER_SPLIT) {
+            a = subgroupShuffle(j, baseInvoc + THREADS_PER_SPLIT - 1);
+        }
+        else {
+            a = subgroupShuffle(j, baseInvoc + amountOfInvocWhichAreLower - 1);
+            b = subgroupShuffle(j - 1, baseInvoc + amountOfInvocWhichAreLower);
+        }
+
+        range = b - a;
+        // break;
+    }
+
+    while (a <= b) {
+        j = (a + b) / 2;
+        i = min(n - j, lightCount - 1);
+
+        heavy = j == 0 ? 0 : g_partitionPrefix.heavyLight[j - 1];
+        light = i == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
+
+        sigma = light + heavy;
+
+        if (sigma <= target) {
+            a = j + 1;
+        } else {
+            b = j - 1;
+        }
+    }
+    j = b; //lower bound still
+    i = min(n - j, lightCount - 1);
+
+    light = i == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
+    float heavy2 = g_partitionPrefix.heavyLight[j];
+    float sigma2 = heavy2 + light;
+    Split split;
+    split.i = i;
+    split.j = j;
+    split.spill = sigma2 - target;
+    // split.spill = 0;
+
+    // uvec4 ballot = subgroupBallot(gl_SubgroupInvocationID < 16);
+    // uint amountOfInvocWhichAreLower = 0;
+    // amountOfInvocWhichAreLower += bitCount(ballot.x
+    //             & (
+    //             ((1 << THREADS_PER_SPLIT) - 1) << baseInvoc
+    //             )
+    //     );
+    //
+    // split.i = amountOfInvocWhichAreLower;
+    // split.j = ballot.x;
+    // split.spill = 0;
+    return split;
+}
+
 void subgroupSplitPack() {
     // ASSERT THREADS_PER_PACK >= 2
     const uint K = pc.K;
@@ -411,9 +507,14 @@ void subgroupSplitPack() {
     //Split computeSplit(uint n, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst)
 
     uint shuffleK = k;
+    uint splitBaseInvoc = baseInvoc;
+    uint splitRelativeSubInvoc = relativeSubInvoc;
+
     // odd invocation compute split k, even invocations compute split k+1
     if ((relativeSubInvoc & SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK) != 0) {
         shuffleK += 1;
+        splitBaseInvoc ^= SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK;
+        splitRelativeSubInvoc ^= SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK;
     }
     uint n = shuffleK * SPLIT_SIZE;
 
@@ -427,7 +528,11 @@ void subgroupSplitPack() {
         s0.j = heavyCount;
         s0.spill = 0;
     } else {
-        s0 = computeSplit(n, mean, heavyCount, lightCount, lastLightIndex);
+        if (COOPERATIVE_SPLIT) {
+            s0 = computeSplitCoop(n, mean, heavyCount, lightCount, lastLightIndex, splitBaseInvoc, splitRelativeSubInvoc);
+        } else {
+            s0 = computeSplit(n, mean, heavyCount, lightCount, lastLightIndex);
+        }
     }
 
     // shuffle splits between xor related invocations
@@ -473,8 +578,51 @@ void subgroupSplitPack() {
     );
 }
 
-void scalarSplitPack()
-{
+void scalarSplitPackEdge(uint i0, uint i1, uint j0, uint j1, float spill,
+    float averageWeight, uint lastLightIndex,
+    uint lightCount, uint heavyCount) {
+    uint i = i0;
+    uint j = j0;
+
+    float w = spill;
+    if (w == 0.0f) {
+        uint h = g_partitionIndices.heavyLight[j];
+        w = g_partitionPrefix.heavyLight[j] - g_partitionPrefix.heavyLight[j - 1];
+    }
+
+    bool packHeavy = w <= averageWeight;
+
+    uint h = g_partitionIndices.heavyLight[j];
+
+    uint weightIdx;
+    float weight;
+    if (packHeavy) {
+        uint hx = j + 1;
+        weightIdx = g_partitionIndices.heavyLight[hx];
+    } else {
+        uint lx = lastLightIndex - i;
+        weightIdx = g_partitionIndices.heavyLight[lastLightIndex - i];
+        weight = g_partitionPrefix.heavyLight[lx] - g_partitionPrefix.heavyLight[lx + 1];
+    }
+    float p;
+    uint idx, a;
+    if (packHeavy) {
+        // Pack heavy bucket!
+        p = w / averageWeight;
+        a = weightIdx;
+        idx = h;
+    } else {
+        // Pack light bucket
+        p = weight / averageWeight;
+        a = h;
+        idx = weightIdx;
+    }
+
+    g_result.table[idx].p = p;
+    g_result.table[idx].a = a;
+}
+
+void scalarSplitPack() {
     const uint N = pc.N;
     const uint K = pc.K;
     const float mean = g_meta.mean;

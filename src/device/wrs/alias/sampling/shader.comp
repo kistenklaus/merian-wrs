@@ -65,22 +65,35 @@ vec2 philoxRandom(uvec2 counter, uint key) {
     return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
 }
 
+uint N;
+
+// void narrowSection(inout ivec2 section, uint target, inout uvec2 counter, uint key) {
+//     if (subgroupElect()) {
+//         const vec2 u = philoxRandom(counter, key);
+//         const int ix = int(mix(section.x, section.y, u.x));
+//         section.x = ix - int(target) / 2;
+//         section.y = ix + int(target) / 2;
+//     }
+//     section = subgroupBroadcastFirst(section);
+// }
+
 void narrowSection(inout ivec2 section, uint target, inout uvec2 counter, uint key) {
     if (subgroupElect()) {
-        const vec2 u = philoxRandom(counter, key);
-        const int ix = int(mix(section.x, section.y, u.x));
-        section.x = ix - int(target) / 2;
-        section.y = ix + int(target) / 2;
+        uint u = min(uint(philoxRandom(counter, key).x * section.y), section.y - 1);
+        const uint section_idx = uint(u / COOPERATIVE_SAMPLE_SIZE);
+        section.x = int(section_idx * COOPERATIVE_SAMPLE_SIZE);
+        section.y = int(min((section_idx + 1) * COOPERATIVE_SAMPLE_SIZE, section.y));
     }
-    section = subgroupBroadcastFirst(section);
+    counter.x += 1;
+
+    section = subgroupBroadcast(section, 0);
 }
 
-uint N;
 
 uint sampleSection(ivec2 section, inout uvec2 counter, uint key) {
     const vec2 u = philoxRandom(counter, key);
 
-    const int ix = clamp(int(mix(section.x, section.y, u.x)), 0, int(N - 1));
+    const int ix = min(section.x + int(u.x * (section.y - section.x)), section.y);
     const float p = table[ix].p;
     if (u.y >= p) {
         return table[ix].a;

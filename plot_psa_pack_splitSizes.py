@@ -23,8 +23,10 @@ bench6 = pd.read_csv('./psa_pack_benchmark_splitSizes6.csv') # it = 250 w = 2
 bench7 = pd.read_csv('./psa_pack_benchmark_splitSizes7.csv') # it = 250 w = 2
 
 # bench = pd.concat([bench4, bench3]) # w = 10
-bench = pd.concat([bench1,bench2,bench3,bench4, bench5, bench6, bench7]) # w = 5
-# bench = pd.concat([bench6])
+# bench = pd.concat([bench1,bench2,bench3,bench4, bench5, bench6, bench7]) # w = 5
+bench = pd.concat([bench_unserious])
+
+# bench = bench[bench["N"] < 1.8e6]
 
 # bench = bench[(bench["splitSize"] >= ) & (bench["splitSize"] <= maxN)]
 
@@ -45,7 +47,7 @@ def weighted_variance(mean_series, std_series, weights):
 
 def merge_duplicates2(df):
     # First aggregation: compute weighted mean and variance for each method
-    methods = df.groupby(["flushL2", "method", "splitSize", "threadsPerPack", "workgroupSize", "group"]).apply(
+    methods = df.groupby(["flushL2", "method", "splitSize", "threadsPerPack", "N", "workgroupSize", "group"]).apply(
         lambda g: pd.Series({
             "latency": weighted_mean(g["latency"], g["std_derivation"]**-2),  # Weighted by precision (1/variance)
             "var_sum": weighted_variance(g["latency"], g["std_derivation"], g["std_derivation"]**-2),  # Weighted variance
@@ -60,7 +62,7 @@ def merge_duplicates2(df):
     methods["throughput_std"] = np.sqrt(methods["throughput_var_sum"])
 
     # Second aggregation: compute weighted mean and variance for groups
-    groups = methods.groupby(["flushL2", "group", "splitSize", "threadsPerPack", "workgroupSize"]).apply(
+    groups = methods.groupby(["flushL2", "group", "splitSize", "threadsPerPack", "N", "workgroupSize"]).apply(
         lambda g: pd.Series({
             "latency": weighted_mean(g["latency"], g["std_derivation"]**-2),  # Weighted by precision
             "var_sum": weighted_variance(g["latency"], g["std_derivation"], g["std_derivation"]**-2),  # Weighted variance
@@ -152,7 +154,15 @@ axis = "splitSize"
 
 def plotMe(pack, packFlush, label, color):
     # plt.plot(pack[axis], pack[property], "--", color=color);
-    plt.plot(packFlush[axis], packFlush[property], "-", label=label, color=color);
+
+    packLow = packFlush[packFlush["N"] <= 1.8e6]
+    packHigh = packFlush[packFlush["N"] >= 1.5e6]
+
+    plt.plot(packLow[axis], packLow[property], "--", color=color);
+    plt.plot(packHigh[axis], packHigh[property], "-", label=label, color=color);
+
+
+
     if property == "throughput":
         plt.fill_between(packFlush[axis], packFlush["throughput"] - packFlush["throughput_std"],
                          packFlush["throughput"] + packFlush["throughput_std"],
@@ -165,14 +175,14 @@ def plotMe(pack, packFlush, label, color):
     packBestSplit = packFlush.iloc[packFlush["throughput"].idxmax()]
     plt.plot(packBestSplit[axis], packBestSplit[property], "x", color=color)
 
-    print(label, ":best split-size=",packBestSplit["splitSize"])
+    print(label, ":best split-size=",packBestSplit["splitSize"], "N=", packBestSplit["N"])
 
-plotMe(pack1, pack1Flush, "1-thread", "tab:blue")
-plotMe(pack2, pack2Flush, "2-thread", "tab:orange")
-plotMe(pack4, pack4Flush, "4-thread", "tab:green")
-plotMe(pack8, pack8Flush, "8-thread", "tab:red")
-plotMe(pack16, pack16Flush, "16-thread", "tab:purple")
-plotMe(pack32, pack32Flush, "32-thread", "tab:brown")
+plotMe(pack1, pack1Flush, "1-invocation", "tab:blue")
+plotMe(pack2, pack2Flush, "2-invocations", "tab:orange")
+plotMe(pack4, pack4Flush, "4-invocations", "tab:green")
+plotMe(pack8, pack8Flush, "8-invocations", "tab:red")
+plotMe(pack16, pack16Flush, "16-invocations", "tab:purple")
+plotMe(pack32, pack32Flush, "32-invocations", "tab:brown")
 
 
 ax = plt.gca()

@@ -37,6 +37,15 @@ std::vector<P, Allocator> normalize_weights(std::span<const P> weights,
     }
     return normalized;
 }
+template <std::floating_point P, typed_allocator<P> Allocator = std::allocator<P>>
+std::vector<P, Allocator>
+normalize_weights(std::span<const P> weights, P mean, const Allocator& alloc = {}) {
+    std::vector<P, Allocator> normalized{weights.size(), alloc};
+    for (std::size_t i = 0; i < weights.size(); ++i) {
+        normalized[i] = weights[i] / mean;
+    }
+    return normalized;
+}
 
 template <std::floating_point W,
           std::floating_point P,

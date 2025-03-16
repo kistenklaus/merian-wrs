@@ -3,6 +3,7 @@
 #include "merian/vk/utils/profiler.hpp"
 #include "src/device/wrs/alias/psa/layout/alias_table.hpp"
 #include "src/device/wrs/alias/psa/layout/split.hpp"
+#include "src/device/wrs/alias/psa/pack/Pack.hpp"
 #include "src/device/wrs/alias/psa/split/Split.hpp"
 #include "src/device/wrs/alias/psa/splitpack/SplitPackAllocFlags.hpp"
 #include "src/device/wrs/alias/psa/splitpack/inline/InlineSplitPack.hpp"
@@ -40,7 +41,20 @@ static std::string splitPackConfigName(const SplitPackConfig& config) {
     } else if (std::holds_alternative<SerialSplitPack::Config>(config)) {
         const auto& methodConfig = std::get<SerialSplitPack::Config>(config);
         return fmt::format("Serial-{}-{}", splitConfigName(methodConfig.splitConfig),
-            packConfigName(methodConfig.packConfig));
+                           packConfigName(methodConfig.packConfig));
+    } else {
+        throw std::runtime_error("NOT-IMPLEMENTED");
+    }
+}
+
+constexpr host::glsl::uint splitPackConfigInvocPerPack(const merian::ContextHandle& context,
+                                                       const SplitPackConfig& config) {
+    if (std::holds_alternative<SerialSplitPack::Config>(config)) {
+        return packConfigInvocPerPack(context,
+                                      std::get<SerialSplitPack::Config>(config).packConfig);
+    } else if (std::holds_alternative<InlineSplitPack::Config>(config)) {
+        return context->physical_device.physical_device_subgroup_properties.subgroupSize /
+               std::get<InlineSplitPack::Config>(config).subgroupSplit;
     } else {
         throw std::runtime_error("NOT-IMPLEMENTED");
     }
@@ -125,8 +139,10 @@ class SplitPack {
                        bool usePartitionElements)
         : m_method(createMethod(context, shaderCompiler, config, usePartitionElements)) {}
 
-    void run(const merian::CommandBufferHandle& cmd, const Buffers& buffers, host::glsl::uint N,
-        std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+    void run(const merian::CommandBufferHandle& cmd,
+             const Buffers& buffers,
+             host::glsl::uint N,
+             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
         if (std::holds_alternative<InlineSplitPack>(m_method)) {
             assert(std::holds_alternative<Buffers::InlineInternals>(buffers.m_internals));
             InlineSplitPack::Buffers methodBuffers;

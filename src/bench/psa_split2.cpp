@@ -36,27 +36,27 @@ static const NamedConfig CONFIGURATIONS[] = {
                 .group = "ScalarSplit-2",
                 .splitConfig = ScalarSplitConfig(2),
                 .flushL2 = true}, //
-    NamedConfig{//
+    NamedConfig{                  //
                 .name = "ScalarSplit-4",
                 .group = "ScalarSplit-4",
                 .splitConfig = ScalarSplitConfig(4),
                 .flushL2 = true}, //
-    NamedConfig{//
+    NamedConfig{                  //
                 .name = "ScalarSplit-8",
                 .group = "ScalarSplit-8",
                 .splitConfig = ScalarSplitConfig(8),
                 .flushL2 = true}, //
-    NamedConfig{//
+    NamedConfig{                  //
                 .name = "ScalarSplit-32",
                 .group = "ScalarSplit-32",
                 .splitConfig = ScalarSplitConfig(32),
                 .flushL2 = true}, //
-    NamedConfig{//
+    NamedConfig{                  //
                 .name = "ScalarSplit-128",
                 .group = "ScalarSplit-128",
                 .splitConfig = ScalarSplitConfig(128),
                 .flushL2 = true}, //
-    NamedConfig{//
+    NamedConfig{                  //
                 .name = "ScalarSplit-1024",
                 .group = "ScalarSplit-1024",
                 .splitConfig = ScalarSplitConfig(1024),
@@ -153,14 +153,23 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
         profiler->set_query_pool(query_pool);
 
         for (std::size_t i = 0; i < iterations; ++i) {
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+            cmd->begin();
             { // Generate uni
-                merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
-                cmd->begin();
                 prng.run(cmd, prngBuffers, n, dist(rng));
                 cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
                              vk::PipelineStageFlagBits::eComputeShader,
                              prngBuffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
                                                                  vk::AccessFlagBits::eShaderRead));
+
+                if (flushL2) {
+                    prng.run(cmd, flushBuffers, flushSize, dist(rng));
+                    cmd->barrier(
+                        vk::PipelineStageFlagBits::eComputeShader,
+                        vk::PipelineStageFlagBits::eComputeShader,
+                        prngBuffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                            vk::AccessFlagBits::eShaderRead));
+                }
 
                 mean.run(cmd, meanBuffers, n);
 
@@ -182,33 +191,16 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                         prefixPartitionBuffers.heavyCount->buffer_barrier(
                             vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead),
                     });
-
-                if (flushL2) {
-                    prng.run(cmd, flushBuffers, flushSize, dist(rng));
-                    cmd->barrier(
-                        vk::PipelineStageFlagBits::eComputeShader,
-                        vk::PipelineStageFlagBits::eComputeShader,
-                        prngBuffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                            vk::AccessFlagBits::eShaderRead));
-                }
-
-                cmd->end();
-                queue->submit_wait(cmd); // wait idle
             }
             {
-
-                merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
-                cmd->begin();
-
                 profiler->start("Split");
                 profiler->cmd_start(cmd, "Split");
                 split.run(cmd, splitBuffers, n);
                 profiler->end();
                 profiler->cmd_end(cmd);
-
-                cmd->end();
-                queue->submit_wait(cmd);
             }
+            cmd->end();
+            queue->submit_wait(cmd);
             profiler->collect(true, true);
         }
 
@@ -245,8 +237,8 @@ void benchmark(const merian::ContextHandle& context) {
             (i / static_cast<float>(sizeof(CONFIGURATIONS) / (float)sizeof(CONFIGURATIONS[0]))) *
                 100.0f,
             config.name);
-        auto configBenchmark =
-            benchmarkConfiguration(context, shaderCompiler, queue, config.splitConfig, config.flushL2);
+        auto configBenchmark = benchmarkConfiguration(context, shaderCompiler, queue,
+                                                      config.splitConfig, config.flushL2);
         results.entries.push_back(BenchmarkResult{
             .configuration = config,
             .results = configBenchmark,
@@ -268,4 +260,4 @@ void benchmark(const merian::ContextHandle& context) {
     }
 }
 
-} // namespace device::psa_split
+} // namespace device::psa_split2

@@ -13,6 +13,8 @@ bench = pd.concat([bench_unserious])
 
 bench = bench[(bench["N"] >= minN) & (bench["N"] <= maxN)]
 
+print(bench["S"].unique())
+
 plt.rcParams.update({'font.size': 12})
 plt.style.use('_mpl-gallery')
 plt.figure(figsize=(8, 3))

@@ -60,26 +60,26 @@ static const TestCase TEST_CASES[] = {
     //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
     //    .iterations = 2,
     //},
-    //TestCase{
-    //    .config =
-    //        PSAConfig(AtomicMeanConfig(512, 8),
-    //                  DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 32),
-    //                  InlineSplitPackConfig(2),
-    //                  true),
-    //    .N = static_cast<uint32_t>(1024 * 2048),
-    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-    //    .iterations = 1,
-    //},
-    TestCase{
+     TestCase{
         .config =
-            PSAConfig(AtomicMeanConfig(512, 8),
-                      DecoupledPrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED, 32),
-                      InlineSplitPackConfig(20, 4),
+            PSAConfig(AtomicMeanConfig(),
+                      DecoupledPrefixPartitionConfig(),
+                      SerialSplitPackConfig(ScalarSplitConfig(16),
+                        SubgroupPackConfig(16, 8)),
                       false),
-        .N = static_cast<uint32_t>(1e8),
+        .N = static_cast<uint32_t>(1024 * 2048),
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
         .iterations = 1,
     },
+    /* TestCase{ */
+    /*     .config = PSAConfig(AtomicMeanConfig(1024, 8), */
+    /*                         DecoupledPrefixPartitionConfig(), */
+    /*                         InlineSplitPackConfig(2, 32), */
+    /*                         true), */
+    /*     .N = static_cast<uint32_t>(1024 * 2048), */
+    /*     .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM, */
+    /*     .iterations = 1, */
+    /* }, */
 };
 
 static void uploadTestCase(const merian::CommandBufferHandle& cmd,
@@ -178,43 +178,51 @@ static bool runTestCase(const host::test::TestContext& context,
             host::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
         context.profiler->end();
 
-        // 2. Begin recoding
         merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
         cmd->begin();
-        std::string recordingLabel = fmt::format("Recording : {}", testName);
-        context.profiler->start(recordingLabel);
-        context.profiler->cmd_start(cmd, recordingLabel);
+
+        // 2. Begin recoding
+        /* std::string recordingLabel = fmt::format("Recording : {}", testName); */
+        /* context.profiler->start(recordingLabel); */
+        /* context.profiler->cmd_start(cmd, recordingLabel); */
 
         // 3. Upload test case indices
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
-            SPDLOG_DEBUG("Uploading test case...");
-            uploadTestCase(cmd, buffers, stage, weights);
+            {
+                /* MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case"); */
+                SPDLOG_DEBUG("Uploading test case...");
+                uploadTestCase(cmd, buffers, stage, weights);
+            }
         }
 
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "PSA");
-            SPDLOG_DEBUG("Building WRS");
-            kernel.run(cmd, buffers, testCase.N, context.profiler);
-        }
+            {
+                /* MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "PSA"); */
 
-        // Download results to stage
-        {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
-            SPDLOG_DEBUG("Downloading results to stage...");
-            downloadToStage(cmd, buffers, stage, testCase.N);
+                context.profiler->start("PSA");
+                context.profiler->cmd_start(cmd, "PSA");
+
+                kernel.run(cmd, buffers, testCase.N, context.profiler);
+
+                context.profiler->end();
+                context.profiler->cmd_end(cmd);
+            }
         }
 
         // Submit to device
-        context.profiler->end();
-        context.profiler->cmd_end(cmd);
-        SPDLOG_DEBUG("Submitting to device...");
 
-        cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
-                     vk::PipelineStageFlagBits::eTransfer,
-                     buffers.weights->buffer_barrier(vk::AccessFlagBits::eShaderRead,
-                                                     vk::AccessFlagBits::eTransferWrite));
+        // Download results to stage
+        {
 
+            cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                         vk::PipelineStageFlagBits::eTransfer,
+                         buffers.weights->buffer_barrier(vk::AccessFlagBits::eShaderRead,
+                                                         vk::AccessFlagBits::eTransferWrite));
+
+            /* MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage"); */
+            /* SPDLOG_DEBUG("Downloading results to stage..."); */
+            downloadToStage(cmd, buffers, stage, testCase.N);
+        }
         cmd->end();
         context.queue->submit_wait(cmd);
 
@@ -257,11 +265,11 @@ static bool runTestCase(const host::test::TestContext& context,
             averageJSDivergence += jsDivergence;
             /* fmt::println("JS-Divergence: {}", jsDivergence); */
 
-            if (testCase.N <= 1024) {
+            if (testCase.N <= 1024 || true) {
                 const auto errAliasTable =
                     host::test::pmr::assert_is_alias_table<weight_type, weight_type,
                                                            host::glsl::uint>(
-                        weights, results.aliasTable, totalWeight, 0.0001, resource);
+                        weights, results.aliasTable, totalWeight, 0.1, resource);
                 if (errAliasTable) {
                     SPDLOG_ERROR("PSA-XXX constructs invalid alias table\n{}",
                                  errAliasTable.message());

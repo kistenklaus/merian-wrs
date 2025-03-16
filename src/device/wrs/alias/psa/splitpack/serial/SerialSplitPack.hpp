@@ -30,8 +30,8 @@ struct SerialSplitPackBuffers {
 };
 
 struct SerialSplitPackConfig {
-    const SplitConfig splitConfig;
-    const PackConfig packConfig;
+    SplitConfig splitConfig;
+    PackConfig packConfig;
 
     explicit SerialSplitPackConfig(SplitConfig splitConfig, PackConfig packConfig)
         : splitConfig(splitConfig), packConfig(packConfig) {
@@ -56,19 +56,27 @@ class SerialSplitPack {
              host::glsl::uint N,
              std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
 
-#ifdef MERIAN_PROFILER_ENABLE
-        if (profiler.has_value()) {
-            profiler.value()->start("Serial-SplitPack");
-            profiler.value()->cmd_start(cmd, "Serial-SplitPack");
-        }
-#endif
 
         Split::Buffers splitBuffers;
         splitBuffers.partitionPrefix = buffers.partitionPrefix;
         splitBuffers.heavyCount = buffers.heavyCount;
         splitBuffers.mean = buffers.mean;
         splitBuffers.splits = buffers.splits;
+
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->start("Split");
+            profiler.value()->cmd_start(cmd, "Split");
+        }
+#endif
         m_split.run(cmd, splitBuffers, N, profiler);
+
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
+#endif
 
         cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
                      vk::PipelineStageFlagBits::eComputeShader,
@@ -83,6 +91,14 @@ class SerialSplitPack {
         packBuffers.partitionIndices = buffers.partitionIndices;
         packBuffers.aliasTable = buffers.aliasTable;
         packBuffers.weights = buffers.weights;
+
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->start("Pack");
+            profiler.value()->cmd_start(cmd, "Pack");
+        }
+#endif
+
         m_pack.run(cmd, packBuffers, N, profiler);
 
 #ifdef MERIAN_PROFILER_ENABLE

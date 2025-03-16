@@ -321,9 +321,8 @@ void main(void) {
     uint partID = sh_partID;
 
     const uint base = partID * PARTITION_SIZE + gl_SubgroupID.x * SUBPARTITION_SIZE + gl_SubgroupInvocationID.x;
-    //
-    WorkgroupAggregate workgroupAggregate = computeLocalPrefixSum(base, N);
 
+    WorkgroupAggregate workgroupAggregate = computeLocalPrefixSum(base, N);
     ExclusivePrefix prefix = decoupledLookback(partID, workgroupAggregate);
 
     for (uint i = 0; i < ROWS; ++i) {

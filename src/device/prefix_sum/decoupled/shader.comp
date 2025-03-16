@@ -45,7 +45,7 @@ struct DecoupledState {
     state_t state;
 };
 
-layout(set = 0, binding = 2) coherent buffer DecoupledStates {
+layout(set = 0, binding = 2) nonprivate buffer DecoupledStates {
     uint counter;
     DecoupledState partitions[];
 };
@@ -240,7 +240,7 @@ float decoupledLookback(in uint partID, in float aggregate) {
         // NOTE: gl_SemanticsMakeAvailable is only required if aggregate and prefix
         // are stored in a seperate storage buffer.
         atomicStore(partitions[partID].state, state, gl_ScopeQueueFamily,
-            gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+            gl_StorageSemanticsBuffer, gl_SemanticsRelease | gl_SemanticsMakeAvailable);
     }
     // == Decoupled lookback
     float exclusive = 0;
@@ -256,7 +256,8 @@ float decoupledLookback(in uint partID, in float aggregate) {
                 if (invocActive) {
                     uint lookBackIdx = lookBackBase - gl_SubgroupInvocationID;
                     predecessorState = atomicLoad(partitions[lookBackIdx].state,
-                            gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+                            gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsAcquire
+                            | gl_SemanticsMakeVisible);
 
                     const bool notReady = predecessorState == STATE_NOT_READY;
                     const uvec4 notReadyBallot = subgroupBallot(notReady);
@@ -275,7 +276,8 @@ float decoupledLookback(in uint partID, in float aggregate) {
                         done = false;
                         // TODO should be +1 to reflect the amount of steps
                         const uint stepsUntilNotReady = subgroupBallotFindLSB(notReadyBallot) + 1;
-                        steps = stepsUntilNotReady - 1;
+                        // In practise stepping early doesn't make any difference.
+                        steps = 0; 
                     }
                     if (gl_SubgroupInvocationID.x < steps) {
                         float acc;
@@ -285,7 +287,6 @@ float decoupledLookback(in uint partID, in float aggregate) {
                             acc = partitions[lookBackIdx].aggregate;
                         }
                         acc = subgroupAdd(acc);
-                        vec2(0, 0);
                         if (subgroupElect()) {
                             lookBackBase -= steps;
                             exclusive += acc;

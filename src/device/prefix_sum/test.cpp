@@ -46,32 +46,31 @@ static TestCase TEST_CASES[] = {
     /*     .distribution = host::Distribution::UNIFORM, */
     /*     .iterations = 1, */
     /* }, */
+    //TestCase{
+    //    .config = BlockWiseScanConfig(
+    //        BlockScanConfig(512, // workgroups size
+    //                        2,   // rows
+    //                        BlockScanVariant::RANKED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC,
+    //                        1, // sequential block scan length
+    //                        true),
+    //        BlockScanConfig(512,
+    //                        4,
+    //                        BlockScanVariant::RANKED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC |
+    //                            BlockScanVariant::EXCLUSIVE,
+    //                        4,
+    //                        false),
+    //        BlockCombineConfig(512, 2, 1, 2)),
+    //    .N = static_cast<host::glsl::uint>((1 << 21)),
+    //    .distribution = host::Distribution::UNIFORM,
+    //    .iterations = 1,
+    //},
+
     TestCase{
-        .config = BlockWiseScanConfig(
-            BlockScanConfig(512, // workgroups size
-                            2,   // rows
-                            BlockScanVariant::RANKED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC,
-                            1, // sequential block scan length
-                            true),
-            BlockScanConfig(512,
-                            4,
-                            BlockScanVariant::RANKED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC |
-                                BlockScanVariant::EXCLUSIVE,
-                            4,
-                            false),
-            BlockCombineConfig(512, 2, 1, 2)),
-        .N = static_cast<host::glsl::uint>((1 << 21)),
+        .config = DecoupledPrefixSumConfig(),
+        .N = static_cast<host::glsl::uint>((1e8 / 2)),
         .distribution = host::Distribution::UNIFORM,
         .iterations = 1,
     },
-
-    /* TestCase{ */
-    /*     .config = DecoupledPrefixSumConfig( */
-    /*         512, 8, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::SUBGROUP_SCAN_SHFL, 32), */
-    /*     .N = static_cast<host::glsl::uint>((1024 * 2048 + 1)), */
-    /*     .distribution = host::Distribution::UNIFORM, */
-    /*     .iterations = 1, */
-    /* }, */
 };
 
 static void uploadTestCase(const merian::CommandBufferHandle cmd,

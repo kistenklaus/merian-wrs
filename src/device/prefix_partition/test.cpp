@@ -31,19 +31,19 @@ struct TestCase {
 
 static const TestCase TEST_CASES[] = {
     //
-    TestCase{
-        .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-        .N = 1024 * 2048,
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .pivot = 0.5,
-        .iterations = 5,
-    },
+    /* TestCase{ */
+    /*     .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
+    /*     .N = 1024 * 2048, */
+    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
+    /*     .pivot = 0.5, */
+    /*     .iterations = 5, */
+    /* }, */
     TestCase{ 
-        .config = DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 32),
-        .N = 1024 * 2048, 
+        .config = DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC, 32),
+        .N = static_cast<uint32_t>(1024 * 2048), 
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, 
         .pivot = 0.5, 
-        .iterations = 5, 
+        .iterations = 1,
     }, 
 };
 

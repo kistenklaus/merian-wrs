@@ -115,6 +115,7 @@ class InverseTransformSampling {
         merian::SpecializationInfoBuilder specInfoBuilder;
         specInfoBuilder.add_entry(m_workgroupSize);
         specInfoBuilder.add_entry(config.cooperativeSamplingSize);
+        specInfoBuilder.add_entry(false);
         const merian::SpecializationInfoHandle specInfo = specInfoBuilder.build();
 
         m_pipeline = std::make_shared<merian::ComputePipeline>(pipelineLayout, shader, specInfo);

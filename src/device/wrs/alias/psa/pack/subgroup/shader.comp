@@ -92,6 +92,17 @@ void main(void) {
     uint i1 = g_subproblems.splits[k].i;
     uint j1 = g_subproblems.splits[k].j;
 
+    if (i1 < i0) {
+      uint temp = i1;
+      i1 = i0;
+      i0 = temp;
+    }
+    if (j1 < j0) {
+      uint temp = j1;
+      j1 = j0;
+      j0 = temp;
+    }
+
     const float averageWeight = g_meta.mean;
     const uint N = pc.N;
     const uint heavyCount = g_partitionInfo.heavyCount;
@@ -152,7 +163,7 @@ void main(void) {
     bool hasLight = remainingLight > 0;
     bool hasHeavy = remainingHeavy > 0;
     bool packHeavy;
-    while (hasLight || hasHeavy) {
+    for (uint x = 0; (x < SPLIT_SIZE) && (hasLight || hasHeavy); ++x) {
         // Checking bounds before the numerical comparision avoids
         // Floating point inaccuracies while comparing!
         packHeavy = hasHeavy && (w <= averageWeight);

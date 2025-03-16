@@ -72,8 +72,8 @@ struct ScalarPackBuffers {
 
 class ScalarPackConfig {
   public:
-    const host::glsl::uint workgroupSize;
-    const host::glsl::uint splitSize;
+    host::glsl::uint workgroupSize;
+    host::glsl::uint splitSize;
 
     constexpr ScalarPackConfig() : workgroupSize(512), splitSize(2) {}
     explicit constexpr ScalarPackConfig(host::glsl::uint splitSize,
