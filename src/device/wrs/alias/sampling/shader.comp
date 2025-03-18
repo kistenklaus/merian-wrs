@@ -53,6 +53,13 @@ void philox2x32(inout uint x0, inout uint x1, uint key) {
     }
 }
 
+float randomFloatFromRandomUint(uint x) {
+  uint pattern = 0x3f000000;
+  uint randomMant = x & 0x7fffff; // 23 random bits.
+  pattern |= randomMant;
+  return uintBitsToFloat(pattern);
+}
+
 // Generate a random number using Philox2x32-10
 vec2 philoxRandom(uvec2 counter, uint key) {
     uint x0 = counter.x;
@@ -62,7 +69,8 @@ vec2 philoxRandom(uvec2 counter, uint key) {
     philox2x32(x0, x1, key);
 
     // Return a single random number normalized to [0, 1)
-    return vec2(float(x0) / 4294967296.0, float(x1) / 4294967296.0); // Normalize to [0, 1)
+    // return vec2(randomFloatFromRandomUint(x0), randomFloatFromRandomUint(x1));
+    return vec2(x0 / 4294967296.0, x1 / 4294967296.0);
 }
 
 uint N;
@@ -79,13 +87,12 @@ uint N;
 
 void narrowSection(inout ivec2 section, uint target, inout uvec2 counter, uint key) {
     if (subgroupElect()) {
-        uint u = min(uint(philoxRandom(counter, key).x * section.y), section.y - 1);
+        uint u = section.x + uint(philoxRandom(counter, key).x * section.y);
         const uint section_idx = uint(u / COOPERATIVE_SAMPLE_SIZE);
         section.x = int(section_idx * COOPERATIVE_SAMPLE_SIZE);
-        section.y = int(min((section_idx + 1) * COOPERATIVE_SAMPLE_SIZE, section.y));
+        section.y = int(min((section_idx + 1) * COOPERATIVE_SAMPLE_SIZE, section.y - 1));
     }
     counter.x += 1;
-
     section = subgroupBroadcast(section, 0);
 }
 
@@ -93,9 +100,9 @@ void narrowSection(inout ivec2 section, uint target, inout uvec2 counter, uint k
 uint sampleSection(ivec2 section, inout uvec2 counter, uint key) {
     const vec2 u = philoxRandom(counter, key);
 
-    const int ix = min(section.x + int(u.x * (section.y - section.x)), section.y);
+    const uint ix = uint(u.y * section.y);
     const float p = table[ix].p;
-    if (u.y >= p) {
+    if (u.x >= p) {
         return table[ix].a;
     } else {
         return ix;
@@ -113,10 +120,11 @@ void main(void) {
     }
 
     const uint key = pc.seed;
-    uvec2 counter = uvec2(0, gid);
+    uvec2 counter = uvec2(gl_WorkGroupID.x, gid);
 
     ivec2 section = ivec2(0, N); // [0,N) (inclusive, exclusive)
     if (COOPERATIVE_SAMPLE_SIZE != 0) {
+        counter *= 2;
         narrowSection(section, COOPERATIVE_SAMPLE_SIZE, counter, key);
     }
 

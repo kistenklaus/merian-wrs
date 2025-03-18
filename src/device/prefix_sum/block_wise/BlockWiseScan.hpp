@@ -79,8 +79,8 @@ struct BlockWiseScanConfig {
           blockCombineConfig(workgroupSize, rows * sequentialScanLength, 1, 1) {}
 
     constexpr BlockWiseScanConfig()
-        : elementScanConfig(512, 2, BlockScanVariant::RAKING, 2, true),
-          blockScanConfig(512, 1, BlockScanVariant::RAKING | BlockScanVariant::EXCLUSIVE, 1, false),
+        : elementScanConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 2, true),
+          blockScanConfig(512, 8, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::EXCLUSIVE, 2, false),
           blockCombineConfig(elementScanConfig) {
         assert(elementScanConfig.blockSize() == blockCombineConfig.blockSize());
         assert((blockScanConfig.variant & BlockScanVariant::EXCLUSIVE) ==

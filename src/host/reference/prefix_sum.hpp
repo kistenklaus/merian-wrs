@@ -37,6 +37,23 @@ template <arithmetic T,
           typed_allocator<T> Allocator = std::allocator<T>,
           std::ranges::random_access_range Range = std::span<const T>>
     requires(std::convertible_to<std::ranges::range_value_t<Range>, T>)
+std::vector<T, Allocator> sequential_prefix_sum(const Range& elements,
+                                                const Allocator& alloc = {}) {
+    std::vector<T, Allocator> prefix(elements.begin(), elements.end(), alloc);
+    using size = std::ranges::range_size_t<Range>;
+    const size N = std::ranges::size(elements);
+    T sum = 0;
+    for (size i = 0; i < N; ++i) {
+        sum += elements[i];
+        prefix[i] = sum; // Store the current prefix sum
+    }
+    return prefix;
+}
+
+template <arithmetic T,
+          typed_allocator<T> Allocator = std::allocator<T>,
+          std::ranges::random_access_range Range = std::span<const T>>
+    requires(std::convertible_to<std::ranges::range_value_t<Range>, T>)
 std::vector<T, Allocator>
 imperfect_prefix_sum(const Range& elements, T std_deviation, const Allocator& alloc = {}) {
     auto prefixSum = prefix_sum<T, Allocator, Range>(elements, alloc);
@@ -71,4 +88,4 @@ std::pmr::vector<T> imperfect_prefix_sum(const Range& elements,
 
 } // namespace pmr
 
-} // namespace wrs::reference
+} // namespace host::reference

@@ -28,39 +28,39 @@ struct NamedConfig {
 };
 
 static const NamedConfig CONFIGURATIONS[] = {
-    NamedConfig{.name = "ITS-0",
-                .group = "ITS-0",
-                .config = ITSConfig(DecoupledPrefixSumConfig(),
-                                    InverseTransformSamplingConfig(128, 0, false))},
-    NamedConfig{.name = "ITS-128",
-                .group = "ITS-128",
-                .config = ITSConfig(DecoupledPrefixSumConfig(),
-                                    InverseTransformSamplingConfig(128, 128, false))},
+    //NamedConfig{.name = "ITS-0",
+    //            .group = "ITS-0",
+    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
+    //                                InverseTransformSamplingConfig(128, 0, false))},
+    //NamedConfig{.name = "ITS-128",
+    //            .group = "ITS-128",
+    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
+    //                                InverseTransformSamplingConfig(128, 128, false))},
 
-    NamedConfig{.name = "Cutpoint-128",
-                .group = "Cutpoint",
-                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
+    //NamedConfig{.name = "Cutpoint-128",
+    //            .group = "Cutpoint",
+    //            .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
 
-    NamedConfig{.name = "PSA2-0",
-                .group = "PSA2-0",
-                .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
-                                                     DecoupledPrefixPartitionConfig(),
-                                                     InlineSplitPackConfig(2, 32, 512),
-                                                     false),
-                                           SampleAliasTableConfig(0))},
     NamedConfig{.name = "PSA2-128",
                 .group = "PSA2-128",
                 .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
                                                      DecoupledPrefixPartitionConfig(),
-                                                     InlineSplitPackConfig(2, 32, 512),
+                                                     InlineSplitPackConfig(32, 32, 512),
                                                      false),
                                            SampleAliasTableConfig(128))},
+    NamedConfig{.name = "PSA2-0",
+                .group = "PSA2-0",
+                .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                                     DecoupledPrefixPartitionConfig(),
+                                                     InlineSplitPackConfig(32, 32, 512),
+                                                     false),
+                                           SampleAliasTableConfig(0))},
 
 };
 
-static constexpr std::size_t N = 1e7;
+static constexpr std::size_t N = 1024 * 2048;
 static constexpr auto weight_distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM;
-static constexpr std::size_t min_S = (1 << 16);
+static constexpr std::size_t min_S = (1 << 4);
 static constexpr std::size_t max_S = (1ull << 28);
 static constexpr std::size_t ticks = 1000;
 static constexpr std::size_t iterations = 100;

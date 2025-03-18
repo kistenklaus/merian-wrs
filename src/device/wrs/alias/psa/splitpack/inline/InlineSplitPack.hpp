@@ -132,7 +132,8 @@ class InlineSplitPack {
         }
 #endif
 
-        host::glsl::uint K = N / m_splitSize;
+        host::glsl::uint K = (N + m_splitSize - 1) / m_splitSize;
+
 
         cmd->bind(m_pipeline);
         if (m_usePartitionElements) {
@@ -157,9 +158,13 @@ class InlineSplitPack {
                                                           .K = K,
                                                           .N = N,
                                                       });
+
         /* const host::glsl::uint splitsPerDispatch = m_workgroupSize - 1; */
         const uint32_t workgroupCount =
             (K + m_subproblemsPerWorkgroup - 1) / m_subproblemsPerWorkgroup;
+        fmt::println("K = {}", K);
+        fmt::println("N = {}", N);
+        fmt::println("W = {}", workgroupCount);
 
         cmd->dispatch(workgroupCount, 1, 1);
 

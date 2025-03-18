@@ -39,7 +39,6 @@ static const NamedConfig CONFIGURATIONS[] = {
                     ITSConfig(DecoupledPrefixSumConfig(),
                               InverseTransformSamplingConfig(128, 0, false)),
                 .flushL2 = false},
-
     NamedConfig{.name = "ITS-128",
                 .group = "ITS-128",
                 .config =

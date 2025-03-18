@@ -3,11 +3,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-bench_unserious = pd.read_csv("./wrs_rmse_curve.csv")
+bench1 = pd.read_csv("./wrs_rmse_curve.csv")
 
-bench = pd.concat([bench_unserious])
+bench = pd.concat([bench1])
 
 print(bench["group"].unique())
+
+print("N =", bench["N"].unique())
+
+print(bench)
 
 plt.rcParams.update({'font.size': 12})
 
@@ -18,11 +22,11 @@ def plotMe(method, label, color):
 
 plt.figure(figsize=(8, 3))
 
-plotMe("ITS-0", "its-baseline", "tab:blue")
-plotMe("ITS-128", "its-coop", "tab:orange")
-plotMe("Cutpoint", "cutpoint", "tab:green")
-plotMe("PSA2-0", "psa-baseline", "tab:red")
-plotMe("PSA2-128", "psa-sectioned", "tab:brown")
+# plotMe("ITS-0", "its-baseline", "tab:blue")
+# plotMe("ITS-128", "its-coop", "tab:orange")
+# plotMe("Cutpoint", "cutpoint", "tab:green")
+plotMe("PSA2-0", "psa-baseline", "tab:blue")
+plotMe("PSA2-128", "psa-sectioned", "tab:orange")
 
 ax = plt.gca()
 ax.spines['top'].set_visible(False)
@@ -45,7 +49,8 @@ plt.grid(True)
 
 
 plt.tight_layout()
-plt.savefig("wrs_rmse.pdf", format="pdf")
+plt.savefig("wrs_rmse_psa.pdf", format="pdf")
+
 
 plt.show()
 

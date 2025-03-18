@@ -77,7 +77,7 @@ generate_weights(const Distribution distribution, uint32_t count, const Allocato
         break;
     }
     case Distribution::PSEUDO_RANDOM_UNIFORM: {
-        std::mt19937 rng{13097396825706639356ull};
+        std::mt19937 rng{2927738328427642386};
         std::uniform_real_distribution<T> dist{0.01f, 1.0f};
         for (size_t i = 0; i < weights.size(); ++i) {
             if (enableLogging && nextChunk == i) {

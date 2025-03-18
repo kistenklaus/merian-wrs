@@ -60,26 +60,44 @@ static const TestCase TEST_CASES[] = {
     //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
     //    .iterations = 2,
     //},
-     TestCase{
-        .config =
-            PSAConfig(AtomicMeanConfig(),
-                      DecoupledPrefixPartitionConfig(),
-                      SerialSplitPackConfig(ScalarSplitConfig(16),
-                        SubgroupPackConfig(16, 8)),
-                      false),
-        .N = static_cast<uint32_t>(1024 * 2048),
+    //TestCase{
+    //    .config = PSAConfig(AtomicMeanConfig(1024, 8),
+    //                        DecoupledPrefixPartitionConfig(),
+    //                        SerialSplitPackConfig(ScalarSplitConfig(32),
+    //                          ScalarPackConfig(32)),
+    //                        true),
+    //    .N = static_cast<uint32_t>(64),
+    //    .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+    //    .iterations = 1,
+    //},
+    //TestCase{
+    //    .config = PSAConfig(AtomicMeanConfig(1024, 8),
+    //                        DecoupledPrefixPartitionConfig(),
+    //                        SerialSplitPackConfig(ScalarSplitConfig(32),
+    //                          SubgroupPackConfig(32)),
+    //                        true),
+    //    .N = static_cast<uint32_t>(64),
+    //    .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+    //    .iterations = 1,
+    //},
+    //TestCase{
+    //    .config = PSAConfig(AtomicMeanConfig(),
+    //                        DecoupledPrefixPartitionConfig(),
+    //                        InlineSplitPackConfig(32, 1, 512),
+    //                        false),
+    //    .N = static_cast<uint32_t>(128),
+    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+    //    .iterations = 1,
+    //},
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(16, 8, 512),
+                            false),
+        .N = static_cast<uint32_t>(32),
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
         .iterations = 1,
     },
-    /* TestCase{ */
-    /*     .config = PSAConfig(AtomicMeanConfig(1024, 8), */
-    /*                         DecoupledPrefixPartitionConfig(), */
-    /*                         InlineSplitPackConfig(2, 32), */
-    /*                         true), */
-    /*     .N = static_cast<uint32_t>(1024 * 2048), */
-    /*     .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM, */
-    /*     .iterations = 1, */
-    /* }, */
 };
 
 static void uploadTestCase(const merian::CommandBufferHandle& cmd,
@@ -238,11 +256,15 @@ static bool runTestCase(const host::test::TestContext& context,
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
 
             if ((testCase.N <= 1024)) {
-
+                
+                auto normalizedWeight = host::reference::normalize_weights<float>(weights);
+                auto sampledWeights = host::reference::alias_table_to_normalized_weights<float,
+                     host::glsl::uint>(results.aliasTable);
                 fmt::println("ALIAS-TABLE:");
                 for (std::size_t i = 0; i < results.aliasTable.size(); ++i) {
-                    fmt::println("[{}]: ({},{})", i, results.aliasTable[i].p,
-                                 results.aliasTable[i].a);
+                    fmt::println("[{:>3}]: ({:.4f},{:>3}) :: {:.4f}  ->  {:.4f}    ({:.3f})", i, results.aliasTable[i].p,
+                                 results.aliasTable[i].a,
+                                 normalizedWeight[i], sampledWeights[i], weights[i]);
                 }
                 fmt::println("Mean: {}", results.mean);
                 fmt::println("HeavyCount: {}", results.heavyCount);
@@ -269,10 +291,10 @@ static bool runTestCase(const host::test::TestContext& context,
                 const auto errAliasTable =
                     host::test::pmr::assert_is_alias_table<weight_type, weight_type,
                                                            host::glsl::uint>(
-                        weights, results.aliasTable, totalWeight, 0.1, resource);
+                        weights, results.aliasTable, totalWeight, 0.01, resource);
                 if (errAliasTable) {
-                    SPDLOG_ERROR("PSA-XXX constructs invalid alias table\n{}",
-                                 errAliasTable.message());
+                    SPDLOG_ERROR("{} constructs invalid alias table\n{}",
+                                 testName, errAliasTable.message());
                 } else {
                     SPDLOG_INFO("PSA-XXX constructs correct alias table");
                 }

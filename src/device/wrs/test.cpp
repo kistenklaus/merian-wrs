@@ -167,10 +167,10 @@ static const TestCase TEST_CASES[] = {
         .config = AliasTableConfig(
             PSAConfig(AtomicMeanConfig(),
                       DecoupledPrefixPartitionConfig(),
-                      SerialSplitPackConfig(ScalarSplitConfig(32), ScalarPackConfig(32)),
+                      InlineSplitPackConfig(2, 32, 512),
                       false),
             SampleAliasTableConfig(128)),
-        .N = static_cast<uint32_t>(1e7),
+        .N = static_cast<uint32_t>(512 * 32),
         .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
         .S = static_cast<uint32_t>(1e8),
         .iterations = 1,

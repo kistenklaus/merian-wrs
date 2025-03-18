@@ -6,11 +6,11 @@ import pandas as pd
 numPoints = 10000
 N = 1e7
 
-bench_unserious = pd.read_csv("./wrs_benchmark_sample_throughput2_its_cutpoint.csv")
+bench0 = pd.read_csv("./wrs_benchmark_sample_throughput2_its_cutpoint.csv")
 bench1 = pd.read_csv("./wrs_benchmark_sample_throughput2_psa2-0.csv")
 bench2 = pd.read_csv("./wrs_benchmark_sample_throughput2_psa2-128.csv")
 
-bench = pd.concat([bench_unserious, bench1, bench2])
+bench = pd.concat([bench0, bench1, bench2])
 
 print(bench["N"].unique())
 bench = bench[bench["N"] == N]

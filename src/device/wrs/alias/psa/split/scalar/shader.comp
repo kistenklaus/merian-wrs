@@ -40,24 +40,6 @@ uint heavyCount;
 uint lightCount;
 uint lightPrefixFirst;
 
-bool heavyPrefixAt(uint i, out float heavyPrefix) {
-    if (i < heavyCount) {
-        heavyPrefix = partitionPrefix.heavyLight[i];
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool lightPrefixAt(uint i, out float lightPrefix) {
-    if (i < lightCount) {
-        lightPrefix = partitionPrefix.heavyLight[lightPrefixFirst - i];
-        return true;
-    } else {
-        return false;
-    }
-}
-
 // computes the ceiling division of a * b by c
 // assumes that a > c > b
 uint ceilMulDiv(uint a, uint b, uint c) {
