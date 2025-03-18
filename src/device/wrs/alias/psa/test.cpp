@@ -1,6 +1,8 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
+#include "src/host/reference/prefix_sum.hpp"
 #include "src/device/mean/Mean.hpp"
+#include "src/host/reference/partition.hpp"
 #include "src/device/prefix_sum/block_scan/BlockScanVariant.hpp"
 #include "src/device/statistics/chi_square/ChiSquare.hpp"
 #include "src/device/wrs/alias/psa/PSA.hpp"
@@ -256,6 +258,27 @@ static bool runTestCase(const host::test::TestContext& context,
             MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
 
             if ((testCase.N <= 1024)) {
+
+                auto totalWeight = host::reference::reduce<float>(weights);
+                auto part = host::reference::stable_partition<float>(weights, totalWeight / weights.size());
+                auto lightPrefix = host::reference::prefix_sum<float>(part.light());
+                auto heavyPrefix = host::reference::prefix_sum<float>(part.heavy());
+
+                fmt::println("LIGHT");
+                for (std::size_t i = 0; i < lightPrefix.size(); ++i) {
+                  fmt::println("[{}]: {}         ({})", i, lightPrefix[i], part.light()[i]);
+                }
+                fmt::println("HEAVY");
+                for (std::size_t i = 0; i < heavyPrefix.size(); ++i) {
+                  fmt::println("[{}]: {}         ({})", i, heavyPrefix[i], part.heavy()[i]);
+                }
+
+                fmt::println("ALIAS-TABLE:");
+                for (std::size_t i = 0; i < results.aliasTable.size(); ++i) {
+                    fmt::println("[{:>3}]: ({:.4f},{:>3})", i, results.aliasTable[i].p,
+                                 results.aliasTable[i].a);
+                }
+
                 
                 auto normalizedWeight = host::reference::normalize_weights<float>(weights);
                 auto sampledWeights = host::reference::alias_table_to_normalized_weights<float,
