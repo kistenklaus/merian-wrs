@@ -28,16 +28,16 @@ struct NamedConfig {
 };
 
 static const NamedConfig CONFIGURATIONS[] = {
-    //NamedConfig{.name = "ITS-0",
+    // NamedConfig{.name = "ITS-0",
     //            .group = "ITS-0",
     //            .config = ITSConfig(DecoupledPrefixSumConfig(),
     //                                InverseTransformSamplingConfig(128, 0, false))},
-    //NamedConfig{.name = "ITS-128",
+    // NamedConfig{.name = "ITS-128",
     //            .group = "ITS-128",
     //            .config = ITSConfig(DecoupledPrefixSumConfig(),
     //                                InverseTransformSamplingConfig(128, 128, false))},
 
-    //NamedConfig{.name = "Cutpoint-128",
+    // NamedConfig{.name = "Cutpoint-128",
     //            .group = "Cutpoint",
     //            .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
 
@@ -45,25 +45,25 @@ static const NamedConfig CONFIGURATIONS[] = {
                 .group = "PSA2-128",
                 .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
                                                      DecoupledPrefixPartitionConfig(),
-                                                     InlineSplitPackConfig(32, 32, 512),
+                                                     InlineSplitPackConfig(2, 32, 512),
                                                      false),
                                            SampleAliasTableConfig(128))},
     NamedConfig{.name = "PSA2-0",
                 .group = "PSA2-0",
                 .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
                                                      DecoupledPrefixPartitionConfig(),
-                                                     InlineSplitPackConfig(32, 32, 512),
+                                                     InlineSplitPackConfig(2, 32, 512),
                                                      false),
                                            SampleAliasTableConfig(0))},
 
 };
 
-static constexpr std::size_t N = 1024 * 2048;
+static constexpr std::size_t N = 1e6;
 static constexpr auto weight_distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM;
-static constexpr std::size_t min_S = (1 << 4);
-static constexpr std::size_t max_S = (1ull << 28);
+static constexpr std::size_t min_S = (1 << 16);
+static constexpr std::size_t max_S = (1ull << 38);
 static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 100;
+static constexpr std::size_t iterations = 100; // does nothing =^).
 static constexpr std::size_t flushSize = 1e7;
 
 struct ConfigResult {
@@ -88,7 +88,8 @@ struct BenchmarkResults {
 ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                                        const merian::ShaderCompilerHandle& shaderCompiler,
                                        const merian::QueueHandle& queue,
-                                       const WRS::Config& config) {
+                                       const WRS::Config& config,
+                                       std::string name) {
 
     constexpr host::glsl::uint MAX_SAMPLING_STEP_SIZE = (1 << 28);
     constexpr host::glsl::uint SAMPLING_STEP_COUNT =
@@ -103,7 +104,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     auto weights = host::generate_weights<float>(weight_distribution, N);
     auto totalWeight = host::reference::reduce<float>(weights);
 
-    Buffers local;
+    Buffers local, stage;
     PhiloxBuffers temp;
     { // Setup
         const auto& resourceExt = context->get_extension<merian::ExtensionResources>();
@@ -112,8 +113,8 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
 
         local = Buffers::allocate(alloc, merian::MemoryMappingType::NONE, N, MAX_SAMPLING_STEP_SIZE,
                                   config);
-        Buffers stage = Buffers::allocate(alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, N,
-                                          MAX_SAMPLING_STEP_SIZE, config);
+        stage = Buffers::allocate(alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM, N,
+                                  MAX_SAMPLING_STEP_SIZE, config);
 
         temp = PhiloxBuffers::allocate(alloc, merian::MemoryMappingType::NONE, flushSize);
 
@@ -132,14 +133,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
         queue->submit_wait(cmd);
     }
 
-    wrs::eval::RMSECurveAcceleratedBuilder rmseCurveBuilder{
-        context,
-        shaderCompiler,
-        local.weights,
-        totalWeight,
-        N,
-        host::exp::log10scale<uint64_t>(min_S, max_S, ticks)};
-
     PRNG prng{context, shaderCompiler, PhiloxConfig()};
     PRNGBuffers prngBuffers;
     prngBuffers.samples = local.weights;
@@ -155,49 +148,97 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     std::mt19937 rng;
     std::uniform_int_distribution<host::glsl::uint> dist;
     std::size_t s = max_S;
+    std::span<const std::tuple<uint64_t, float>> rmseCurve;
+    if (SAMPLING_STEP_COUNT == 1) {
 
-    for (std::size_t i = 0; i < SAMPLING_STEP_COUNT;) {
+        Buffers::SamplesView stageView{stage.samples, s};
+        Buffers::SamplesView localView{local.samples, s};
 
         merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
         cmd->begin();
+        wrs.sample(cmd, local, N, s, dist(rng));
 
-        std::size_t x = 0;
-        while (i < SAMPLING_STEP_COUNT && x < SUBMIT_LIMIT) {
-
-            std::size_t s2 = s;
-            if (s2 == 0) {
-                continue;
-            }
-            if (s2 > MAX_SAMPLING_STEP_SIZE) {
-                s2 = MAX_SAMPLING_STEP_SIZE;
-            }
-            s -= MAX_SAMPLING_STEP_SIZE;
-
-            wrs.sample(cmd, local, N, s2, dist(rng));
-
-            rmseCurveBuilder.consume(cmd, local.samples, s2);
-            ++i;
-            ++x;
-        }
-
-        SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", max_S - s, max_S,
-                    100 * ((max_S - s) / static_cast<float>(max_S)));
+        localView.expectComputeWrite();
+        localView.copyTo(cmd, stageView);
+        stageView.expectHostRead(cmd);
 
         cmd->end();
         queue->submit_wait(cmd);
-    }
 
-    std::span<const std::tuple<uint64_t, float>> rmseCurve = rmseCurveBuilder.get();
+        auto samples = stageView.download<host::glsl::uint>();
+
+        std::ranges::shuffle(samples, rng);
+
+        wrs::eval::RMSECurveSectionedBuilder<float, float, host::glsl::uint> curveBuilder(
+            weights, host::exp::log10scale(min_S, max_S, ticks));
+
+        curveBuilder.consume(samples);
+        rmseCurve = curveBuilder.get();
+
+        auto hist = curveBuilder.get_histogram();
+
+        std::string path = fmt::format("histogram_{}.csv", name);
+        host::exp::CSVWriter<3> csv({"X", "observed", "expected"}, path);
+        for (std::size_t i = 0; i < hist.size(); ++i) {
+            float expected = (weights[i] * s) / totalWeight;
+            csv.pushRow(i, hist[i], expected);
+        }
+
+    } else {
+
+        wrs::eval::RMSECurveAcceleratedBuilder rmseCurveBuilder{
+            context,
+            shaderCompiler,
+            local.weights,
+            totalWeight,
+            N,
+            host::exp::log10scale<uint64_t>(min_S, max_S, ticks)};
+
+        for (std::size_t i = 0; i < SAMPLING_STEP_COUNT;) {
+
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+            cmd->begin();
+
+            std::size_t x = 0;
+            while (i < SAMPLING_STEP_COUNT && x < SUBMIT_LIMIT) {
+
+                std::size_t s2 = s;
+                if (s2 == 0) {
+                    continue;
+                }
+                if (s2 > MAX_SAMPLING_STEP_SIZE) {
+                    s2 = MAX_SAMPLING_STEP_SIZE;
+                }
+                s -= MAX_SAMPLING_STEP_SIZE;
+
+                wrs.sample(cmd, local, N, s2, dist(rng));
+
+                rmseCurveBuilder.consume(cmd, local.samples, s2);
+                ++i;
+                ++x;
+            }
+
+            SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", max_S - s, max_S,
+                        100 * ((max_S - s) / static_cast<float>(max_S)));
+
+            cmd->end();
+            queue->submit_wait(cmd);
+
+            rmseCurve = rmseCurveBuilder.get();
+        }
+    }
 
     ConfigBenchmark results;
     results.entries.reserve(rmseCurve.size());
 
     for (const auto& [s, rmse] : rmseCurve) {
-        results.entries.push_back(ConfigResult{
-            .N = N,
-            .S = s,
-            .rmse = rmse,
-        });
+        if (rmse > 0.0 && s <= max_S) {
+            results.entries.push_back(ConfigResult{
+                .N = N,
+                .S = s,
+                .rmse = rmse,
+            });
+        }
     }
 
     return results;
@@ -220,7 +261,7 @@ void benchmark(const merian::ContextHandle& context) {
                 100.0f,
             config.name);
         auto configBenchmark =
-            benchmarkConfiguration(context, shaderCompiler, queue, config.config);
+            benchmarkConfiguration(context, shaderCompiler, queue, config.config, config.name);
         results.entries.push_back(BenchmarkResult{
             .configuration = config,
             .results = configBenchmark,

@@ -18,7 +18,8 @@ layout(constant_id = 2) const uint SPLIT_SIZE = 32;
 layout(constant_id = 3) const uint THREADS_PER_SUBPROBLEM = 16;
 layout(constant_id = 4) const uint LOG2_THREADS_PER_SUBPROBLEM = 4;
 const uint THREADS_PER_SUBPROBLEM_MODMASK = (1 << LOG2_THREADS_PER_SUBPROBLEM) - 1;
-const bool OPTIMIZE_PACK_FOR_MEMORY_COALESCING = true; // if false it's optimized for hiding the latency of memory accesses.
+const bool OPTIMIZE_PACK_FOR_MEMORY_COALESCING = false; // if false it's optimized for hiding the latency of memory accesses.
+const bool USE_OLD_PACK_IMPL = false;
 
 const uint MAX_SUBGROUP_COUNT = (WORKGROUP_SIZE + SUBGROUP_SIZE - 1) / SUBGROUP_SIZE;
 
@@ -219,11 +220,7 @@ void scalarPack(uint i0, uint i1, uint j0, uint j1, float spill,
     }
 }
 
-void subgroupPackCoalesced(
-    uint i0,
-    uint i1,
-    uint j0,
-    uint j1,
+void subgroupPackOld(uint i0, uint i1, uint j0, uint j1,
     float spill,
     float averageWeight,
     uint lastLightIndex,
@@ -231,122 +228,296 @@ void subgroupPackCoalesced(
     uint relativeSubInvoc,
     uint k
 ) {
-    // We can think about relativeSubInvoc as a replacement for the gl_SubgroupInvocationID
-    // Specifically baseInvoc + relativeSubInvoc == gl_SubgroupInvocationID.
-    // Only invocations with the same baseInvoc will communicate!
-    uint i = i0 + relativeSubInvoc;
-    uint j = j0 + relativeSubInvoc;
     // =========== PACKING ===========
 
-    float shfl_lightWeight;
-    float shfl_heavyWeight;
-    uint shfl_lightIndex;
-    uint shfl_heavyIndex;
-    AliasTableEntry shfl_writebackHeavy;
-    AliasTableEntry shfl_writebackLight;
+    // init Heavy
+    j1 += 1;
+    uint j = j0 + relativeSubInvoc;
+    uint jx = 0;
+    int remainingHeavy = int(j1 - j0);
+    uint h2;
+    float hw;
+    AliasTableEntry he;
+    if (j < j1) {
+        h2 = g_partitionIndices.heavyLight[j];
+        #ifdef USE_PARTITION_ELEMENTS
+        hw = g_partitionIndices.heavyLight[j];
+        #else
+        hw = g_distribution.weights[h2];
+        #endif
+    }
 
-    // ========= INIT-SHFL-REG-BUFFERS ==========
-    // Init light
+    // init light
+    uint i = i0 + relativeSubInvoc;
+    uint ix = 0;
+    int remainingLight = int(i1 - i0);
+    uint l2;
+    float lw = 0;
+    AliasTableEntry le;
     if (i < i1) {
-        shfl_lightIndex = g_partitionIndices.heavyLight[lastLightIndex - i];
-        // bad dependency -> Stall Long Scoreboard!
-        shfl_lightWeight = g_distribution.weights[shfl_lightIndex];
+        l2 = g_partitionIndices.heavyLight[lastLightIndex - i];
+        #ifdef USE_PARTITION_ELEMENTS
+        lw = g_partitionIndices.heavyLight[lastLightIndex - i];
+        #else
+        lw = g_distribution.weights[l2];
+        // lw = 0;
+        #endif
     }
 
-    // Init heavy
-    if (j <= j1) { // we are only interessted in the index of j1
-        shfl_heavyIndex = g_partitionIndices.heavyLight[j];
+    float w = spill;
+    uint h;
+    if (k == 0) {
+        uvec2 temp = subgroupBroadcast(uvec2(h2, floatBitsToUint(hw)), baseInvoc + jx);
+        h = temp.x;
+        w = uintBitsToFloat(temp.y);
+    } else {
+        h = subgroupBroadcast(h2, baseInvoc + jx);
     }
+    jx += 1;
+    remainingHeavy -= 1;
 
-    if (j <= j1) { // not the weight at j1
-        if (relativeSubInvoc == 0 && k != 0) {
-            shfl_heavyWeight = spill;
-        } else {
-            shfl_heavyWeight = g_distribution.weights[shfl_heavyIndex];
-        }
-    }
+    bool hasLight = remainingLight > 0;
+    bool hasHeavy = remainingHeavy > 0;
+    bool packHeavy;
 
-    // shfl_*Owner is the relativeSubInvoc of the
-    // invocation which owns the next light / next heavy index / element.
-    // Specials case: if shfl_heavyOwner == THREADS_PER_SUBPROBLEM
-    // we don't have any heavy elements left.
-    uint shfl_lightOwner = 0;
-    uint shfl_heavyOwner = 0;
-
-    // not strictly identical to the split size as not all
-    // input sizes are divisible by it!
-    uint lightRemaining = (i1 - i0);
-    uint heavyRemaining = (j1 - j0);
     uint x = 0;
-    while (lightRemaining != 0 || heavyRemaining != 0) {
-        bool packHeavy;
-        // Invocation, which owns the current heavy weight decides
-        // if we pack heavy of light based on the current heavy weight.
-        if (relativeSubInvoc == shfl_heavyOwner) {
-            packHeavy = (shfl_heavyWeight <= averageWeight);
-            if (lightRemaining == 0) {
-                packHeavy = true;
-            }
-            if (heavyRemaining == 0) {
-                packHeavy = false;
-            }
+    while (hasLight || hasHeavy) {
+        // Checking bounds before the numerical comparision avoids
+        // Floating point inaccuracies while comparing!
+        packHeavy = hasHeavy && (w <= (averageWeight));
+        uint weightIdx;
+        float weight;
+        uvec2 v;
+        uint owner;
+        if (packHeavy) {
+            v = uvec2(h2, floatBitsToUint(hw));
+            owner = jx++;
+            remainingHeavy--;
+        } else {
+            v = uvec2(l2, floatBitsToUint(lw));
+            owner = ix++;
+            remainingLight--;
         }
-
-        packHeavy = subgroupShuffle(packHeavy, baseInvoc + shfl_heavyOwner);
+        v = subgroupBroadcast(v, baseInvoc + owner);
 
         if (packHeavy) {
-            uint nextHeavyOwner = (shfl_heavyOwner + 1);
-            if (relativeSubInvoc == shfl_heavyOwner
-                    || relativeSubInvoc == nextHeavyOwner) {
-                uint currentHeavyIndex = subgroupShuffle(shfl_heavyIndex, baseInvoc + shfl_heavyOwner);
-                float currentHeavyWeight = subgroupShuffle(shfl_heavyWeight, baseInvoc + shfl_heavyOwner);
-                if (relativeSubInvoc == nextHeavyOwner) {
-                    g_result.table[currentHeavyIndex].p = currentHeavyWeight / averageWeight;
-                    g_result.table[currentHeavyIndex].a = shfl_heavyIndex;
-                    shfl_heavyWeight = (shfl_heavyWeight - averageWeight) + currentHeavyWeight;
-                }
-            }
-            shfl_heavyOwner = nextHeavyOwner;
-            if (shfl_heavyOwner == THREADS_PER_SUBPROBLEM - 1) {
-                uint prevIndex = subgroupShuffle(shfl_heavyIndex, baseInvoc + shfl_heavyOwner);
-                float prevWeight = subgroupShuffle(shfl_heavyWeight, baseInvoc + shfl_heavyOwner);
-                j += (THREADS_PER_SUBPROBLEM - 1);
-                if (relativeSubInvoc == 0) {
-                    shfl_heavyWeight = prevWeight;
-                    shfl_heavyIndex = prevIndex;
-                } else if (j <= j1) { // including last heavy (because of index)
-                    shfl_heavyIndex = g_partitionIndices.heavyLight[j];
-                    shfl_heavyWeight = g_distribution.weights[shfl_heavyIndex];
-                }
-                shfl_heavyOwner = 0;
+            // Pack heavy bucket!
+            if (relativeSubInvoc == jx - 2) {
+                he.a = v.x;
+                he.p = w / averageWeight;
             }
 
-            heavyRemaining -= 1;
+            h = v.x;
         } else {
-            if (relativeSubInvoc == shfl_heavyOwner ||
-                    relativeSubInvoc == shfl_lightOwner) {
-                uint currentLightIndex = subgroupShuffle(shfl_lightIndex, baseInvoc + shfl_lightOwner);
-                float currentLightWeight = subgroupShuffle(shfl_lightWeight, baseInvoc + shfl_lightOwner);
-                if (relativeSubInvoc == shfl_heavyOwner) {
-                    g_result.table[currentLightIndex].p = currentLightWeight / averageWeight;
-                    g_result.table[currentLightIndex].a = shfl_heavyIndex;
-                    shfl_heavyWeight = (shfl_heavyWeight - averageWeight) + currentLightWeight;
-                }
-            }
-
-            shfl_lightOwner = (shfl_lightOwner + 1);
-            lightRemaining -= 1;
-
-            if (shfl_lightOwner == THREADS_PER_SUBPROBLEM) {
-                i += THREADS_PER_SUBPROBLEM;
-                if (i < i1) {
-                    shfl_lightIndex = g_partitionIndices.heavyLight[lastLightIndex - i];
-                    shfl_lightWeight = g_distribution.weights[shfl_lightIndex];
-                }
-                shfl_lightOwner = 0;
+            // Pack light bucket
+            if (relativeSubInvoc == ix - 1) {
+                le.p = uintBitsToFloat(v.y) / averageWeight;
+                le.a = h;
             }
         }
+
+        if (owner == (THREADS_PER_SUBPROBLEM - 1)) {
+            if (packHeavy) {
+                if (relativeSubInvoc < (THREADS_PER_SUBPROBLEM)) {
+                    g_result.table[h2] = he;
+                }
+                j += THREADS_PER_SUBPROBLEM - 1;
+                jx = 1;
+                if (j < j1) {
+                    h2 = g_partitionIndices.heavyLight[j];
+                    #ifdef USE_PARTITION_ELEMENTS
+                    hw = g_partitionIndices.heavyLight[j];
+                    #else
+                    hw = g_distribution.weights[h2];
+                    #endif
+                }
+            } else {
+                if (relativeSubInvoc < (THREADS_PER_SUBPROBLEM)) {
+                    g_result.table[l2] = le;
+                }
+                i += THREADS_PER_SUBPROBLEM;
+                ix = 0;
+                if (i < i1) {
+                    l2 = g_partitionIndices.heavyLight[lastLightIndex - i];
+                    #ifdef USE_PARTITION_ELEMENTS
+                    lw = g_partitionIndices.heavyLight[lastLightIndex - i];
+                    #else
+                    lw = g_distribution.weights[l2];
+                    // lw = 0;
+                    #endif
+                }
+            }
+        }
+
+        hasLight = remainingLight > 0;
+        hasHeavy = remainingHeavy > 0;
+        w += uintBitsToFloat(v.y) - averageWeight;
     }
+    if (relativeSubInvoc < ix) {
+        g_result.table[l2] = le;
+    }
+
+    if (relativeSubInvoc < jx - 1) {
+        g_result.table[h2] = he;
+    }
+}
+
+void subgroupPackCoalesced(uint i0, uint i1, uint j0, uint j1,
+    float spill,
+    float averageWeight,
+    uint lastLightIndex,
+    uint lightCount, uint heavyCount,
+    uint baseInvoc,
+    uint relativeSubInvoc,
+    uint k
+) {
+    // =========== PACKING ===========
+
+    // init Heavy
+    j1 += 1;
+    uint j = j0 + relativeSubInvoc;
+    uint jx = 0;
+    int remainingHeavy = int(j1 - j0);
+    uint h2;
+    float hw;
+    AliasTableEntry he;
+    if (j < j1) {
+        h2 = g_partitionIndices.heavyLight[j];
+        #ifdef USE_PARTITION_ELEMENTS
+        hw = g_partitionIndices.heavyLight[j];
+        #else
+        hw = g_distribution.weights[h2];
+        #endif
+    }
+
+    // init light
+    uint i = i0 + relativeSubInvoc;
+    uint ix = 0;
+    int remainingLight = int(i1 - i0);
+    uint l2;
+    float lw = 0;
+    AliasTableEntry le;
+    if (i < i1) {
+        l2 = g_partitionIndices.heavyLight[lastLightIndex - i];
+        #ifdef USE_PARTITION_ELEMENTS
+        lw = g_partitionIndices.heavyLight[lastLightIndex - i];
+        #else
+        lw = g_distribution.weights[l2];
+        // lw = 0;
+        #endif
+    }
+
+    float w = spill;
+    uint h;
+    if (k == 0) {
+        uvec2 temp = subgroupBroadcast(uvec2(h2, floatBitsToUint(hw)), baseInvoc + jx);
+        h = temp.x;
+        w = uintBitsToFloat(temp.y);
+    } else {
+        h = subgroupBroadcast(h2, baseInvoc + jx);
+    }
+    jx += 1;
+    remainingHeavy -= 1;
+
+    bool hasLight = remainingLight > 0;
+    bool hasHeavy = remainingHeavy > 0;
+    bool packHeavy;
+
+    while (hasLight || hasHeavy) {
+        // Checking bounds before the numerical comparision avoids
+        // Floating point inaccuracies while comparing!
+        if (!hasHeavy) {
+            packHeavy = false;
+        } else if (!hasLight) {
+            packHeavy = true;
+        } else {
+            packHeavy = (w <= averageWeight);
+        }
+        uint weightIdx;
+        float weight;
+        uvec2 v;
+        uint owner;
+        if (packHeavy) {
+            v = uvec2(h2, floatBitsToUint(hw));
+            owner = jx++;
+            remainingHeavy--;
+        } else {
+            v = uvec2(l2, floatBitsToUint(lw));
+            owner = ix++;
+            remainingLight--;
+        }
+        v = subgroupBroadcast(v, baseInvoc + owner);
+
+        if (packHeavy) {
+            // Pack heavy bucket!
+            if (relativeSubInvoc == jx - 2) {
+                he.a = v.x;
+                he.p = w / averageWeight;
+            }
+
+            h = v.x;
+        } else {
+            // Pack light bucket
+            if (relativeSubInvoc == ix - 1) {
+                le.p = uintBitsToFloat(v.y) / averageWeight;
+                le.a = h;
+            }
+        }
+
+        if (owner == (THREADS_PER_SUBPROBLEM - 1)) {
+            if (packHeavy) {
+                if (relativeSubInvoc < (THREADS_PER_SUBPROBLEM - 1)) {
+                    g_result.table[h2] = he;
+                }
+                j += THREADS_PER_SUBPROBLEM - 1;
+                jx = 1;
+                if (j < j1) {
+                    h2 = g_partitionIndices.heavyLight[j];
+                    #ifdef USE_PARTITION_ELEMENTS
+                    hw = g_partitionIndices.heavyLight[j];
+                    #else
+                    hw = g_distribution.weights[h2];
+                    #endif
+                }
+            } else {
+                if (relativeSubInvoc < (THREADS_PER_SUBPROBLEM)) {
+                    g_result.table[l2] = le;
+                }
+                i += THREADS_PER_SUBPROBLEM;
+                ix = 0;
+                if (i < i1) {
+                    l2 = g_partitionIndices.heavyLight[lastLightIndex - i];
+                    #ifdef USE_PARTITION_ELEMENTS
+                    lw = g_partitionIndices.heavyLight[lastLightIndex - i];
+                    #else
+                    lw = g_distribution.weights[l2];
+                    // lw = 0;
+                    #endif
+                }
+            }
+        }
+
+        hasLight = remainingLight > 0;
+        hasHeavy = remainingHeavy > 0;
+        w += uintBitsToFloat(v.y) - averageWeight;
+    }
+    if (relativeSubInvoc < ix) {
+        g_result.table[l2] = le;
+    }
+
+    if (relativeSubInvoc < jx - 1) {
+        g_result.table[h2] = he;
+    }
+    // if (j1 == heavyCount) {
+    //     // Last heavy element overal has to be handled seperately otherwise,
+    //     // we access heavyIndices out of bound.
+    //     // Maybe this would actually be fine because of our layout. Then the residual of the
+    //     // last element which should always be zero, but numerical instabilities would be
+    //     // reassigned to the last light element, both are probably fine, but here we choose to
+    //     // redirect to not have the last heavy element redirect to anything makes it easier to debug!
+    //     g_result.table[h].p = 1.0f;
+    //     g_result.table[h].a = h;
+    // }
 }
 
 void subgroupPackCyclicBuffer(
@@ -676,14 +847,14 @@ void subgroupSplitPack() {
 
     if (OPTIMIZE_PACK_FOR_MEMORY_COALESCING) {
         subgroupPackCoalesced(
-            // min(s0.i, s1Repr.x),
-            // max(s0.i, s1Repr.x),
-            // min(s0.j, s1Repr.y),
-            // max(s0.j, s1Repr.y),
-            s0.i,
-            s1Repr.x,
-            s0.j,
-            s1Repr.y,
+            min(s0.i, s1Repr.x),
+            max(s0.i, s1Repr.x),
+            min(s0.j, s1Repr.y),
+            max(s0.j, s1Repr.y),
+            // s0.i,
+            // s1Repr.x,
+            // s0.j,
+            // s1Repr.y,
             s0.spill,
             mean,
             lastLightIndex,
@@ -804,15 +975,15 @@ void scalarSplitPack() {
         return;
     }
 
-    // uint i0 = min(split.i, ij1.x);
-    // uint j0 = min(split.j, ij1.y);
-    // uint i1 = max(ij1.x, split.i);
-    // uint j1 = max(ij1.y, split.j);
+    uint i0 = min(split.i, ij1.x);
+    uint j0 = min(split.j, ij1.y);
+    uint i1 = max(ij1.x, split.i);
+    uint j1 = max(ij1.y, split.j);
 
-    uint i0 = split.i;
-    uint j0 = split.j;
-    uint i1 = ij1.x;
-    uint j1 = ij1.y;
+    // uint i0 = split.i;
+    // uint j0 = split.j;
+    // uint i1 = ij1.x;
+    // uint j1 = ij1.y;
 
     float spill = split.spill;
 

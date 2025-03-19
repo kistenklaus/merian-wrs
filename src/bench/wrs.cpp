@@ -74,16 +74,16 @@ static const NamedConfig CONFIGURATIONS[] = {
     /*             true),                                        // */
     /*         SampleAliasTableConfig(32)),                       // */
     /* },                                                         // */
-    //NamedConfig{.name = "ITS-0",
-    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
-    //                                InverseTransformSamplingConfig(512, 0, false))},
-    //NamedConfig{.name = "ITS-128",
-    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
-    //                                InverseTransformSamplingConfig(512, 128, false))},
+    NamedConfig{.name = "ITS-0",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(512, 0, false))},
+    NamedConfig{.name = "ITS-128",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(512, 128, false))},
     //NamedConfig{.name = "ITS-128-pArray",
     //            .config = ITSConfig(DecoupledPrefixSumConfig(),
     //                                InverseTransformSamplingConfig(512, 128, true))},
-    //NamedConfig{.name = "Cutpoint-128", .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
+    NamedConfig{.name = "Cutpoint-128", .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
     NamedConfig{.name = "PSA2-0",
                 .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
                                                      DecoupledPrefixPartitionConfig(),
@@ -100,13 +100,13 @@ static const NamedConfig CONFIGURATIONS[] = {
 };
 
 static constexpr std::size_t N = (1 << 26);
-static constexpr std::size_t S = (1 << 26);
+static constexpr std::size_t S = (1 << 28);
 
 static constexpr std::size_t N_min = (1 << 16);
 static constexpr std::size_t S_min = (1 << 16);
 
 static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 1;
+static constexpr std::size_t iterations = 10;
 
 struct ConfigResult {
     std::size_t N;

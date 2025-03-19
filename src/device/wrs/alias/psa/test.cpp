@@ -96,7 +96,7 @@ static const TestCase TEST_CASES[] = {
                             DecoupledPrefixPartitionConfig(),
                             InlineSplitPackConfig(16, 8, 512),
                             false),
-        .N = static_cast<uint32_t>(32),
+        .N = static_cast<uint32_t>(1024),
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
         .iterations = 1,
     },

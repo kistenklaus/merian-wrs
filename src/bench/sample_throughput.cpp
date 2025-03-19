@@ -27,40 +27,40 @@ struct NamedConfig {
 };
 
 static const NamedConfig CONFIGURATIONS[] = {
-    NamedConfig{.name = "ITS-0",
-                .group = "ITS-0",
-                .config =
-                    ITSConfig(DecoupledPrefixSumConfig(),
-                              InverseTransformSamplingConfig(128, 0, false)),
-                .flushL2 = true},
-    NamedConfig{.name = "ITS-0",
-                .group = "ITS-0",
-                .config =
-                    ITSConfig(DecoupledPrefixSumConfig(),
-                              InverseTransformSamplingConfig(128, 0, false)),
-                .flushL2 = false},
+    //NamedConfig{.name = "ITS-0",
+    //            .group = "ITS-0",
+    //            .config =
+    //                ITSConfig(DecoupledPrefixSumConfig(),
+    //                          InverseTransformSamplingConfig(128, 0, false)),
+    //            .flushL2 = true},
+    //NamedConfig{.name = "ITS-0",
+    //            .group = "ITS-0",
+    //            .config =
+    //                ITSConfig(DecoupledPrefixSumConfig(),
+    //                          InverseTransformSamplingConfig(128, 0, false)),
+    //            .flushL2 = false},
 
-    NamedConfig{.name = "ITS-128",
-                .group = "ITS-128",
-                .config =
-                    ITSConfig(DecoupledPrefixSumConfig(),
-                              InverseTransformSamplingConfig(128, 128, false)),
-                .flushL2 = true},
-    NamedConfig{.name = "ITS-128",
-                .group = "ITS-128",
-                .config =
-                    ITSConfig(DecoupledPrefixSumConfig(),
-                              InverseTransformSamplingConfig(128, 128, false)),
-                .flushL2 = false},
+    //NamedConfig{.name = "ITS-128",
+    //            .group = "ITS-128",
+    //            .config =
+    //                ITSConfig(DecoupledPrefixSumConfig(),
+    //                          InverseTransformSamplingConfig(128, 128, false)),
+    //            .flushL2 = true},
+    //NamedConfig{.name = "ITS-128",
+    //            .group = "ITS-128",
+    //            .config =
+    //                ITSConfig(DecoupledPrefixSumConfig(),
+    //                          InverseTransformSamplingConfig(128, 128, false)),
+    //            .flushL2 = false},
 
-    NamedConfig{.name = "Cutpoint-128",
-                .group = "Cutpoint-128",
-                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
-                .flushL2 = true},
-    NamedConfig{.name = "Cutpoint-128",
-                .group = "Cutpoint-128",
-                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
-                .flushL2 = false},
+    //NamedConfig{.name = "Cutpoint-128",
+    //            .group = "Cutpoint-128",
+    //            .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
+    //            .flushL2 = true},
+    //NamedConfig{.name = "Cutpoint-128",
+    //            .group = "Cutpoint-128",
+    //            .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
+    //            .flushL2 = false},
 
     NamedConfig{.name = "PSA2-0",
                 .group = "PSA2-0",
@@ -100,8 +100,8 @@ static const NamedConfig CONFIGURATIONS[] = {
 
 static constexpr std::size_t N = (1 << 28);
 static constexpr std::size_t N_min = (1 << 16);
-static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 100;
+static constexpr std::size_t ticks = 100;
+static constexpr std::size_t iterations = 10;
 static constexpr std::size_t S = 1e7;
 static constexpr std::size_t flushSize = 1e7;
 
@@ -317,16 +317,19 @@ void benchmark(const merian::ContextHandle& context) {
     // export
 
     std::string path = "wrs_benchmark_sample_throughput.csv";
-    host::exp::CSVWriter<10> csv({"N", "S", "method", "group", "build_latency",
-                                  "build_std_derivation", "sample_latency", "sample_std_derivation",
-                                  "sample_throughput", "flushL2"},
+    host::exp::CSVWriter<10> csv({"N", "S", "method", "group", 
+                  "build_latency", "build_std_derivation", 
+                  "sample_latency", "sample_std_derivation",
+                  "sample_throughput", "flushL2"
+                  },
                                  path);
     for (const auto& r1 : results.entries) {
         std::string method = r1.configuration.name;
         for (const auto& r2 : r1.results.entries) {
-            csv.pushRow(r2.N, r2.S, method, r1.configuration.group, r2.latencyBuild, r2.stdVarBuild,
-                        r2.latencySample, r2.stdVarSample, r2.sampleThroughput,
-                        r1.configuration.flushL2);
+            csv.pushRow(r2.N, r2.S, method, r1.configuration.group, 
+                r2.latencyBuild, r2.stdVarBuild,
+                r2.latencySample, r2.stdVarSample, 
+                r2.sampleThroughput, r1.configuration.flushL2);
         }
     }
 }

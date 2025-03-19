@@ -1,10 +1,10 @@
 #pragma once
 
+#include "merian/vk/extension/extension_resources.hpp"
+#include "merian/vk/memory/resource_allocations.hpp"
 #include "src/device/statistics/histogram/Histogram.hpp"
 #include "src/device/statistics/rmse/mse/MeanSquaredError.hpp"
-#include "merian/vk/extension/extension_resources.hpp"
 #include "src/host/reference/inverse_alias_table.hpp"
-#include "merian/vk/memory/resource_allocations.hpp"
 #include "src/host/reference/reduce.hpp"
 #include "src/host/statistics/histogram.hpp"
 #include "src/host/why.hpp"
@@ -227,6 +227,10 @@ struct RMSECurveSectionedBuilder {
         }
     }
 
+    std::span<const std::uint64_t> get_histogram() const {
+        return m_histogram;
+    }
+
     void consume(std::span<const I> samplesSection) {
         std::span<const I> todo = samplesSection;
 
@@ -352,8 +356,9 @@ struct RMSECurveAcceleratedBuilder {
             vk::BufferUsageFlagBits::eTransferDst, merian::MemoryMappingType::HOST_ACCESS_RANDOM);
     }
 
-    void
-    consume(const merian::CommandBufferHandle& cmd, merian::BufferHandle samples, host::glsl::uint s) {
+    void consume(const merian::CommandBufferHandle& cmd,
+                 merian::BufferHandle samples,
+                 host::glsl::uint s) {
         if (m_k == m_rmseCurve.size()) {
             return;
         }

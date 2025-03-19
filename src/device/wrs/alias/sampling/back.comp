@@ -14,12 +14,10 @@ layout(constant_id = 0) const uint WORKGROUP_SIZE = 512;
 layout(constant_id = 1) const uint COOPERATIVE_SAMPLE_SIZE = 32;
 
 const uint UNIFORM_SAMPLER_TYPE_DICE_ROLLER = 1;
-const uint UNIFORM_SAMPLER_TYPE_FLOAT = 2;
-const uint UNIFORM_SAMPLER_TYPE_DOUBLE = 3;
-// const uint UNIFORM_SAMPLER_TYPE_FLOAT_SECTIONED = 2;
+const uint UNIFORM_SAMPLER_TYPE_UINT64 = 2;
 
 // const uint UNIFORM_SAMPLER = UNIFORM_SAMPLER_TYPE_DICE_ROLLER;
-const uint UNIFORM_SAMPLER = COOPERATIVE_SAMPLE_SIZE == 0 ? UNIFORM_SAMPLER_TYPE_DICE_ROLLER : UNIFORM_SAMPLER_TYPE_FLOAT;
+const uint UNIFORM_SAMPLER = UNIFORM_SAMPLER_TYPE_UINT64;
 
 struct AliasTableEntry {
     float p;
@@ -62,16 +60,12 @@ void philox2x32(inout uint x0, inout uint x1, uint key) {
     }
 }
 
-double randomDouble(uint source) {
-    return double(source) / double(4294967295.0);
-}
-
 float randomFloat(uint source) {
-    // return source / 4294967295.0f;
-    uint pattern = 0x3f800000;
-    uint randomMant = source & 0x7fffff; // 23 random bits.
-    pattern |= randomMant;
-    return uintBitsToFloat(pattern) - 1.0f;
+    return source / 4294967295.0f;
+    // uint pattern = 0x3f800000;
+    // uint randomMant = source & 0x7fffff; // 23 random bits.
+    // pattern |= randomMant;
+    // return uintBitsToFloat(pattern) - 1.0f;
 }
 
 // Generate a random number using Philox2x32-10
@@ -116,10 +110,8 @@ uint fastDiceRoller(uint source, uint n) {
 uint randomInt(uint source, uint n) {
     if (UNIFORM_SAMPLER == UNIFORM_SAMPLER_TYPE_DICE_ROLLER) {
         return fastDiceRoller(source, n);
-    } else if (UNIFORM_SAMPLER == UNIFORM_SAMPLER_TYPE_FLOAT) {
+    } else if (UNIFORM_SAMPLER == UNIFORM_SAMPLER_TYPE_UINT64) {
         return uint(randomFloat(source) * n);
-    } else if (UNIFORM_SAMPLER == UNIFORM_SAMPLER_TYPE_DOUBLE) {
-        return min(uint(randomDouble(source) * n), n - 1);
     }
 }
 
@@ -169,7 +161,7 @@ void main(void) {
     }
 
     const uint key = pc.seed;
-    uvec2 counter = uvec2(0, gid);
+    uvec2 counter = uvec2(gl_WorkGroupID.x, gid);
 
     uvec2 section = ivec2(0, N); // [0,N) (inclusive, exclusive)
     if (COOPERATIVE_SAMPLE_SIZE != 0) {

@@ -18,7 +18,7 @@ plt.rcParams.update({'font.size': 12})
 def plotMe(method, label, color):
     group = bench[bench["group"] == method]
 
-    plt.plot(group["S"], group["rmse"], label=label, color=color)
+    plt.plot(group["S"], group["rmse"], "-", label=label, color=color)
 
 plt.figure(figsize=(8, 3))
 
@@ -49,7 +49,7 @@ plt.grid(True)
 
 
 plt.tight_layout()
-plt.savefig("wrs_rmse_psa.pdf", format="pdf")
+plt.savefig("wrs_rmse_psa2_e6.pdf", format="pdf")
 
 
 plt.show()

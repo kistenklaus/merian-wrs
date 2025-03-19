@@ -170,9 +170,9 @@ static const TestCase TEST_CASES[] = {
                       InlineSplitPackConfig(2, 32, 512),
                       false),
             SampleAliasTableConfig(128)),
-        .N = static_cast<uint32_t>(512 * 32),
+        .N = static_cast<uint32_t>(1e6),
         .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
-        .S = static_cast<uint32_t>(1e8),
+        .S = static_cast<uint32_t>(1e7),
         .iterations = 1,
     },
 
@@ -371,7 +371,7 @@ static bool runTestCase(const host::test::TestContext& context,
 }
 
 void test(const merian::ContextHandle& context) {
-    SPDLOG_INFO("Testing TODO algorithm");
+    SPDLOG_INFO("Testing WRS algorithms");
 
     const host::test::TestContext testContext = host::test::setupTestContext(context);
 
