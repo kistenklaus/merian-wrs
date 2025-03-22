@@ -93,9 +93,10 @@ Split computeSplit(uint n, float mean, uint heavyCount, uint lightCount, uint li
 
     const float target = mean * n;
 
-    while (a <= b) {
+    while (a < b) {
+        // Invariant: sigma(heavy=a) < target!
         j = (a + b) / 2;
-        i = min(n - j, lightCount - 1);
+        i = min(n - j, lightCount);
 
         heavy = j == 0 ? 0 : g_partitionPrefix.heavyLight[j - 1];
         light = i == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - (i - 1)];
@@ -108,15 +109,14 @@ Split computeSplit(uint n, float mean, uint heavyCount, uint lightCount, uint li
             b = j - 1;
         }
     }
-    if (THREADS_PER_SUBPROBLEM != 1) { //idk, some off by one error somewhere
-        j = a - 1;
-        i = min(n - j, lightCount - 1);
-    }
+    // Invariant remains after binary search (i.e. sigma(heavy = a) < target)
+    // Additionall the post condition (i.e. sigma(heavy = a - 1) >= target) also applies 
+    j = a - 1;
+    i = min(n - j, lightCount);
 
-    // if (THREADS_PER_SUBPROBLEM != 1) {
-    //     j = b; //lower bound still
-    // } else {
-    //     j = a;
+    // if (THREADS_PER_SUBPROBLEM != 1) { //idk, some off by one error somewhere
+    //     j = a - 1;
+    //     i = min(n - j, lightCount - 1);
     // }
 
     light = i == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - (i - 1)];
@@ -985,7 +985,7 @@ void scalarSplitPack() {
 
     float spill = split.spill;
 
-    // if (k == 15) {
+    // if (k == 510) {
     //     g_result.table[0].a = i0;
     //     g_result.table[0].p = g_partitionIndices.heavyLight[lightPrefixFirst - i0];
     //     g_result.table[1].a = j0;
@@ -998,9 +998,7 @@ void scalarSplitPack() {
     // }
     // return;
 
-    // if (k == 15) {
     scalarPack(i0, i1, j0, j1, spill, mean, lightPrefixFirst, lightCount, heavyCount, k);
-    // }
 }
 
 void main(void)
