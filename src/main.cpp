@@ -74,7 +74,7 @@ int main() {
     /* device::wrs_rmse_sweep::benchmark(context); */
 
     /* device::wrs_rmse::benchmark(context); */
-    device::wrs::benchmark(context);
+    /* device::wrs::benchmark(context); */
 
     /* host::test::testTests(); */
 
@@ -87,7 +87,7 @@ int main() {
     /* device::test::prefix_partition::test(context); */
 
     /* device::test::psa_greedy::test(context); */
-    /* device::test::psa::test(context); */
+    device::test::psa::test(context);
     /* device::test::wrs::test(context); */
 
     /* device::wrs::benchmark(context); */

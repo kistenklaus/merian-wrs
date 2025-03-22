@@ -94,7 +94,7 @@ static const TestCase TEST_CASES[] = {
     TestCase{
         .config = PSAConfig(AtomicMeanConfig(),
                             DecoupledPrefixPartitionConfig(),
-                            InlineSplitPackConfig(16, 8, 512),
+                            InlineSplitPackConfig(32, 32, 512),
                             false),
         .N = static_cast<uint32_t>(1024),
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
