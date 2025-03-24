@@ -13,9 +13,8 @@
 #include "vulkan/vulkan_enums.hpp"
 
 namespace device {
-
 class BlockWisePrefixPartitionBuffers {
-  public:
+public:
     using Self = BlockWisePrefixPartitionBuffers;
     static constexpr auto storageQualifier = host::glsl::StorageQualifier::std430;
     merian::BufferHandle elements;
@@ -190,7 +189,7 @@ struct BlockWisePrefixPartitionConfig {
 };
 
 template <block_wise_prefix_partition_compatible T> class BlockWisePrefixPartition {
-  public:
+public:
     using Buffers = BlockWisePrefixPartitionBuffers;
     using Config = BlockWisePrefixPartitionConfig;
 
@@ -226,7 +225,7 @@ template <block_wise_prefix_partition_compatible T> class BlockWisePrefixPartiti
     void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              host::glsl::uint N,
-             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+             [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
 #ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->start("Block-Wise-Prefix-Partition");

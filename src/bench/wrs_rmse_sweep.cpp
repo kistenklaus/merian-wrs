@@ -154,7 +154,8 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
 
             std::size_t s2 = s;
             if (s2 == 0) {
-                continue;
+              i = SAMPLING_STEP_COUNT;
+              break;
             }
             if (s2 > MAX_SAMPLING_STEP_SIZE) {
                 s2 = MAX_SAMPLING_STEP_SIZE;

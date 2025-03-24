@@ -8,7 +8,7 @@
 
 std::tuple<host::glsl::uint, host::glsl::uint>
 device::details::downloadHeavyLightCountFromStage(const merian::BufferHandle& buffer,
-                                                  std::pmr::memory_resource* resource) {
+                                                  [[maybe_unused]] std::pmr::memory_resource* resource) {
     using View = host::layout::BufferView<device::details::HeavyLightCountLayout>;
     View view{buffer};
     auto heavyView = view.attribute<"heavyCount">();

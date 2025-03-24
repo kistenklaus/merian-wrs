@@ -134,7 +134,7 @@ class ScalarSplit {
     void run(const merian::CommandBufferHandle& cmd,
              const ScalarSplitBuffers& buffers,
              uint32_t N,
-             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+             [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
 #ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->start("ScalarSplit");

@@ -264,7 +264,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     std::size_t threadsPerSubproblem =
         context->physical_device.physical_device_subgroup_properties.subgroupSize /
         packsPerSubgroup;
-    std::size_t Nstep = (max_N - min_N) / steps_N;
 
     merian::ProfilerHandle benchmarkProfiler = std::make_shared<merian::Profiler>(context);
 

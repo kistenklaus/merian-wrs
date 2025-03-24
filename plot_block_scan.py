@@ -55,33 +55,38 @@ def binedAverage(df, B):
     return results
     
 
-groupsFlushL2 = groupsFlushL2.groupby("N").agg(
-        low=("aggregate", "min"),
-        high=("aggregate", "max"),
-        ).reset_index()
+# groupsFlushL2 = groupsFlushL2.groupby("N").agg(
+#         low=("aggregate", "min"),
+#         high=("aggregate", "max"),
+#         ).reset_index()
+
 
 
 rakingWithL2 = binedAverage(groupsWithL2[groupsWithL2["method"] == "RAKING"], numPoints)
 rankedWithL2 = binedAverage(groupsWithL2[groupsWithL2["method"] == "RANKED"], numPoints)
 rankedStridedWithL2 = binedAverage(groupsWithL2[groupsWithL2["method"] == "RANKED-STRIDED"], numPoints)
 
-
-# plt.plot(rakingFlushL2["N"], rakingFlushL2["aggregate"], label="raking")
-# plt.plot(rankedFlushL2["N"], rankedFlushL2["aggregate"], label="ranked")
-# plt.plot(rankedStridedFlushL2["N"], rankedStridedFlushL2["aggregate"], label="ranked-strided")
-
-plt.plot(rakingWithL2["N"], rakingWithL2["aggregate"], label="raking")
-plt.plot(rankedWithL2["N"], rankedWithL2["aggregate"], label="ranked")
-plt.plot(rankedStridedWithL2["N"], rankedStridedWithL2["aggregate"], label="ranked-strided")
+rakingFlushL2 = binedAverage(groupsFlushL2[groupsFlushL2["method"] == "RAKING"], numPoints)
+rankedFlushL2 = binedAverage(groupsFlushL2[groupsFlushL2["method"] == "RANKED"], numPoints)
+rankedStridedFlushL2 = binedAverage(groupsFlushL2[groupsFlushL2["method"] == "RANKED-STRIDED"], numPoints)
 
 
-BinedFill = True
-if not BinedFill:
-    plt.fill_between(groupsFlushL2["N"], groupsFlushL2["low"], groupsFlushL2["high"], alpha=0.5, label="flushed L2")
-else :
-    low = binedAverage(groupsFlushL2.rename(columns={"low": "aggregate"}), 200)
-    high = binedAverage(groupsFlushL2.rename(columns={"high": "aggregate"}), 200)
-    plt.fill_between(low["N"], low["aggregate"], high["aggregate"], alpha=0.5, label="flushed L2")
+plt.plot(rakingFlushL2["N"], rakingFlushL2["aggregate"], label="raking", color="tab:blue")
+plt.plot(rankedFlushL2["N"], rankedFlushL2["aggregate"], label="ranked", color="tab:orange")
+plt.plot(rankedStridedFlushL2["N"], rankedStridedFlushL2["aggregate"], label="ranked-strided", color="tab:green")
+
+plt.plot(rakingWithL2["N"], rakingWithL2["aggregate"], ":", color="tab:blue")
+plt.plot(rankedWithL2["N"], rankedWithL2["aggregate"], ":", color="tab:orange")
+plt.plot(rankedStridedWithL2["N"], rankedStridedWithL2["aggregate"], ":", color="tab:green")
+
+
+# BinedFill = 
+# if not BinedFill:
+#     plt.fill_between(groupsFlushL2["N"], groupsFlushL2["low"], groupsFlushL2["high"], alpha=0.5, label="flushed L2")
+# else :
+#     low = binedAverage(groupsFlushL2.rename(columns={"low": "aggregate"}), 200)
+#     high = binedAverage(groupsFlushL2.rename(columns={"high": "aggregate"}), 200)
+#     plt.fill_between(low["N"], low["aggregate"], high["aggregate"], alpha=0.5, label="flushed L2")
 
 ax = plt.gca()
 ax.spines['top'].set_visible(False)

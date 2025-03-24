@@ -46,7 +46,6 @@ struct AliasTableEntry {
 struct Split {
     uint i;
     uint j;
-    float spill;
 };
 
 layout(set = 0, binding = 0, std430) readonly buffer in_Distribution {
@@ -86,7 +85,7 @@ layout(push_constant) uniform PushConstant {
 
 Split computeSplit(uint n, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst) {
     uint a = 0;
-    uint b = min(n, heavyCount;
+    uint b = min(n, heavyCount);
 
     uint j = 0, i = 0;
     float heavy, light, sigma;
@@ -104,7 +103,7 @@ Split computeSplit(uint n, float mean, uint heavyCount, uint lightCount, uint li
 
         sigma = light + heavy;
 
-        if (sigma > target) {
+        if (sigma >= target) {
             b = j;
         } else {
             a = j + 1;
@@ -114,13 +113,9 @@ Split computeSplit(uint n, float mean, uint heavyCount, uint lightCount, uint li
     j = a - 1;
     i = min(n - j, lightCount);
 
-    light = i == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - (i - 1)];
-    float heavy2 = g_partitionPrefix.heavyLight[j]; // weight of j+1 elements (inclusive prefix) and j represents a count!
-    float sigma2 = heavy2 + light;
     Split split;
     split.i = i;
     split.j = j;
-    split.spill = sigma2 - target;
     return split;
 }
 shared uvec2 workgroupShuffleScratch[MAX_SUBGROUP_COUNT];
@@ -164,10 +159,10 @@ void scalarPack(uint i0, uint i1, uint j0, uint j1, float spill,
         bool packHeavy;
         // Checking bounds before the numerical comparision avoids
         // Floating point inaccuracies while comparing!
-        if (j == j1) {
+        if (j >= j1) {
             // Only light buckets left.
             packHeavy = false;
-        } else if (i == i1) {
+        } else if (i >= i1) {
             // Only heavy buckets left.
             packHeavy = true;
         } else {
@@ -735,14 +730,9 @@ Split computeSplitCoop(uint n, float mean, uint heavyCount, uint lightCount, uin
     }
     j = b; //lower bound still
     i = min(n - j, lightCount - 1);
-
-    light = i == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
-    float heavy2 = g_partitionPrefix.heavyLight[j];
-    float sigma2 = heavy2 + light;
     Split split;
     split.i = i;
     split.j = j;
-    split.spill = sigma2 - target;
     // split.spill = 0;
 
     // uvec4 ballot = subgroupBallot(gl_SubgroupInvocationID < 16);
@@ -800,7 +790,6 @@ void subgroupSplitPack() {
     if (shuffleK == 0) {
         s0.i = 0;
         s0.j = 0;
-        s0.spill = 0;
     } else if (shuffleK == K) {
         s0.i = lightCount;
         s0.j = heavyCount;
@@ -813,13 +802,12 @@ void subgroupSplitPack() {
     }
 
     // shuffle splits between xor related invocations
-    uvec3 s0Repr = uvec3(s0.i, s0.j, floatBitsToUint(s0.spill));
-    uvec3 s1Repr = subgroupShuffleXor(s0Repr, SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK);
+    uvec2 s0Repr = uvec2(s0.i, s0.j);
+    uvec2 s1Repr = subgroupShuffleXor(s0Repr, SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK);
 
     if ((relativeSubInvoc & SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK) != 0) {
         s0.i = s1Repr.x;
         s0.j = s1Repr.y;
-        s0.spill = uintBitsToFloat(s1Repr.z);
         s1Repr.xy = s0Repr.xy;
     }
 
@@ -838,6 +826,8 @@ void subgroupSplitPack() {
     //
     // return;
 
+    float spill = 0;
+
     if (OPTIMIZE_PACK_FOR_MEMORY_COALESCING) {
         subgroupPackCoalesced(
             min(s0.i, s1Repr.x),
@@ -848,7 +838,7 @@ void subgroupSplitPack() {
             // s1Repr.x,
             // s0.j,
             // s1Repr.y,
-            s0.spill,
+            spill,
             mean,
             lastLightIndex,
             baseInvoc,
@@ -865,7 +855,7 @@ void subgroupSplitPack() {
             // s1Repr.x,
             // s0.j,
             // s1Repr.y,
-            s0.spill,
+            spill,
             mean,
             lastLightIndex,
             baseInvoc,
@@ -949,14 +939,22 @@ void scalarSplitPack() {
     if (k == 0) {
         split.i = 0;
         split.j = 0;
-        split.spill = 0;
     } else if (k == K) {
         split.i = lightCount;
         split.j = heavyCount;
-        split.spill = 0;
     } else {
         split = computeSplit(n, mean, heavyCount, lightCount, lightPrefixFirst);
     }
+
+    // NOTE (1): there was a idea here: 
+    // We tried to fix the nonmonotone sequence of i and j with subgroupInclusiveMax
+    // and this also kind of does what it should however we do not find that it 
+    // really improves the numerical stability. The only 
+    // option that really seems sensible is to use block-wise scans instead of 
+    // a large prefix sum over the heavy / light elements to avoid the 
+    // floating-point cancelation. 2 floats better than 1 float =^).
+    // split.i = subgroupInclusiveMax(split.i);
+    // split.j = subgroupInclusiveMax(split.j);
 
     uvec2 ij1 = shuffleNextSplit(k, split);
 
@@ -967,7 +965,11 @@ void scalarSplitPack() {
     if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
         return;
     }
-
+    // NOTE : see NOTE (1):
+    // uint i0 = subgroupInclusiveMax(split.i);
+    // uint j0 = subgroupInclusiveMax(split.j);
+    // uint i1 = subgroupInclusiveMax(ij1.x);
+    // uint j1 = subgroupInclusiveMax(ij1.y);
     // uint i0 = min(split.i, ij1.x);
     // uint j0 = min(split.j, ij1.y);
     // uint i1 = max(ij1.x, split.i);
@@ -978,20 +980,12 @@ void scalarSplitPack() {
     uint i1 = ij1.x;
     uint j1 = ij1.y;
 
-    float spill = split.spill;
+    float light = i0 == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - (i0 - 1)];
+    float heavy2 = g_partitionPrefix.heavyLight[j0]; // weight of j+1 elements (inclusive prefix) and j represents a count!
+    float sigma2 = heavy2 + light;
+    float target = (i0 + j0) * mean;
 
-    // if (k == 510) {
-    //     g_result.table[0].a = i0;
-    //     g_result.table[0].p = g_partitionIndices.heavyLight[lightPrefixFirst - i0];
-    //     g_result.table[1].a = j0;
-    //     g_result.table[1].p = g_partitionIndices.heavyLight[j0];
-    //     g_result.table[2].a = i1;
-    //     g_result.table[3].a = j1;
-    //     g_result.table[4].a = lightCount;
-    //     g_result.table[5].a = heavyCount;
-    //     g_result.table[5].p = spill;
-    // }
-    // return;
+    float spill = sigma2 - target;
 
     scalarPack(i0, i1, j0, j1, spill, mean, lightPrefixFirst, lightCount, heavyCount, k);
 }

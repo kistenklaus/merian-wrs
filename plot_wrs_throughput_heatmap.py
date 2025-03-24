@@ -29,6 +29,8 @@ bench2 = pd.read_csv("./wrs_benchmark_psa128.csv")
 
 bench = pd.concat([bench0, bench1, bench2], ignore_index=True)
 
+# bench = bench[bench["N"] < 264002431]
+
 print(bench["group"].unique())
 
 # For each (N, group), average build_latency
@@ -43,6 +45,8 @@ bench["throughput"] = bench["S"] / (bench[latencyBase] * 1e-3) * 1e-9
 
 # Choose best method per (N, S)
 best_bench = bench.loc[bench.groupby(["N","S"])["throughput"].idxmax()]
+
+best_bench = best_bench[(best_bench["N"] < 2e7) & (best_bench["S"] < 2e8)]
 
 def foo(df, xAxis, yAxis, property, colormap, labels, xscale, yscale, xPixels, yPixels, xticks, yticks,
         xlabel, ylabel):
@@ -136,8 +140,8 @@ def foo(df, xAxis, yAxis, property, colormap, labels, xscale, yscale, xPixels, y
         extent_y_max = data_y_max
 
     # Create the plot, using extent to map pixel coordinates to data coordinates.
-    plt.figure(figsize=(8, 6))
-    plt.imshow(image, origin='lower', extent=(extent_x_min, extent_x_max, extent_y_min, extent_y_max))
+    plt.figure(figsize=(14, 8))
+    plt.imshow(image, origin='lower', extent=(extent_x_min, extent_x_max, extent_y_min, extent_y_max), aspect=((extent_x_max - extent_x_min) / (extent_y_max - extent_y_min)))
     
     # Build the legend: one entry per key in the colormap.
     legend_handles = []
@@ -145,7 +149,7 @@ def foo(df, xAxis, yAxis, property, colormap, labels, xscale, yscale, xPixels, y
         label_text = labels.get(key, key)
         patch = mpatches.Patch(color=to_rgb(color), label=label_text)
         legend_handles.append(patch)
-    # plt.legend(handles=legend_handles, loc='center left', bbox_to_anchor=(1, 0.5), frameon=False)
+    plt.legend(handles=legend_handles, loc='center left', bbox_to_anchor=(1, 0.5), frameon=False)
     
     # Get current axes to set custom ticks.
     ax = plt.gca()
@@ -176,14 +180,12 @@ def foo(df, xAxis, yAxis, property, colormap, labels, xscale, yscale, xPixels, y
 plt.rcParams.update({'font.size': 20})
 
 colormap = {
-        "ITS-0" : "tab:blue",
         "ITS-128" : "tab:orange",
         "Cutpoint-128" : "tab:green",
         "PSA2-0" : "tab:red",
         "PSA2-128" : "tab:brown",
         }
 labels ={
-        "ITS-0": "its-baseline",
         "ITS-128" : "its-coop",
         "Cutpoint-128" : "cutpoint",
         "PSA2-0" : "psa-baseline",

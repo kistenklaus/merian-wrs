@@ -45,8 +45,8 @@ computeFlushL2 = bench[bench["method"] == "Memcpy-FlushL2"]
 computeFlushL2 = binedAverage(computeFlushL2, numPoints)
 
 
-plt.plot(computeWithL2["N"], computeWithL2["aggregate"], label="without flusing")
-plt.plot(computeFlushL2["N"], computeFlushL2["aggregate"], label="with flusing")
+plt.plot(computeWithL2["N"], computeWithL2["aggregate"], ":", label="without flushing", color="tab:blue")
+plt.plot(computeFlushL2["N"], computeFlushL2["aggregate"], "-", label="with flusing", color="tab:blue")
 plt.text(2e7, 550, "470Gb/s")
 
 

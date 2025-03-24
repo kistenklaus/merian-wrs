@@ -125,7 +125,7 @@ template <typename T = float> class Memcpy {
     void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              host::glsl::uint N,
-             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+             [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
 
         cmd->bind(m_pipeline);
         cmd->push_descriptor_set(m_pipeline, buffers.src, buffers.dst);

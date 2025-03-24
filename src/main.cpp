@@ -1,5 +1,6 @@
 #include "merian/vk/context.hpp"
 #include "src/bench/scan_error.hpp"
+#include "src/bench/memcpy.hpp"
 #include "src/bench/sample_throughput2.hpp"
 #include "src/device/partition/test.hpp"
 
@@ -73,6 +74,7 @@ int main() {
 
     /* device::wrs_rmse_sweep::benchmark(context); */
 
+    /* device::test::psa::test(context); */
     /* device::wrs_rmse::benchmark(context); */
     /* device::wrs::benchmark(context); */
 
@@ -87,7 +89,6 @@ int main() {
     /* device::test::prefix_partition::test(context); */
 
     /* device::test::psa_greedy::test(context); */
-    /* device::test::psa::test(context); */
     /* device::test::wrs::test(context); */
 
     /* device::wrs::benchmark(context); */
@@ -95,9 +96,9 @@ int main() {
     /* device::block_scan::benchmark(context); */
     /* device::partition_scan::benchmark(context); */
 
-    /* device::memcpy::benchmark(context); */
+    device::memcpy::benchmark(context);
 
-    device::test::psa::test(context);
+    /* device::test::psa::test(context); */
 
     /* device::scan_error::benchmark(context); */
     /* device::sample_throughput2::benchmark(context); */

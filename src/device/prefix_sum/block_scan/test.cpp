@@ -286,7 +286,7 @@ static bool runTestCase(const host::test::TestContext& context,
 
         // 4. Run test case
         {
-            glsl::uint workgroupCount = (testCase.N + kernel.blockSize() - 1) / kernel.blockSize();
+            [[maybe_unused]] glsl::uint workgroupCount = (testCase.N + kernel.blockSize() - 1) / kernel.blockSize();
             MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd,
                                      fmt::format("Execute algorithm [{}]", workgroupCount));
             SPDLOG_DEBUG("Execute algorithm");

@@ -161,7 +161,7 @@ class SubgroupPack {
     void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              host::glsl::uint N,
-             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+             [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
 #ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
             profiler.value()->start("SubgroupPack");

@@ -223,7 +223,7 @@ struct RMSECurveSectionedBuilder {
         const auto scaleEnd = std::ranges::end(scale);
         while (scaleIt != scaleEnd) {
             m_rmseCurve.push_back(std::make_tuple(static_cast<uint64_t>(*scaleIt), 0));
-            scaleIt++;
+            ++scaleIt;
         }
     }
 
@@ -359,6 +359,20 @@ struct RMSECurveAcceleratedBuilder {
     void consume(const merian::CommandBufferHandle& cmd,
                  merian::BufferHandle samples,
                  host::glsl::uint s) {
+        if (m_s == 0) {
+            cmd->fill(m_histogram);
+            cmd->fill(m_mse);
+            cmd->fill(m_mseStage);
+            cmd->fill(m_histogramStage);
+            cmd->barrier(vk::PipelineStageFlagBits::eTransfer,
+                         vk::PipelineStageFlagBits::eComputeShader,
+                         {
+                             m_histogram->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
+                                                         vk::AccessFlagBits::eShaderRead),
+                             m_mse->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
+                                                   vk::AccessFlagBits::eShaderRead),
+                         });
+        }
         if (m_k == m_rmseCurve.size()) {
             return;
         }

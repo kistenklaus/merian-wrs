@@ -47,17 +47,17 @@ static std::string splitPackConfigName(const SplitPackConfig& config) {
     }
 }
 
-constexpr host::glsl::uint splitPackConfigInvocPerPack(const merian::ContextHandle& context,
+[[maybe_unused]] static host::glsl::uint splitPackConfigInvocPerPack(const merian::ContextHandle& context,
                                                        const SplitPackConfig& config) {
     if (std::holds_alternative<SerialSplitPack::Config>(config)) {
         return packConfigInvocPerPack(context,
                                       std::get<SerialSplitPack::Config>(config).packConfig);
-    } else if (std::holds_alternative<InlineSplitPack::Config>(config)) {
+    }
+    if (std::holds_alternative<InlineSplitPack::Config>(config)) {
         return context->physical_device.physical_device_subgroup_properties.subgroupSize /
                std::get<InlineSplitPack::Config>(config).subgroupSplit;
-    } else {
-        throw std::runtime_error("NOT-IMPLEMENTED");
     }
+    throw std::runtime_error("NOT-IMPLEMENTED");
 }
 
 struct SplitPackBuffers {

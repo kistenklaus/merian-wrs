@@ -38,8 +38,8 @@ static const NamedConfig CONFIGURATIONS[] = {
     //                                InverseTransformSamplingConfig(128, 128, false))},
 
     NamedConfig{.name = "Cutpoint-128",
-               .group = "Cutpoint",
-               .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
+                .group = "Cutpoint",
+                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
 
     NamedConfig{.name = "PSA2-128",
                 .group = "PSA2-128",
@@ -58,10 +58,10 @@ static const NamedConfig CONFIGURATIONS[] = {
 
 };
 
-static constexpr std::size_t N = 1e6;
+static constexpr std::size_t N = 1e8;
 static constexpr auto weight_distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM;
 static constexpr std::size_t min_S = (1ull << 16);
-static constexpr std::size_t max_S = (1ull << 28);
+static constexpr std::size_t max_S = (1ull << 32);
 static constexpr std::size_t ticks = 1000;
 static constexpr std::size_t flushSize = 1e7;
 
@@ -94,7 +94,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     constexpr host::glsl::uint SAMPLING_STEP_COUNT =
         (max_S + static_cast<uint64_t>(MAX_SAMPLING_STEP_SIZE) - 1) /
         static_cast<uint64_t>(MAX_SAMPLING_STEP_SIZE);
-    constexpr host::glsl::uint SUBMIT_LIMIT = 4;
+    constexpr host::glsl::uint SUBMIT_LIMIT = 1;
 
     merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
 
@@ -142,14 +142,17 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     std::uniform_int_distribution<host::glsl::uint> dist;
     std::size_t s = max_S;
     std::span<const std::tuple<uint64_t, float>> rmseCurve;
-    if (SAMPLING_STEP_COUNT == 1 && false) {
+
+    wrs::eval::RMSECurveSectionedBuilder<float, float, host::glsl::uint> curveBuilder(
+        weights, host::exp::log10scale(min_S, max_S, ticks));
+    if (SAMPLING_STEP_COUNT == 1) {
 
         Buffers::SamplesView stageView{stage.samples, s};
         Buffers::SamplesView localView{local.samples, s};
 
         merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
         cmd->begin();
-        wrs.sample(cmd, local, N, s, dist(rng));
+        wrs.sample(cmd, local, N, s);
 
         localView.expectComputeWrite();
         localView.copyTo(cmd, stageView);
@@ -160,10 +163,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
 
         auto samples = stageView.download<host::glsl::uint>();
 
-        std::ranges::shuffle(samples, rng);
-
-        wrs::eval::RMSECurveSectionedBuilder<float, float, host::glsl::uint> curveBuilder(
-            weights, host::exp::log10scale(min_S, max_S, ticks));
+        /* std::ranges::shuffle(samples, rng); */
 
         curveBuilder.consume(samples);
         rmseCurve = curveBuilder.get();
@@ -176,6 +176,20 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
             float expected = (weights[i] * s) / totalWeight;
             csv.pushRow(i, hist[i], expected);
         }
+
+        ConfigBenchmark results;
+        results.entries.reserve(rmseCurve.size());
+
+        for (const auto& [s, rmse] : rmseCurve) {
+            if (rmse > 0.0 && s <= max_S && s >= min_S) {
+                results.entries.push_back(ConfigResult{
+                    .N = N,
+                    .S = s,
+                    .rmse = rmse,
+                });
+            }
+        }
+        return results;
 
     } else {
 
@@ -216,25 +230,22 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
 
             cmd->end();
             queue->submit_wait(cmd);
-
-            rmseCurve = rmseCurveBuilder.get();
         }
-    }
+        rmseCurve = rmseCurveBuilder.get();
+        ConfigBenchmark results;
+        results.entries.reserve(rmseCurve.size());
 
-    ConfigBenchmark results;
-    results.entries.reserve(rmseCurve.size());
-
-    for (const auto& [s, rmse] : rmseCurve) {
-        if (rmse > 0.0 && s <= max_S && s >= min_S) {
-            results.entries.push_back(ConfigResult{
-                .N = N,
-                .S = s,
-                .rmse = rmse,
-            });
+        for (const auto& [s, rmse] : rmseCurve) {
+            if (rmse > 0.0 && s <= max_S && s >= min_S) {
+                results.entries.push_back(ConfigResult{
+                    .N = N,
+                    .S = s,
+                    .rmse = rmse,
+                });
+            }
         }
+        return results;
     }
-
-    return results;
 }
 
 void benchmark(const merian::ContextHandle& context) {

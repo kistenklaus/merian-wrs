@@ -59,7 +59,7 @@ struct DecoupledState {
     state_t state;
 };
 
-layout(set = 0, binding = 2) volatile buffer DecoupledStates {
+layout(set = 0, binding = 2) nonprivate buffer DecoupledStates {
     uint counter;
     DecoupledState partitions[];
 } g_states;
@@ -224,7 +224,7 @@ ExclusivePrefix decoupledLookback(in uint partID, in WorkgroupAggregate aggregat
         // NOTE: gl_SemanticsMakeAvailable is only required if aggregate and prefix
         // are stored in a seperate storage buffer.
         atomicStore(g_states.partitions[partID].state, state, gl_ScopeQueueFamily,
-            gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+            gl_StorageSemanticsBuffer, gl_SemanticsRelease | gl_SemanticsMakeAvailable);
     }
     // ================ Decoupled lookback ==================
     vec2 exclusive = vec2(0, 0);
@@ -241,7 +241,7 @@ ExclusivePrefix decoupledLookback(in uint partID, in WorkgroupAggregate aggregat
                 if (invocActive) {
                     uint lookBackIdx = lookBackBase - gl_SubgroupInvocationID;
                     predecessorState = atomicLoad(g_states.partitions[lookBackIdx].state,
-                            gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+                            gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsAcquire | gl_SemanticsMakeVisible);
 
                     const bool notReady = predecessorState == STATE_NOT_READY;
                     const uvec4 notReadyBallot = subgroupBallot(notReady);

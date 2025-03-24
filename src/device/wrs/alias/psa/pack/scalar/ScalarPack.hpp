@@ -143,7 +143,7 @@ class ScalarPack {
     void run(const merian::CommandBufferHandle& cmd,
              const ScalarPackBuffers& buffers,
              const host::glsl::uint N,
-             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+             [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
 
 #ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {

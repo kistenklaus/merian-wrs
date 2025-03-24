@@ -16,39 +16,40 @@ namespace device {
 
 using PackConfig = std::variant<ScalarPack::Config, SubgroupPack::Config>;
 
+[[maybe_unused]]
 constexpr host::glsl::uint packConfigSplitSize(const PackConfig& config) {
     if (std::holds_alternative<ScalarPack::Config>(config)) {
         return std::get<ScalarPack::Config>(config).splitSize;
-    } else if (std::holds_alternative<SubgroupPack::Config>(config)) {
-        return std::get<SubgroupPack::Config>(config).splitSize;
-    } else {
-        throw std::runtime_error("NOT-IMPLEMENTED");
     }
+    if (std::holds_alternative<SubgroupPack::Config>(config)) {
+        return std::get<SubgroupPack::Config>(config).splitSize;
+    }
+    throw std::runtime_error("NOT-IMPLEMENTED");
 }
 
-constexpr host::glsl::uint packConfigInvocPerPack(const merian::ContextHandle& context,
+[[maybe_unused]] static host::glsl::uint packConfigInvocPerPack(const merian::ContextHandle& context,
                                                     const PackConfig& config) {
     if (std::holds_alternative<ScalarPack::Config>(config)) {
         return 1;
-    } else if (std::holds_alternative<SubgroupPack::Config>(config)) {
+    }
+    if (std::holds_alternative<SubgroupPack::Config>(config)) {
         return context->physical_device.physical_device_subgroup_properties.subgroupSize /
                std::get<SubgroupPack::Config>(config).subgroupSplit;
-    } else {
-        throw std::runtime_error("NOT-IMPLEMENTED");
     }
+    throw std::runtime_error("NOT-IMPLEMENTED");
 }
 
-constexpr std::string packConfigName(const PackConfig& config) {
+[[maybe_unused]] static std::string packConfigName(const PackConfig& config) {
     if (std::holds_alternative<ScalarPack::Config>(config)) {
         const auto& methodConfig = std::get<ScalarPack::Config>(config);
         return fmt::format("ScalarPack-{}", methodConfig.splitSize);
-    } else if (std::holds_alternative<SubgroupPack::Config>(config)) {
+    }
+    if (std::holds_alternative<SubgroupPack::Config>(config)) {
         const auto& methodConfig = std::get<SubgroupPack::Config>(config);
         return fmt::format("SubgroupPack-32/{}-{}", methodConfig.subgroupSplit,
-            methodConfig.splitSize);
-    } else {
-        throw std::runtime_error("NOT-IMPLEMENTED");
+                           methodConfig.splitSize);
     }
+    throw std::runtime_error("NOT-IMPLEMENTED");
 }
 
 struct PackBuffers {

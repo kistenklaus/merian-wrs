@@ -45,7 +45,7 @@ struct DecoupledState {
     state_t state;
 };
 
-layout(set = 0, binding = 2) nonprivate buffer DecoupledStates {
+layout(set = 0, binding = 2) coherent buffer DecoupledStates {
     uint counter;
     DecoupledState partitions[];
 };

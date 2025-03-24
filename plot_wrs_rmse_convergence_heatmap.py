@@ -32,6 +32,8 @@ bench2 = pd.read_csv("./wrs_benchmark_psa128.csv")
 
 bench = pd.concat([bench0, bench1, bench2], ignore_index=True)
 
+# bench = bench[bench["N"] < 2e7]
+
 latencyBase = "latency"
 bench["latency"] = bench["build_latency"] + bench["sampling_latency"]
 bench["throughput"] = bench["S"] / (bench[latencyBase] * 1e-3) * 1e-9
@@ -49,7 +51,10 @@ bench["bin_latency"] = (bench[latencyBase] / latencyBucketMargin).astype(int);
 
 print(bench["group"].unique())
 
-rmseBench = pd.read_csv("./wrs_rmse_sweep.csv")
+
+rmseBench0 = pd.read_csv("./wrs_rmse_sweep_wrong.csv")
+rmseBench1 = pd.read_csv("./wrs_rmse_sweep.csv")
+rmseBench = pd.concat([rmseBench0, rmseBench1])
 
 print(rmseBench)
 
@@ -214,7 +219,7 @@ labels ={
         }
 # Call the function to plot the image.
 foo(best, "N", latencyBase, "group", colormap, labels, "log", "linear", 250, 250,
-    [1e5,1e6,1e7], [0.1,0.2,0.3,0.4,0.5,0.6,0.7, 0.8], xlabel="Amount of Items (N)", ylabel="Latency (ms)")
+    [1e5,1e6,1e7], [0.5, 1, 1.5], xlabel="Amount of Items (N)", ylabel="Latency (ms)")
 
 
 plt.savefig(f'wrs_rmse_convergence_heatmap.pdf', format="pdf")

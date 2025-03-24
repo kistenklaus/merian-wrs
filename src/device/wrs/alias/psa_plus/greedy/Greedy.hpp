@@ -200,7 +200,7 @@ class PSAGreedy {
     void run(const merian::CommandBufferHandle& cmd,
              const Buffers& buffers,
              const host::glsl::uint N,
-             std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+             [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
 
         cmd->fill(buffers.decoupledStates);
 
