@@ -135,7 +135,7 @@ uint sampleSectioned(uvec2 counter, uint key) {
     section = subgroupBroadcastFirst(section);
 
     const uvec2 source = philoxRandom(counter, key);
-    const uint ix = section.x + fastDiceRoller(source.x, section.y - section.x);
+    const uint ix = section.x + randomInt(source.x, section.y - section.x);
     const float thresh = randomFloat(source.y);
     const float p = table[ix].p;
     if (thresh >= p) {

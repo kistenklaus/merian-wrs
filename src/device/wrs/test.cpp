@@ -170,9 +170,9 @@ static const TestCase TEST_CASES[] = {
                       InlineSplitPackConfig(2, 32, 512),
                       false),
             SampleAliasTableConfig(128)),
-        .N = static_cast<uint32_t>(1e6),
+        .N = static_cast<uint32_t>(1015637),
         .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
-        .S = static_cast<uint32_t>(1e7),
+        .S = static_cast<uint32_t>(169809194),
         .iterations = 1,
     },
 

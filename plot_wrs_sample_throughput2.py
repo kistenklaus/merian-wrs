@@ -10,14 +10,18 @@ bench0 = pd.read_csv("./wrs_benchmark_sample_throughput2_its_cutpoint.csv")
 bench1 = pd.read_csv("./wrs_benchmark_sample_throughput2_psa2-0.csv")
 bench2 = pd.read_csv("./wrs_benchmark_sample_throughput2_psa2-128.csv")
 
-bench = pd.concat([bench0, bench1, bench2])
+bench3 = pd.read_csv("./wrs_benchmark_sample_throughput2.csv")
+
+bench = pd.concat([bench1, bench2, bench0])
 
 print(bench["N"].unique())
 bench = bench[bench["N"] == N]
 
+print(bench["group"].unique())
+
 property = "sample_throughput"
 aggregate = "median";
-latencyBase = "latency"
+latencyBase = "sample_latency"
 
 bench["latency"] = bench["build_latency"] + bench["sample_latency"]
 bench["sample_throughput"] = bench["S"] / (bench[latencyBase] * 1e-3) * 1e-9

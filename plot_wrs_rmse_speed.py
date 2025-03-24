@@ -7,6 +7,8 @@ N = 1e7
 rmseBench_unserious = pd.read_csv("./wrs_rmse_curve.csv")
 rmseBench = pd.concat([rmseBench_unserious])
 
+print(rmseBench["group"].unique())
+
 print(rmseBench)
 
 timeBench_unserious = pd.read_csv("./wrs_benchmark_sample_throughput2.csv")

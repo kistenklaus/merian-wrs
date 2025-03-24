@@ -91,12 +91,30 @@ static const TestCase TEST_CASES[] = {
     //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
     //    .iterations = 1,
     //},
+    //TestCase{
+    //    .config = PSAConfig(AtomicMeanConfig(),
+    //                        DecoupledPrefixPartitionConfig(),
+    //                        InlineSplitPackConfig(2, 32, 512),
+    //                        false),
+    //    .N = static_cast<uint32_t>(1024 * 2048),
+    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+    //    .iterations = 1,
+    //},
     TestCase{
         .config = PSAConfig(AtomicMeanConfig(),
                             DecoupledPrefixPartitionConfig(),
-                            InlineSplitPackConfig(32, 8, 512),
+                            InlineSplitPackConfig(16, 8, 512),
                             false),
-        .N = static_cast<uint32_t>(1024),
+        .N = static_cast<uint32_t>(1024 * 2048),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 1,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(2, 32, 512),
+                            false),
+        .N = static_cast<uint32_t>(1024 * 2048),
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
         .iterations = 1,
     },
@@ -264,20 +282,20 @@ static bool runTestCase(const host::test::TestContext& context,
                 auto lightPrefix = host::reference::prefix_sum<float>(part.light());
                 auto heavyPrefix = host::reference::prefix_sum<float>(part.heavy());
 
-                fmt::println("LIGHT");
-                for (std::size_t i = 0; i < lightPrefix.size(); ++i) {
-                  fmt::println("[{}]: {}         ({})", i, lightPrefix[i], part.light()[i]);
-                }
-                fmt::println("HEAVY");
-                for (std::size_t i = 0; i < heavyPrefix.size(); ++i) {
-                  fmt::println("[{}]: {}         ({})", i, heavyPrefix[i], part.heavy()[i]);
-                }
+                /*fmt::println("LIGHT");*/
+                /*for (std::size_t i = 0; i < lightPrefix.size(); ++i) {*/
+                /*  fmt::println("[{}]: {}         ({})", i, lightPrefix[i], part.light()[i]);*/
+                /*}*/
+                /*fmt::println("HEAVY");*/
+                /*for (std::size_t i = 0; i < heavyPrefix.size(); ++i) {*/
+                /*  fmt::println("[{}]: {}         ({})", i, heavyPrefix[i], part.heavy()[i]);*/
+                /*}*/
 
-                fmt::println("ALIAS-TABLE:");
-                for (std::size_t i = 0; i < results.aliasTable.size(); ++i) {
-                    fmt::println("[{:>3}]: ({:.4f},{:>3})", i, results.aliasTable[i].p,
-                                 results.aliasTable[i].a);
-                }
+                /*fmt::println("ALIAS-TABLE:");*/
+                /*for (std::size_t i = 0; i < results.aliasTable.size(); ++i) {*/
+                /*    fmt::println("[{:>3}]: ({:.4f},{:>3})", i, results.aliasTable[i].p,*/
+                /*                 results.aliasTable[i].a);*/
+                /*}*/
 
                 
                 auto normalizedWeight = host::reference::normalize_weights<float>(weights);

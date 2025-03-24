@@ -87,7 +87,7 @@ int main() {
     /* device::test::prefix_partition::test(context); */
 
     /* device::test::psa_greedy::test(context); */
-    device::test::psa::test(context);
+    /* device::test::psa::test(context); */
     /* device::test::wrs::test(context); */
 
     /* device::wrs::benchmark(context); */
@@ -97,7 +97,7 @@ int main() {
 
     /* device::memcpy::benchmark(context); */
 
-    /* device::test::psa::test(context); */
+    device::test::psa::test(context);
 
     /* device::scan_error::benchmark(context); */
     /* device::sample_throughput2::benchmark(context); */

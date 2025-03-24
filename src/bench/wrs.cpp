@@ -3,12 +3,12 @@
 #include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/device/wrs/WRS.hpp"
-#include "src/device/wrs/cutpoint/sampling/CutpointSampling.hpp"
 #include "src/host/export/csv.hpp"
 #include "src/host/export/logscale.hpp"
 #include "src/host/gen/weight_generator.h"
 #include <csignal>
 #include <fmt/base.h>
+#include <random>
 #include <spdlog/spdlog.h>
 #include <tuple>
 
@@ -74,25 +74,25 @@ static const NamedConfig CONFIGURATIONS[] = {
     /*             true),                                        // */
     /*         SampleAliasTableConfig(32)),                       // */
     /* },                                                         // */
-    NamedConfig{.name = "ITS-0",
-                .config = ITSConfig(DecoupledPrefixSumConfig(),
-                                    InverseTransformSamplingConfig(512, 0, false))},
-    NamedConfig{.name = "ITS-128",
-                .config = ITSConfig(DecoupledPrefixSumConfig(),
-                                    InverseTransformSamplingConfig(512, 128, false))},
-    NamedConfig{.name = "Cutpoint-128", .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
+    // NamedConfig{.name = "ITS-0",
+    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
+    //                                InverseTransformSamplingConfig(512, 0, false))},
+    //NamedConfig{.name = "ITS-128",
+    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
+    //                                InverseTransformSamplingConfig(512, 128, false))},
+    //NamedConfig{.name = "Cutpoint-128", .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
     //NamedConfig{.name = "PSA2-0",
     //            .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
     //                                                 DecoupledPrefixPartitionConfig(),
-    //                                                 InlineSplitPackConfig(2,32),
+    //                                                 InlineSplitPackConfig(2, 32),
     //                                                 false),
     //                                       SampleAliasTableConfig(0))},
-    //NamedConfig{.name = "PSA2-128",
-    //            .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
-    //                                                 DecoupledPrefixPartitionConfig(),
-    //                                                 InlineSplitPackConfig(2,32),
-    //                                                 false),
-    //                                       SampleAliasTableConfig(128))},
+    NamedConfig{.name = "PSA2-128",
+                .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                                     DecoupledPrefixPartitionConfig(),
+                                                     InlineSplitPackConfig(2, 32),
+                                                     false),
+                                           SampleAliasTableConfig(128))},
 
 };
 
@@ -103,7 +103,7 @@ static constexpr std::size_t N_min = (1 << 16);
 static constexpr std::size_t S_min = (1 << 16);
 
 static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 10;
+static constexpr std::size_t iterations = 1;
 
 struct ConfigResult {
     std::size_t N;
@@ -177,8 +177,12 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     ConfigBenchmark results;
     results.entries.reserve(N_ticks * S_ticks);
 
+    std::mt19937 rng;
+    std::uniform_int_distribution<host::glsl::uint> dist;
+
+    std::size_t x = 0;
     for (const std::size_t n : host::exp::log10scale<std::size_t>(N_min, N, N_ticks)) {
-        SPDLOG_INFO("N = {}", n);
+        SPDLOG_INFO("N = {} ({})", n, ++x);
 
         merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context);
         merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
@@ -187,35 +191,43 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
         query_pool->reset();
         profiler->set_query_pool(query_pool);
 
-        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+        {
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
 
-        cmd->begin();
-        for (std::size_t i = 0; i < iterations; ++i) {
-            profiler->start("Build");
-            profiler->cmd_start(cmd, "Build");
-            wrs.build(cmd, local, n);
-            profiler->end();
-            profiler->cmd_end(cmd);
-        }
-
-        for (const std::size_t s : host::exp::log10scale<std::size_t>(S_min, S, S_ticks)) {
-            std::string label = fmt::format("{}", s);
+            cmd->begin();
             for (std::size_t i = 0; i < iterations; ++i) {
-                profiler->start(label);
-                profiler->cmd_start(cmd, label);
-                wrs.sample(cmd, local, n, s);
+                profiler->start("Build");
+                profiler->cmd_start(cmd, "Build");
+                wrs.build(cmd, local, n);
                 profiler->end();
                 profiler->cmd_end(cmd);
             }
+            cmd->end();
+            queue->submit_wait(cmd);
+        }
+        {
+            merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
+            cmd->begin();
 
-            cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
-                         vk::PipelineStageFlagBits::eComputeShader,
-                         local.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                       vk::AccessFlagBits::eShaderRead));
+            for (const std::size_t s : host::exp::log10scale<std::size_t>(S_min, S, S_ticks)) {
+                std::string label = fmt::format("{}", s);
+                for (std::size_t i = 0; i < iterations; ++i) {
+                    profiler->start(label);
+                    profiler->cmd_start(cmd, label);
+                    wrs.sample(cmd, local, n, s, dist(rng));
+                    profiler->end();
+                    profiler->cmd_end(cmd);
+                }
+
+                cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
+                             vk::PipelineStageFlagBits::eComputeShader,
+                             local.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
+                                                           vk::AccessFlagBits::eShaderRead));
+            }
+            cmd->end();
+            queue->submit_wait(cmd);
         }
 
-        cmd->end();
-        queue->submit_wait(cmd);
         profiler->collect(true, true);
 
         /* fmt::println("{}", merian::Profiler::get_report_str(profiler->get_report())); */
@@ -224,7 +236,8 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
         double buildStdVar = -1;
         std::vector<std::tuple<std::size_t, double, double>> samplingReport;
         samplingReport.reserve(S_ticks);
-        for (const merian::Profiler::ReportEntry& entry : profiler->get_report().gpu_report) {
+        const auto report = profiler->get_report();
+        for (const merian::Profiler::ReportEntry& entry : report.gpu_report) {
             if (entry.name == "Build") {
                 buildLatency = entry.duration;
                 buildStdVar = entry.std_deviation;
@@ -234,6 +247,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                 samplingReport.push_back(std::make_tuple(s, entry.duration, entry.std_deviation));
             }
         }
+
 
         for (const auto& report : samplingReport) {
             results.entries.push_back(ConfigResult{
@@ -246,6 +260,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                 .totalLatency = buildLatency + std::get<1>(report),
             });
         }
+        SPDLOG_INFO("GPU-Time {:.4f}ms  CPU-Time: {:.4f}ms", report.gpu_total(), report.cpu_total());
     }
 
     return results;
@@ -263,15 +278,16 @@ void benchmark(const merian::ContextHandle& context) {
     BenchmarkResults results;
 
     std::string path = "wrs_benchmark.csv";
-    host::exp::CSVWriter<8> csv({"N", "S", "method", "group", "build_latency", "build_std_derivation",
-                                 "sampling_latency", "sampling_std_derivation"},
+    host::exp::CSVWriter<8> csv({"N", "S", "method", "group", "build_latency",
+                                 "build_std_derivation", "sampling_latency",
+                                 "sampling_std_derivation"},
                                 path);
     for (const auto& config : CONFIGURATIONS) {
         auto configBenchmark = benchmarkConfiguration(context, shaderCompiler, queue, config.config,
                                                       N, ticks, S, ticks, iterations, weights);
         for (const auto& r2 : configBenchmark.entries) {
-            csv.pushRow(r2.N, r2.S, config.name, config.name, r2.buildLatency, r2.buildStdVar, r2.samplingLatency,
-                        r2.samplingStdVar);
+            csv.pushRow(r2.N, r2.S, config.name, config.name, r2.buildLatency, r2.buildStdVar,
+                        r2.samplingLatency, r2.samplingStdVar);
         }
     }
 }

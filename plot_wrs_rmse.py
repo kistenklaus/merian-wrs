@@ -11,6 +11,10 @@ print(bench["group"].unique())
 
 print("N =", bench["N"].unique())
 
+print(bench[bench["group"] == "PSA2-0"].to_string())
+
+# bench = bench.sort_values(by="S")
+
 print(bench)
 
 plt.rcParams.update({'font.size': 12})
@@ -24,7 +28,7 @@ plt.figure(figsize=(8, 3))
 
 # plotMe("ITS-0", "its-baseline", "tab:blue")
 # plotMe("ITS-128", "its-coop", "tab:orange")
-# plotMe("Cutpoint", "cutpoint", "tab:green")
+plotMe("Cutpoint", "cutpoint", "tab:green")
 plotMe("PSA2-0", "psa-baseline", "tab:blue")
 plotMe("PSA2-128", "psa-sectioned", "tab:orange")
 
@@ -42,14 +46,14 @@ ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False)
 
 plt.xlabel("Number of Samples")
 plt.ylabel("RMSE")
-# plt.ylim(top=60)
+plt.ylim((1e-9,1e-5))
 plt.xscale("log")
 plt.yscale("log")
 plt.grid(True)
 
 
 plt.tight_layout()
-plt.savefig("wrs_rmse_psa2_e6.pdf", format="pdf")
+plt.savefig("wrs_rmse_psa_e8.pdf", format="pdf")
 
 
 plt.show()

@@ -27,39 +27,39 @@ struct NamedConfig {
 };
 
 static const NamedConfig CONFIGURATIONS[] = {
-    NamedConfig{.name = "ITS-0",
-                .group = "ITS-0",
-                .config =
-                    ITSConfig(DecoupledPrefixSumConfig(),
-                              InverseTransformSamplingConfig(128, 0, false)),
-                .flushL2 = true},
-    NamedConfig{.name = "ITS-0",
-                .group = "ITS-0",
-                .config =
-                    ITSConfig(DecoupledPrefixSumConfig(),
-                              InverseTransformSamplingConfig(128, 0, false)),
-                .flushL2 = false},
-    NamedConfig{.name = "ITS-128",
-                .group = "ITS-128",
-                .config =
-                    ITSConfig(DecoupledPrefixSumConfig(),
-                              InverseTransformSamplingConfig(128, 128, false)),
-                .flushL2 = true},
-    NamedConfig{.name = "ITS-128",
-                .group = "ITS-128",
-                .config =
-                    ITSConfig(DecoupledPrefixSumConfig(),
-                              InverseTransformSamplingConfig(128, 128, false)),
-                .flushL2 = false},
+    //NamedConfig{.name = "ITS-0",
+    //            .group = "ITS-0",
+    //            .config =
+    //                ITSConfig(DecoupledPrefixSumConfig(),
+    //                          InverseTransformSamplingConfig(128, 0, false)),
+    //            .flushL2 = true},
+    //NamedConfig{.name = "ITS-0",
+    //            .group = "ITS-0",
+    //            .config =
+    //                ITSConfig(DecoupledPrefixSumConfig(),
+    //                          InverseTransformSamplingConfig(128, 0, false)),
+    //            .flushL2 = false},
+    //NamedConfig{.name = "ITS-128",
+    //            .group = "ITS-128",
+    //            .config =
+    //                ITSConfig(DecoupledPrefixSumConfig(),
+    //                          InverseTransformSamplingConfig(128, 128, false)),
+    //            .flushL2 = true},
+    //NamedConfig{.name = "ITS-128",
+    //            .group = "ITS-128",
+    //            .config =
+    //                ITSConfig(DecoupledPrefixSumConfig(),
+    //                          InverseTransformSamplingConfig(128, 128, false)),
+    //            .flushL2 = false},
 
-    NamedConfig{.name = "Cutpoint-128",
-                .group = "Cutpoint-128",
-                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
-                .flushL2 = true},
-    NamedConfig{.name = "Cutpoint-128",
-                .group = "Cutpoint-128",
-                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
-                .flushL2 = false},
+    //NamedConfig{.name = "Cutpoint-128",
+    //            .group = "Cutpoint-128",
+    //            .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
+    //            .flushL2 = true},
+    //NamedConfig{.name = "Cutpoint-128",
+    //            .group = "Cutpoint-128",
+    //            .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
+    //            .flushL2 = false},
 
     NamedConfig{.name = "PSA2-0",
                 .group = "PSA2-0",

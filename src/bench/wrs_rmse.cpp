@@ -37,9 +37,9 @@ static const NamedConfig CONFIGURATIONS[] = {
     //            .config = ITSConfig(DecoupledPrefixSumConfig(),
     //                                InverseTransformSamplingConfig(128, 128, false))},
 
-    // NamedConfig{.name = "Cutpoint-128",
-    //            .group = "Cutpoint",
-    //            .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
+    NamedConfig{.name = "Cutpoint-128",
+               .group = "Cutpoint",
+               .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
 
     NamedConfig{.name = "PSA2-128",
                 .group = "PSA2-128",
@@ -60,10 +60,9 @@ static const NamedConfig CONFIGURATIONS[] = {
 
 static constexpr std::size_t N = 1e6;
 static constexpr auto weight_distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM;
-static constexpr std::size_t min_S = (1 << 16);
-static constexpr std::size_t max_S = (1ull << 38);
+static constexpr std::size_t min_S = (1ull << 16);
+static constexpr std::size_t max_S = (1ull << 28);
 static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 100; // does nothing =^).
 static constexpr std::size_t flushSize = 1e7;
 
 struct ConfigResult {
@@ -139,17 +138,11 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     PRNGBuffers flushBuffers;
     flushBuffers.samples = temp.samples;
 
-    merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context);
-    merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
-        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context, 4 * iterations);
-    query_pool->reset();
-    profiler->set_query_pool(query_pool);
-
     std::mt19937 rng;
     std::uniform_int_distribution<host::glsl::uint> dist;
     std::size_t s = max_S;
     std::span<const std::tuple<uint64_t, float>> rmseCurve;
-    if (SAMPLING_STEP_COUNT == 1) {
+    if (SAMPLING_STEP_COUNT == 1 && false) {
 
         Buffers::SamplesView stageView{stage.samples, s};
         Buffers::SamplesView localView{local.samples, s};
@@ -232,7 +225,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     results.entries.reserve(rmseCurve.size());
 
     for (const auto& [s, rmse] : rmseCurve) {
-        if (rmse > 0.0 && s <= max_S) {
+        if (rmse > 0.0 && s <= max_S && s >= min_S) {
             results.entries.push_back(ConfigResult{
                 .N = N,
                 .S = s,

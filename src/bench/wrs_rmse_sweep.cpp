@@ -63,7 +63,6 @@ static constexpr auto weight_distribution = host::Distribution::PSEUDO_RANDOM_UN
 static constexpr std::size_t min_S = (1 << 16);
 static constexpr std::size_t max_S = (1 << 28);
 static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 10;
 static constexpr std::size_t flushSize = 1e7;
 
 struct ConfigResult {
@@ -140,18 +139,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
         totalWeight,
         N,
         host::exp::log10scale<uint64_t>(min_S, max_S, ticks)};
-
-    PRNG prng{context, shaderCompiler, PhiloxConfig()};
-    PRNGBuffers prngBuffers;
-    prngBuffers.samples = local.weights;
-    PRNGBuffers flushBuffers;
-    flushBuffers.samples = temp.samples;
-
-    merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context);
-    merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
-        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context, 4 * iterations);
-    query_pool->reset();
-    profiler->set_query_pool(query_pool);
 
     std::mt19937 rng;
     std::uniform_int_distribution<host::glsl::uint> dist;

@@ -24,7 +24,7 @@ bench7 = pd.read_csv('./psa_pack_benchmark_splitSizes7.csv') # it = 250 w = 2
 
 # bench = pd.concat([bench4, bench3]) # w = 10
 # bench = pd.concat([bench1,bench2,bench3,bench4, bench5, bench6, bench7]) # w = 5
-bench = pd.concat([bench_unserious])
+bench = pd.concat([bench1, bench2, bench3, bench4])
 
 # bench = bench[bench["N"] < 1.8e6]
 

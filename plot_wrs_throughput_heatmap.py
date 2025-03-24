@@ -7,22 +7,27 @@ from matplotlib.colors import to_rgb
 # ------------------------------------------------------
 # 1) Load data, compute throughput, select best method
 # ------------------------------------------------------
-bench_its_cutpoint = pd.read_csv("./wrs_benchmark_its_cutpoint_heatmap.csv")
+# bench_its_cutpoint = pd.read_csv("./wrs_benchmark_its_cutpoint_heatmap.csv")
+#
+# bench_its = bench_its_cutpoint.loc[
+#     (bench_its_cutpoint["group"] == "ITS-0") |
+#     (bench_its_cutpoint["group"] == "ITS-128") |
+#     (bench_its_cutpoint["group"] == "ITS-128-pArray")
+# ]
+# bench_its.loc[bench_its["group"] == "ITS-128-pArray", "group"] = "ITS-128"
+#
+# bench_psa = pd.read_csv("./wrs_benchmark_psa_e28.csv")
+#
+# bench_cutpoint = bench_its_cutpoint[
+#     bench_its_cutpoint["group"] == "Cutpoint-128"
+# ]
 
-bench_its = bench_its_cutpoint.loc[
-    (bench_its_cutpoint["group"] == "ITS-0") |
-    (bench_its_cutpoint["group"] == "ITS-128") |
-    (bench_its_cutpoint["group"] == "ITS-128-pArray")
-]
-bench_its.loc[bench_its["group"] == "ITS-128-pArray", "group"] = "ITS-128"
+# bench_psa = pd.read_csv("./wrs_benchmark_psa_e28.csv")
+bench0 = pd.read_csv("./wrs_benchmark_baseline.csv")
+bench1 = pd.read_csv("./wrs_benchmark_psa0.csv")
+bench2 = pd.read_csv("./wrs_benchmark_psa128.csv")
 
-bench_psa = pd.read_csv("./wrs_benchmark.csv")
-
-bench_cutpoint = bench_its_cutpoint[
-    bench_its_cutpoint["group"] == "Cutpoint-128"
-]
-
-bench = pd.concat([bench_its, bench_cutpoint, bench_psa], ignore_index=True)
+bench = pd.concat([bench0, bench1, bench2], ignore_index=True)
 
 print(bench["group"].unique())
 
@@ -186,7 +191,7 @@ labels ={
         }
 # Call the function to plot the image.
 foo(best_bench, "N", "S", "group", colormap, labels, "log", "log", 250, 250,
-    [1e5,1e6,1e7], [1e5,1e6,1e7], xlabel="Amount of Items (N)", ylabel="Amount of Samples (S)")
+    [1e5,1e6,1e7], [1e5,1e6,1e7, 1e8], xlabel="Amount of Items (N)", ylabel="Amount of Samples (S)")
 
 
 plt.savefig(f'wrs_throughput_heatmap.pdf', format="pdf")

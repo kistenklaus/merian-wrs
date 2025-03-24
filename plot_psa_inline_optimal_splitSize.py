@@ -3,15 +3,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-numPoints = 1000
-serial = False
+numPoints = 100
+serial = True
 scale = "log"
 axis = "N";
-property = "threads"
+property = "throughput"
 
-maxN = 1e6
+maxN = 1e10
 
-optimizeFor = "splitPackLatency"
+optimizeFor = "packLatency"
 
 maxOccupantThreads = 70656
 
@@ -56,6 +56,8 @@ benche5e7_s128s256 = pd.read_csv("psa_inline_splitpack_benchmark_inline_log_e5e6
 # bench = pd.concat([benche5e6_s2s128, benche6e7_s2s128])
 bench = pd.concat([benche5e7_s2s128_inline, benche5e7_s2s128_serial,
                    benche5e7_s128s256])
+
+print("GROUPS:", bench["group"].unique())
 
 bench = bench[bench["N"] < maxN]
 
@@ -178,20 +180,20 @@ def plotMe(df, label, color):
     if onlyCached:
         plt.plot(fully_cached[axis], fully_cached[property], "-", markersize=2,label=label, color=color)
     else:
-        plt.plot(fully_cached[axis], fully_cached[property], ".", markersize=2,color=color)
-        plt.plot(partialy_cached[axis], partialy_cached[property], ".", markersize=2,label=label, color=color)
+        plt.plot(fully_cached[axis], fully_cached[property], ":", markersize=2,color=color)
+        plt.plot(partialy_cached[axis], partialy_cached[property], "-", markersize=2, color=color, label=label)
 
 if property == "threads":
     plt.hlines(y=maxOccupantThreads, xmin=optimal["N"].min(), xmax=optimal["N"].max(), linewidth=1, color='black')
     plt.hlines(y=2*maxOccupantThreads, xmin=optimal["N"].min(), xmax=optimal["N"].max(), linewidth=1, color='black')
     plt.hlines(y=3*maxOccupantThreads, xmin=optimal["N"].min(), xmax=optimal["N"].max(), linewidth=1, color='black')
 
-# plotMe(sp1, "1-invocation", "tab:blue")
-# plotMe(sp2, "2-invocations", "tab:orange")
-# plotMe(sp4, "4-invocations", "tab:green")
+plotMe(sp1, "1-invocation", "tab:blue")
+plotMe(sp2, "2-invocations", "tab:orange")
+plotMe(sp4, "4-invocations", "tab:green")
 plotMe(sp8, "8-invocations", "tab:red")
-# plotMe(sp16, "16-invocations", "tab:purple")
-# plotMe(sp32, "32-invocations", "tab:brown")
+plotMe(sp16, "16-invocations", "tab:purple")
+plotMe(sp32, "32-invocations", "tab:brown")
 
 if property == "threads":
     plt.text(x=1.2e5, y=maxOccupantThreads*1.1, s="1x Max. occupant invocations")
@@ -216,7 +218,7 @@ ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, markerscale
 plt.xlabel("Amount of Items (N)")
 plt.xscale(scale)
 # plt.yscale(scale)
-plt.ylabel("Total amount of invocations")
+plt.ylabel("Billion packs / Second")
 plt.grid(True)
 
 
@@ -225,7 +227,7 @@ if onlyCached:
     plt.xlim((fully_cached["N"].min(), fully_cached["N"].max()))
 
 plt.tight_layout()
-plt.savefig(f'psa_inline_splitpack_optimal_subgroups2.pdf', format="pdf")
+plt.savefig(f'psa_pack_throughput.pdf', format="pdf")
 
 plt.show()
 
