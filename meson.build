@@ -1,5 +1,5 @@
 project(
-    'merian-example',
+    'merian-alias-table',
     ['cpp', 'c'],
     version : '1.0.0',
     default_options : [
@@ -9,11 +9,6 @@ project(
         'buildtype=release',
     ]
 )
-
-
-# renderdoc = declare_dependency(
-#   link_args: ['-L/usr/bin/librenderdoc.so', '-lrenderdoc'],  # Linker flags
-# )
 
 # add_global_arguments('-fconcepts-diagnostics-depth=5', language : 'cpp')
 
@@ -34,10 +29,9 @@ subdir('src')
 
 
 exe = executable(
-    'merian-example',
+    'merian-alias-table',
     src_files,
     dependencies: [
-        # renderdoc,
         merian,
     ],
     include_directories: inc_dirs,

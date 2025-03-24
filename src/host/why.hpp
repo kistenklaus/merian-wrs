@@ -1,7 +1,7 @@
 #pragma once
 
 // This files contains a couple of easy helper functions or structs
-// that for some reason don't exist in the stl yet.
+// that for some reason don't exist in the STL yet.
 
 #include <concepts>
 #include <memory>
