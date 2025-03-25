@@ -39,16 +39,9 @@ static constexpr std::size_t min_SplitSize = 2;
 static constexpr std::size_t max_SplitSize = 128;
 static constexpr std::size_t step = 1;
 
-static constexpr std::size_t iterations = 1000;
+static constexpr std::size_t iterations = 2;
 static constexpr std::size_t flushSize = 1e7;
-
-static constexpr std::size_t maxOccupantSubgroupsPerSM = 48; // ada lovelace architecture
-static constexpr std::size_t adaLovelaceSubgroupSize = 32;
-static constexpr std::size_t AmountOfSMs = 46; // RTX 4070
-static constexpr std::size_t maxOccupantThreads =
-    maxOccupantSubgroupsPerSM * AmountOfSMs * adaLovelaceSubgroupSize; // = 70656
-
-static constexpr float gpuOccupancyFactor = 4;
+static constexpr std::size_t K = 1e6;
 
 static constexpr MeanConfig meanConfig = AtomicMeanConfig();
 static constexpr PrefixPartitionConfig prefixPartitionConfig = DecoupledPrefixPartitionConfig();
@@ -84,7 +77,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
     assert(resourceExt != nullptr);
     auto alloc = resourceExt->resource_allocator();
 
-    std::size_t maxK = maxOccupantThreads * gpuOccupancyFactor;
+    std::size_t maxK = K;
     std::size_t maxN = maxK * max_SplitSize;
 
     PhiloxBuffers weights = PhiloxBuffers::allocate(alloc, merian::MemoryMappingType::NONE, maxN);
@@ -234,7 +227,8 @@ void benchmark(const merian::ContextHandle& context) {
 
     // export
 
-    std::string path = "psa_split_benchmark_splitSizes.csv";
+    std::string path = "export/psa/split/benchmark_splitSizes.csv";
+    SPDLOG_INFO("Writing results to {}", path);
     host::exp::CSVWriter<7> csv(
         {"N", "splitSize", "method", "group", "latency", "std_derivation", "flushL2"}, path);
     for (const auto& r1 : results.entries) {

@@ -1,24 +1,9 @@
 #pragma once
 
-#include "merian/vk/memory/resource_allocator.hpp"
-#include "merian/vk/shader/shader_compiler.hpp"
-#include "merian/vk/shader/shader_compiler.hpp"
-#include "merian/vk/utils/profiler.hpp"
+#include "src/host/test/context.hpp"
+namespace host::assertions {
 
-namespace host::test {
-
-struct TestContext {
-    merian::ContextHandle context;
-    merian::ResourceAllocatorHandle alloc;
-    merian::QueueHandle queue;
-    merian::CommandPoolHandle cmdPool;
-    merian::ProfilerHandle profiler;
-    merian::ShaderCompilerHandle shaderCompiler;
-};
-
-TestContext setupTestContext(const merian::ContextHandle& context);
-
-void testTests();
+void testTests(const host::test::TestContext& context);
 
 }; // namespace wrs::test
 

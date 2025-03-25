@@ -1,6 +1,5 @@
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/shader/shader_compiler_system_glslc.hpp"
-#include "merian/vk/utils/profiler.hpp"
 #include "src/device/prefix_sum/PrefixSum.hpp"
 #include "src/device/prng/PRNG.hpp"
 #include "src/device/prng/philox/Philox.hpp"
@@ -10,14 +9,19 @@
 #include "src/host/export/logscale.hpp"
 #include "src/host/gen/weight_generator.h"
 #include "src/host/statistics/rmse.hpp"
-#include "vulkan/vulkan_enums.hpp"
-#include <algorithm>
 #include <csignal>
 #include <fmt/base.h>
 #include <random>
 #include <spdlog/spdlog.h>
 
 namespace device::wrs_rmse {
+
+static constexpr std::size_t N = 1e6;
+static constexpr auto weight_distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM;
+static constexpr std::size_t min_S = (1ull << 16);
+static constexpr std::size_t max_S = (1ull << 32);
+static constexpr std::size_t ticks = 1000;
+static constexpr std::size_t flushSize = 1e7;
 
 using weight_type = float;
 using Buffers = WRS::Buffers;
@@ -28,14 +32,14 @@ struct NamedConfig {
 };
 
 static const NamedConfig CONFIGURATIONS[] = {
-    // NamedConfig{.name = "ITS-0",
-    //            .group = "ITS-0",
-    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
-    //                                InverseTransformSamplingConfig(128, 0, false))},
-    // NamedConfig{.name = "ITS-128",
-    //            .group = "ITS-128",
-    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
-    //                                InverseTransformSamplingConfig(128, 128, false))},
+    NamedConfig{.name = "ITS-0",
+                .group = "ITS-0",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(128, 0, false))},
+    NamedConfig{.name = "ITS-128",
+                .group = "ITS-128",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(128, 128, false))},
 
     NamedConfig{.name = "Cutpoint-128",
                 .group = "Cutpoint",
@@ -57,13 +61,6 @@ static const NamedConfig CONFIGURATIONS[] = {
                                            SampleAliasTableConfig(0))},
 
 };
-
-static constexpr std::size_t N = 1e8;
-static constexpr auto weight_distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM;
-static constexpr std::size_t min_S = (1ull << 16);
-static constexpr std::size_t max_S = (1ull << 32);
-static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t flushSize = 1e7;
 
 struct ConfigResult {
     std::size_t N;
@@ -163,14 +160,12 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
 
         auto samples = stageView.download<host::glsl::uint>();
 
-        /* std::ranges::shuffle(samples, rng); */
-
         curveBuilder.consume(samples);
         rmseCurve = curveBuilder.get();
 
         auto hist = curveBuilder.get_histogram();
 
-        std::string path = fmt::format("histogram_{}.csv", name);
+        std::string path = fmt::format("export/rmse/histogram_{}.csv", name);
         host::exp::CSVWriter<3> csv({"X", "observed", "expected"}, path);
         for (std::size_t i = 0; i < hist.size(); ++i) {
             float expected = (weights[i] * s) / totalWeight;
@@ -225,7 +220,7 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                 ++x;
             }
 
-            SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", max_S - s, max_S,
+            SPDLOG_INFO("Sampling Block: {}/{} ~ {:.3}%", max_S - s, max_S,
                         100 * ((max_S - s) / static_cast<float>(max_S)));
 
             cmd->end();
@@ -275,7 +270,8 @@ void benchmark(const merian::ContextHandle& context) {
 
     // export
 
-    std::string path = "wrs_rmse_curve.csv";
+    std::string path = "export/rmse/curve.csv";
+    SPDLOG_INFO("Writing result to {}", path);
     host::exp::CSVWriter<5> csv({"N", "S", "method", "group", "rmse"}, path);
     for (const auto& r1 : results.entries) {
         std::string method = r1.configuration.name;

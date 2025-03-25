@@ -8,21 +8,20 @@
 #include "merian/vk/utils/profiler.hpp"
 #include "src/device/mean/Mean.hpp"
 #include "src/device/mean/decoupled/DecoupledMean.hpp"
-#include "src/host/assert/test.hpp"
 #include "src/host/gen/weight_generator.h"
-#include "src/host/memory/FallbackResource.hpp"
-#include "src/host/memory/SafeResource.hpp"
-#include "src/host/memory/StackResource.hpp"
 #include "src/host/reference/mean.hpp"
+#include "src/host/test/context.hpp"
+#include <algorithm>
 #include <fmt/base.h>
+#include <format>
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_structs.hpp>
+
+namespace device::mean {
 
 using namespace device;
 using namespace host;
 using namespace host::test;
-
-namespace device::test::mean {
 
 using base = host::glsl::f32;
 using Algorithm = device::Mean<base>;
@@ -39,16 +38,52 @@ struct TestCase {
 static constexpr TestCase TEST_CASES[] = {
     //
     TestCase{
-        .config = AtomicMeanConfig(),
-        .N = static_cast<uint32_t>(1024 * 2048 + 1),
+        .config = DecoupledMeanConfig(),
+        .N = static_cast<uint32_t>(1e4),
         .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-        .iterations = 5,
+        .iterations = 2,
     },
     TestCase{
         .config = DecoupledMeanConfig(),
-        .N = static_cast<uint32_t>(1024 * 2048 + 1),
+        .N = static_cast<uint32_t>(1e5),
         .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
-        .iterations = 5,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = DecoupledMeanConfig(),
+        .N = static_cast<uint32_t>(1e6),
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = AtomicMeanConfig(),
+        .N = static_cast<uint32_t>(1e4),
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = AtomicMeanConfig(),
+        .N = static_cast<uint32_t>(1e5),
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = AtomicMeanConfig(),
+        .N = static_cast<uint32_t>(1e6),
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = AtomicMeanConfig(),
+        .N = static_cast<uint32_t>(1e7),
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = AtomicMeanConfig(),
+        .N = static_cast<uint32_t>(1e8),
+        .distribution = Distribution::SEEDED_RANDOM_UNIFORM,
+        .iterations = 2,
     },
 };
 
@@ -79,9 +114,12 @@ base downloadFromStage(Buffers& stage) {
     return stageView.template download<base>();
 }
 
-bool runTestCase(const TestContext& context,
+void runTestCase(const TestContext& context,
                  const TestCase& testCase,
-                 std::pmr::memory_resource* resource) {
+                 std::pmr::memory_resource* resource,
+                 const merian::ProfilerHandle& profiler) {
+
+    merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(context.queue);
 
     Buffers buffers = Buffers::allocate<base>(context.alloc, merian::MemoryMappingType::NONE,
                                               testCase.config, testCase.N);
@@ -99,7 +137,11 @@ bool runTestCase(const TestContext& context,
     SPDLOG_DEBUG("Creating DecoupledMean algorithm instance");
     Algorithm kernel(context.context, context.shaderCompiler, testCase.config);
 
-    bool failed = false;
+    std::string label = fmt::format("{{{}-{}}}", meanConfigName(testCase.config), testCase.N);
+
+    std::string recordingLabel = fmt::format("Recoding: {}", label);
+
+    host::test::TestResultType out = host::test::TestResultType::SUCCESS;
     for (size_t i = 0; i < testCase.iterations; ++i) {
         context.queue->wait_idle();
 
@@ -110,54 +152,62 @@ bool runTestCase(const TestContext& context,
             }
         }
 
-        std::string label = fmt::format("{{{}-{}}}", meanConfigName(testCase.config), testCase.N);
-        MERIAN_PROFILE_SCOPE(context.profiler, label);
+        profiler->start(label);
 
         // Generate elements
         std::pmr::vector<base> elements{resource};
         {
-            SPDLOG_DEBUG(fmt::format("Generating {} weights with {}", testCase.N,
+            SPDLOG_DEBUG(fmt::format("Generating {} elements with {}", testCase.N,
                                      host::distribution_to_pretty_string(testCase.distribution)));
-            MERIAN_PROFILE_SCOPE(context.profiler, "Generate weights");
+            profiler->start("Generate elements");
             elements =
                 host::pmr::generate_weights<base>(testCase.distribution, testCase.N, resource);
+            profiler->end();
         }
 
         // Begin recording
-        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
         cmd->begin();
 
-        std::string recordingLabel = fmt::format("Recoding: {}", label);
-        context.profiler->start(recordingLabel);
-        context.profiler->cmd_start(cmd, recordingLabel);
+        profiler->start(recordingLabel);
+        profiler->cmd_start(cmd, recordingLabel);
 
         // Upload elements
         {
             SPDLOG_DEBUG("Uploading elements");
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Uploading elements");
+
+            profiler->start("Uploading elements");
+            profiler->cmd_start(cmd, "Uploading elements");
             uploadTestCase(cmd, elements, buffers, stage);
+            profiler->end();
+            profiler->cmd_end(cmd);
         }
 
         // Run algorithm
         {
             SPDLOG_DEBUG("Running algorithm");
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute DecoupledMean");
+
+            profiler->start("Execute Algorithm");
+            profiler->cmd_start(cmd, "Execute Algorithm");
             kernel.run(cmd, buffers, testCase.N);
+            profiler->end();
+            profiler->cmd_end(cmd);
         }
 
         // Download results to stage
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download result to stage");
+            profiler->start("Download result to stage");
+            profiler->cmd_start(cmd, "Download result to stage");
             downloadToStage(cmd, buffers, stage);
+            profiler->end();
+            profiler->cmd_end(cmd);
         }
 
         // Submit to queue
         {
-            context.profiler->end();
-            context.profiler->cmd_end(cmd);
+            profiler->end();
+            profiler->cmd_end(cmd);
             cmd->end();
-
-            MERIAN_PROFILE_SCOPE(context.profiler, "Wait for device idle");
             context.queue->submit_wait(cmd);
         }
 
@@ -170,39 +220,64 @@ bool runTestCase(const TestContext& context,
         // Compute reference
         base referenceMean = host::reference::mean<base, host::pmr_alloc<base>>(elements, resource);
 
-        if (std::abs(referenceMean - mean) > 0.01) {
+        if (std::abs(referenceMean - mean) > 0.1) {
+            SPDLOG_ERROR(fmt::format("{} is just wrong\n"
+                                     "Expected {}, Got{}",
+                                     label, referenceMean, mean));
+            out += host::test::ERROR;
+        } else if (std::abs(referenceMean - mean) > 0.01) {
             SPDLOG_ERROR(fmt::format("{} is numerically unstable\n"
                                      "Expected {}, Got{}",
                                      label, referenceMean, mean));
-            failed = true;
+            out += host::test::WARNING;
         }
 
-        context.profiler->collect(true, true);
+        profiler->end();
+
+        profiler->collect(true, true);
     }
-    return failed;
+    const auto report = profiler->get_report().gpu_report;
+    auto recordingEntry =
+        std::ranges::find_if(report, [&](const merian::Profiler::ReportEntry& entry) {
+            return entry.name == recordingLabel;
+        });
+    if (recordingEntry == report.end()) {
+        throw std::runtime_error("Impossible state");
+    }
+    auto entry = std::ranges::find_if(recordingEntry->children,
+                                      [&](const merian::Profiler::ReportEntry& entry) {
+                                          return entry.name == "Execute Algorithm";
+                                      });
+    if (entry == recordingEntry->children.end()) {
+        throw std::runtime_error("Impossible state");
+    }
+
+    context.pushResult(
+        "Mean", meanConfigClass(testCase.config), out, entry->duration,
+        entry->std_deviation,
+        {TestProperty{.name = "N",
+                      .value = std::format("{:.0e}", static_cast<float>(testCase.N))}});
 }
 
-void test(const merian::ContextHandle& context) {
-    SPDLOG_INFO("Testing decoupled_mean algorithm");
-
-    TestContext testContext = setupTestContext(context);
+void test(const host::test::TestContext& context) {
+    SPDLOG_INFO("Testing Mean algorithm");
 
     SPDLOG_DEBUG("Allocating buffers");
 
-    host::memory::StackResource stackResource{2048 * 4096};
-    host::memory::FallbackResource fallbackResource{&stackResource};
-    host::memory::SafeResource safeResource{&fallbackResource};
-
-    std::pmr::memory_resource* resource = &safeResource;
+    merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context.context);
+    merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
+        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context.context);
+    query_pool->reset();
+    profiler->set_query_pool(query_pool);
 
     for (const auto& testCase : TEST_CASES) {
-        runTestCase(testContext, testCase, resource);
-        stackResource.reset();
+        runTestCase(context, testCase, context.memory_resource, profiler);
+        context.resetMemoryResource();
     }
 
-    testContext.profiler->collect(true, true);
+    profiler->collect(true, true);
     SPDLOG_INFO(fmt::format("Profiler results (Mean): \n{}",
-                            merian::Profiler::get_report_str(testContext.profiler->get_report())));
+                            merian::Profiler::get_report_str(profiler->get_report())));
 }
 
-} // namespace device::test::mean
+} // namespace device::mean

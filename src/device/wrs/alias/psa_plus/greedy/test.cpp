@@ -1,22 +1,13 @@
 #include "./test.hpp"
 #include "merian/vk/memory/memory_allocator.hpp"
 #include "merian/vk/utils/profiler.hpp"
-#include "src/device/mean/Mean.hpp"
-#include "src/device/prefix_sum/block_scan/BlockScanVariant.hpp"
-#include "src/device/statistics/chi_square/ChiSquare.hpp"
 #include "src/device/wrs/alias/psa/PSA.hpp"
 #include "src/device/wrs/alias/psa/layout/alias_table.hpp"
 #include "src/device/wrs/alias/psa_plus/greedy/Greedy.hpp"
 #include "src/device/wrs/alias/psa_plus/layout/heavy_light_count.hpp"
-#include "src/host/assert/is_alias_table.hpp"
-#include "src/host/assert/test.hpp"
 #include "src/host/gen/weight_generator.h"
-#include "src/host/memory/FallbackResource.hpp"
-#include "src/host/memory/SafeResource.hpp"
-#include "src/host/memory/StackResource.hpp"
 #include "src/host/reference/inverse_alias_table.hpp"
-#include "src/host/statistics/js_divergence.hpp"
-#include <algorithm>
+#include "src/host/test/context.hpp"
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
@@ -44,7 +35,7 @@ static const TestCase TEST_CASES[] = {
     TestCase{
         .config = PSAGreedyConfig(4, 512),
         .N = static_cast<uint32_t>(1024 * 2048),
-        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM ,
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
         .iterations = 1,
     },
 };
@@ -163,6 +154,7 @@ downloadFromStage(Buffers& stage, host::glsl::uint N, std::pmr::memory_resource*
 };
 
 static bool runTestCase(const host::test::TestContext& context,
+    const merian::ProfilerHandle& profiler,
                         const TestCase& testCase,
                         std::pmr::memory_resource* resource) {
     Buffers buffers = Buffers::allocate(context.alloc, testCase.N, testCase.config.blockSize(),
@@ -179,7 +171,7 @@ static bool runTestCase(const host::test::TestContext& context,
     bool failed = false;
     double averageJSDivergence = 0;
     for (size_t it = 0; it < testCase.iterations; ++it) {
-        MERIAN_PROFILE_SCOPE(context.profiler, testName);
+        MERIAN_PROFILE_SCOPE(profiler, testName);
         context.queue->wait_idle();
         if (testCase.iterations > 1) {
             if (testCase.N > 1e6) {
@@ -192,10 +184,10 @@ static bool runTestCase(const host::test::TestContext& context,
         }
 
         // 1. Generate input
-        context.profiler->start("Generate test input");
+        profiler->start("Generate test input");
         auto weights =
             host::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
-        context.profiler->end();
+        profiler->end();
 
         merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
         cmd->begin();
@@ -218,13 +210,13 @@ static bool runTestCase(const host::test::TestContext& context,
             {
                 /* MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "PSA"); */
 
-                context.profiler->start("PSA-Greedy");
-                context.profiler->cmd_start(cmd, "PSA-Greedy");
+                profiler->start("PSA-Greedy");
+                profiler->cmd_start(cmd, "PSA-Greedy");
 
-                kernel.run(cmd, buffers, testCase.N, context.profiler);
+                kernel.run(cmd, buffers, testCase.N, profiler);
 
-                context.profiler->end();
-                context.profiler->cmd_end(cmd);
+                profiler->end();
+                profiler->cmd_end(cmd);
             }
         }
 
@@ -246,15 +238,15 @@ static bool runTestCase(const host::test::TestContext& context,
         context.queue->submit_wait(cmd);
 
         // Download from stage
-        context.profiler->start("Download results from stage");
+        profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        [[maybe_unused]] Results results = downloadFromStage(stage, testCase.N, resource);
+        Results results = downloadFromStage(stage, testCase.N, resource);
 
-        context.profiler->end();
+        profiler->end();
 
         // Test results
         {
-            MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
+            MERIAN_PROFILE_SCOPE(profiler, "Testing results");
             float mean = host::reference::reduce<float>(weights) / weights.size();
 
             auto normWeights = host::reference::normalize_weights<float>(weights);
@@ -302,7 +294,7 @@ static bool runTestCase(const host::test::TestContext& context,
                          testCase.N - packed);
         }
     }
-    context.profiler->collect(true, true);
+    profiler->collect(true, true);
 
     averageJSDivergence /= testCase.iterations;
     SPDLOG_INFO("JS-Divergence: {}", averageJSDivergence);
@@ -319,26 +311,25 @@ static bool runTestCase(const host::test::TestContext& context,
     return failed;
 }
 
-void test(const merian::ContextHandle& context) {
+void test(const host::test::TestContext& context) {
     SPDLOG_INFO("Testing PSA-Greedy algorithm");
 
-    const host::test::TestContext testContext = host::test::setupTestContext(context);
+    merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context.context);
+    merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
+        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context.context);
+    query_pool->reset();
+    profiler->set_query_pool(query_pool);
 
-    host::memory::StackResource stackResource{4096 * 2048};
-    host::memory::FallbackResource fallbackResource{&stackResource};
-    host::memory::SafeResource safeResource{&fallbackResource};
-
-    std::pmr::memory_resource* resource = &safeResource;
+    std::pmr::memory_resource* resource = context.memory_resource;
 
     uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        runTestCase(testContext, testCase, resource);
-        stackResource.reset();
+        runTestCase(context, profiler, testCase, resource);
     }
 
-    testContext.profiler->collect(true, true);
+    profiler->collect(true, true);
     SPDLOG_INFO(fmt::format("Profiler results: \n{}",
-                            merian::Profiler::get_report_str(testContext.profiler->get_report())));
+                            merian::Profiler::get_report_str(profiler->get_report())));
 
     if (failCount == 0) {
         SPDLOG_INFO("All tests passed");

@@ -34,6 +34,17 @@ static std::string prefixSumConfigName(const PrefixSumConfig& config) {
     }
 }
 
+[[maybe_unused]]
+static std::string prefixSumConfigClass(const PrefixSumConfig& config) {
+    if (std::holds_alternative<DecoupledPrefixSumConfig>(config)) {
+        return "SingleDispatchScan";
+    } else if (std::holds_alternative<BlockWiseScanConfig>(config)) {
+        return "BlockWiseScan";
+    } else {
+        return "UNNAMED";
+    }
+}
+
 template <typename T>
 concept prefix_sum_compatible_type = std::same_as<T, float>;
 

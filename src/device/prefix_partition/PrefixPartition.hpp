@@ -35,6 +35,17 @@ static std::string prefixPartitionConfigName(const PrefixPartitionConfig& config
     }
 }
 
+[[maybe_unused]]
+static std::string prefixPartitionConfigClass(const PrefixPartitionConfig& config) {
+    if (std::holds_alternative<DecoupledPrefixPartitionConfig>(config)) {
+        return "SingleDispatchScanPartition";
+    } else if (std::holds_alternative<BlockWisePrefixPartitionConfig>(config)) {
+        return "BlockWiseScanPartition";
+    } else {
+        throw std::runtime_error("NOT-IMPLEMENTED");
+    }
+}
+
 struct PrefixPartitionBuffers {
     using Self = PrefixPartitionBuffers;
     static constexpr auto storageQualifier = host::glsl::StorageQualifier::std430;
@@ -212,7 +223,7 @@ template <prefix_partition_compatible T> class PrefixPartition {
         } else if (std::holds_alternative<BlockWisePrefixPartition<T>>(m_method)) {
             return std::get<BlockWisePrefixPartition<T>>(m_method).maxElementCount();
         } else {
-          throw std::runtime_error("NOT-IMPLEMENTED");
+            throw std::runtime_error("NOT-IMPLEMENTED");
         }
     }
 

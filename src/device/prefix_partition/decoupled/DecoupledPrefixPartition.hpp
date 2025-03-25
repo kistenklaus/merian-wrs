@@ -117,7 +117,7 @@ class DecoupledPrefixPartitionConfig {
     BlockScanVariant blockScanVariant;
 
     constexpr DecoupledPrefixPartitionConfig()
-        : workgroupSize(512), rows(8), parallelLookbackDepth(32),
+        : workgroupSize(512), rows(4), parallelLookbackDepth(32),
           blockScanVariant(BlockScanVariant::RANKED_STRIDED) {}
     explicit constexpr DecoupledPrefixPartitionConfig(host::glsl::uint workgroupSize,
                                                       host::glsl::uint rows,
@@ -186,10 +186,11 @@ template <decoupled_prefix_partition_compatible T> class DecoupledPrefixPartitio
              const DecoupledPrefixPartitionBuffers& buffers,
              uint32_t N,
              [[maybe_unused]] std::optional<merian::ProfilerHandle> profiler = std::nullopt) const {
+
 #ifdef MERIAN_PROFILER_ENABLE
         if (profiler.has_value()) {
-            profiler.value()->start("Decoupled-Prefix-Partition");
-            profiler.value()->cmd_start(cmd, "Decoupled-Prefix-Partition");
+            profiler.value()->start("Reset buffers");
+            profiler.value()->cmd_start(cmd, "Reset buffers");
         }
 #endif
 
@@ -198,6 +199,20 @@ template <decoupled_prefix_partition_compatible T> class DecoupledPrefixPartitio
                      vk::PipelineStageFlagBits::eComputeShader,
                      buffers.decoupledStates->buffer_barrier(vk::AccessFlagBits::eTransferWrite,
                                                              vk::AccessFlagBits::eShaderRead));
+
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->end();
+            profiler.value()->cmd_end(cmd);
+        }
+#endif
+
+#ifdef MERIAN_PROFILER_ENABLE
+        if (profiler.has_value()) {
+            profiler.value()->start("Decoupled-Prefix-Partition");
+            profiler.value()->cmd_start(cmd, "Decoupled-Prefix-Partition");
+        }
+#endif
 
         cmd->bind(m_pipeline);
         if (m_writePartitionElements) {

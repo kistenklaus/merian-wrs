@@ -1,15 +1,9 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
-#include "src/device/prefix_sum/block_scan/BlockScanVariant.hpp"
 #include "src/device/statistics/chi_square/ChiSquare.hpp"
 #include "src/device/statistics/chi_square/ChiSquareAllocFlags.hpp"
-#include "src/host/assert/test.hpp"
 #include "src/host/gen/weight_generator.h"
-#include "src/host/memory/FallbackResource.hpp"
-#include "src/host/memory/SafeResource.hpp"
-#include "src/host/memory/StackResource.hpp"
-#include "src/host/statistics/chi_square.hpp"
-#include <algorithm>
+#include "src/host/test/context.hpp"
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
@@ -18,12 +12,11 @@
 #include <spdlog/spdlog.h>
 
 #include "src/device/wrs/WRS.hpp"
-#include "src/host/reference/reduce.hpp"
 #include "src/host/statistics/js_divergence.hpp"
 #include "src/host/why.hpp"
 #include "vulkan/vulkan_enums.hpp"
 
-namespace device::test::wrs {
+namespace device::wrs {
 
 using Algorithm = WRS;
 using Buffers = Algorithm::Buffers;
@@ -39,143 +32,109 @@ struct TestCase {
 
 static const TestCase TEST_CASES[] = {
     //
-
-    //TestCase{
-    //    .config = CutpointConfig( //
-    //        DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    //        32),
-    //    .N = static_cast<uint32_t>(1e7),
-    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-    //    .S = static_cast<uint32_t>(1e7),
-    //    .iterations = 5,
-    //},
-
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 0)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 1024 * 2048 * 32, */
-    /*     .iterations = 5, */
-    /* }, */
-    // TestCase{
-    //    .config = ITSConfig( //
-    //        DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-    //        InverseTransformSamplingConfig(512, 128, false)),
-    //    .N = 1024 * 2048,
-    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-    //    .S = static_cast<uint32_t>(1e8),
-    //    .iterations = 5,
-    //},
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 4096, true)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 1024 * 2048 * 32, */
-    /*     .iterations = 5, */
-    /* }, */
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 1024, false)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 1024 * 2048 * 32, */
-    /*     .iterations = 5, */
-    /* }, */
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 1024, true)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 1024 * 2048 * 32, */
-    /*     .iterations = 5, */
-    /* }, */
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 512, false)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 1024 * 2048 * 32, */
-    /*     .iterations = 5, */
-    /* }, */
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 512, true)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 1024 * 2048 * 32, */
-    /*     .iterations = 5, */
-    /* }, */
-    /*  */
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 128, false)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 1024 * 2048 * 32, */
-    /*     .iterations = 5, */
-    /* }, */
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 128, true)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = static_cast<uint32_t>(1e8), */
-    /*     .iterations = 1, */
-    /* }, */
-    /*  */
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 32, false)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 1024 * 2048 * 32, */
-    /*     .iterations = 5, */
-    /* }, */
-    /* TestCase{ */
-    /*     .config = ITSConfig( // */
-    /*         DecoupledPrefixSumConfig(512, 8, BlockScanVariant::RANKED_STRIDED), */
-    /*         InverseTransformSamplingConfig(512, 32, true)), */
-    /*     .N = 1024 * 2048, */
-    /*     .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM, */
-    /*     .S = 1024 * 2048 * 32, */
-    /*     .iterations = 5, */
-    /* }, */
-    //TestCase{
-    //    .config = AliasTableConfig(
-    //        PSAConfig(AtomicMeanConfig(),
-    //                  DecoupledPrefixPartitionConfig(),
-    //                  InlineSplitPackConfig(2, 32, 128),
-    //                  false),
-    //        SampleAliasTableConfig(128)),
-    //    .N = static_cast<uint32_t>(1e6),
-    //    .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
-    //    .S = static_cast<uint32_t>(1e8),
-    //    .iterations = 1,
-    //},
     TestCase{
-        .config = AliasTableConfig(
-            PSAConfig(AtomicMeanConfig(),
-                      DecoupledPrefixPartitionConfig(),
-                      InlineSplitPackConfig(2, 32, 512),
-                      false),
-            SampleAliasTableConfig(128)),
-        .N = static_cast<uint32_t>(1015637),
+        .config = ITSConfig(DecoupledPrefixSumConfig(), InverseTransformSamplingConfig(512, 32)),
+        .N = static_cast<uint32_t>(1e4),
         .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
-        .S = static_cast<uint32_t>(169809194),
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = ITSConfig(DecoupledPrefixSumConfig(), InverseTransformSamplingConfig(512, 32)),
+        .N = static_cast<uint32_t>(1e5),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = ITSConfig(DecoupledPrefixSumConfig(), InverseTransformSamplingConfig(512, 32)),
+        .N = static_cast<uint32_t>(1e6),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = ITSConfig(DecoupledPrefixSumConfig(), InverseTransformSamplingConfig(512, 128)),
+        .N = static_cast<uint32_t>(1e7),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
         .iterations = 1,
     },
 
+
+    TestCase{
+        .config = CutpointConfig(DecoupledPrefixSumConfig(), 32),
+        .N = static_cast<uint32_t>(1e4),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = CutpointConfig(DecoupledPrefixSumConfig(), 32),
+        .N = static_cast<uint32_t>(1e5),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = CutpointConfig(DecoupledPrefixSumConfig(), 32),
+        .N = static_cast<uint32_t>(1e6),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
+        .N = static_cast<uint32_t>(1e7),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+
+    TestCase{
+        .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                             DecoupledPrefixPartitionConfig(),
+                                             InlineSplitPackConfig(2, 32, 512),
+                                             false),
+                                   SampleAliasTableConfig(32)),
+        .N = static_cast<uint32_t>(1e4),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                             DecoupledPrefixPartitionConfig(),
+                                             InlineSplitPackConfig(2, 32, 512),
+                                             false),
+                                   SampleAliasTableConfig(32)),
+        .N = static_cast<uint32_t>(1e5),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                             DecoupledPrefixPartitionConfig(),
+                                             InlineSplitPackConfig(2, 32, 512),
+                                             false),
+                                   SampleAliasTableConfig(128)),
+        .N = static_cast<uint32_t>(1e6),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                             DecoupledPrefixPartitionConfig(),
+                                             InlineSplitPackConfig(2, 32, 512),
+                                             false),
+                                   SampleAliasTableConfig(128)),
+        .N = static_cast<uint32_t>(1e7),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
 };
 
 static void uploadTestCase(const merian::CommandBufferHandle& cmd,
@@ -232,10 +191,16 @@ static Results downloadFromStage(Buffers& stage,
     };
 };
 
-static bool runTestCase(const host::test::TestContext& context,
+static void runTestCase(const host::test::TestContext& context,
                         const TestCase& testCase,
-                        const ChiSquare& chiSquare,
                         std::pmr::memory_resource* resource) {
+    merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context.context);
+    merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
+        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context.context);
+    query_pool->reset();
+    profiler->set_query_pool(query_pool);
+
+    merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(context.queue);
     Buffers buffers = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE, testCase.N,
                                         testCase.S, testCase.config);
     Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
@@ -256,13 +221,14 @@ static bool runTestCase(const host::test::TestContext& context,
     std::string testName =
         fmt::format("{{{},N={},S={}}}", wrsConfigName(testCase.config), testCase.N, testCase.S);
     SPDLOG_INFO("Running test case:{}", testName);
+    std::string recordingLabel = fmt::format("Recording : {}", testName);
 
     Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
 
-    bool failed = false;
+    host::test::TestResultType out = host::test::SUCCESS;
     float averageJSDivergence = 0;
     for (size_t it = 0; it < testCase.iterations; ++it) {
-        MERIAN_PROFILE_SCOPE(context.profiler, testName);
+        MERIAN_PROFILE_SCOPE(profiler, testName);
         context.queue->wait_idle();
         if (testCase.iterations > 1) {
             if (testCase.N > 1e6) {
@@ -275,36 +241,35 @@ static bool runTestCase(const host::test::TestContext& context,
         }
 
         // 1. Generate input
-        context.profiler->start("Generate test input");
+        profiler->start("Generate test input");
         auto weights =
             host::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
         /* std::ranges::sort(weights); */
-        context.profiler->end();
+        profiler->end();
 
         // 2. Begin recoding
-        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
         cmd->begin();
-        std::string recordingLabel = fmt::format("Recording : {}", testName);
-        context.profiler->start(recordingLabel);
-        context.profiler->cmd_start(cmd, recordingLabel);
+        profiler->start(recordingLabel);
+        profiler->cmd_start(cmd, recordingLabel);
 
         // 3. Upload test case indices
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
+            MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Upload test case");
             SPDLOG_DEBUG("Uploading test case...");
             uploadTestCase(cmd, buffers, stage, weights);
         }
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, wrsConfigName(testCase.config));
+            /* MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, wrsConfigName(testCase.config)); */
             // 4. Run test case
             {
-                MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Building WRS");
+                MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Building WRS");
                 SPDLOG_DEBUG("Building WRS");
-                kernel.build(cmd, buffers, testCase.N, context.profiler);
+                kernel.build(cmd, buffers, testCase.N, profiler);
             }
 
             { // 5. Samples WRS
-                MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Sample WRS");
+                MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Sample WRS");
                 SPDLOG_DEBUG("Sample WRS");
                 std::random_device rng;
                 std::uniform_int_distribution<host::glsl::uint> dist{};
@@ -312,39 +277,29 @@ static bool runTestCase(const host::test::TestContext& context,
             }
         }
 
-        const float totalWeight = host::reference::reduce<float>(weights);
-        { // Chi Square (FUCKING USELESS SHIT)
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "ChiSquared (X²)");
-            cmd->barrier(vk::PipelineStageFlagBits::eComputeShader,
-                         vk::PipelineStageFlagBits::eComputeShader,
-                         buffers.samples->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
-                                                         vk::AccessFlagBits::eShaderRead));
-            chiSquare.run(cmd, chiBuffers, testCase.N, testCase.S, totalWeight);
-        }
-
         // Download results to stage
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
+            MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Download results to stage");
             SPDLOG_DEBUG("Downloading results to stage...");
             downloadToStage(cmd, buffers, stage, chiBuffers, chiStage, testCase.S);
         }
 
         // Submit to device
-        context.profiler->end();
-        context.profiler->cmd_end(cmd);
+        profiler->end();
+        profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
         cmd->end();
         context.queue->submit_wait(cmd);
 
         // Download from stage
-        context.profiler->start("Download results from stage");
+        profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        [[maybe_unused]] Results results = downloadFromStage(stage, chiStage, testCase.S, resource);
-        context.profiler->end();
+        Results results = downloadFromStage(stage, chiStage, testCase.S, resource);
+        profiler->end();
 
         // Test results
         {
-            MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
+            MERIAN_PROFILE_SCOPE(profiler, "Testing results");
 
             /* SPDLOG_DEBUG("Testing results"); */
             float jsDivergence =
@@ -352,7 +307,7 @@ static bool runTestCase(const host::test::TestContext& context,
 
             averageJSDivergence += jsDivergence;
         }
-        context.profiler->collect(true, true);
+        profiler->collect(true, true);
     }
 
     averageJSDivergence /= testCase.iterations;
@@ -360,45 +315,64 @@ static bool runTestCase(const host::test::TestContext& context,
 
     if (averageJSDivergence > 0.3) {
         SPDLOG_ERROR("{} - WTF are you doing", wrsConfigName(testCase.config));
+        out += host::test::ERROR;
     } else if (averageJSDivergence > 0.15) {
         SPDLOG_ERROR("{} displays a significant bias", wrsConfigName(testCase.config));
+        out += host::test::ERROR;
     } else if (averageJSDivergence > 0.05) {
         SPDLOG_WARN("{} displays a moderate bias", wrsConfigName(testCase.config));
+        out += host::test::WARNING;
     } else {
         SPDLOG_INFO("{} is does not show any significant bias", wrsConfigName(testCase.config));
     }
-    return failed;
+    const auto report = profiler->get_report().gpu_report;
+    auto recordingEntry =
+        std::ranges::find_if(report, [&](const merian::Profiler::ReportEntry& entry) {
+            return entry.name == recordingLabel;
+        });
+    if (recordingEntry == report.end()) {
+        fmt::println("ENTRIES:");
+        for (const auto& x : report) {
+            fmt::println("{}", x.name);
+        }
+        throw std::runtime_error("Impossible state 1");
+    }
+    auto buildEntry = std::ranges::find_if(
+        recordingEntry->children,
+        [&](const merian::Profiler::ReportEntry& entry) { return entry.name == "Building WRS"; });
+    auto sampleEntry = std::ranges::find_if(
+        recordingEntry->children,
+        [&](const merian::Profiler::ReportEntry& entry) { return entry.name == "Sample WRS"; });
+
+    context.pushResult("WRS-Construction+Sampling", wrsConfigClass(testCase.config), out,
+                       buildEntry->duration + sampleEntry->duration,
+                       buildEntry->std_deviation + sampleEntry->std_deviation,
+                       {
+                           host::test::TestProperty{
+                               .name = "N",
+                               .value = fmt::format("{}", testCase.N),
+                           },
+                           host::test::TestProperty{
+                               .name = "S",
+                               .value = fmt::format("{}", testCase.S),
+                           },
+                           host::test::TestProperty{
+                               .name = "section-size",
+                               .value = fmt::format("{}", wrsConfigSectionSize(testCase.config)),
+                           },
+                       }
+
+    );
 }
 
-void test(const merian::ContextHandle& context) {
+void test(const host::test::TestContext& context) {
     SPDLOG_INFO("Testing WRS algorithms");
 
-    const host::test::TestContext testContext = host::test::setupTestContext(context);
+    std::pmr::memory_resource* resource = context.memory_resource;
 
-    host::memory::StackResource stackResource{4096 * 2048};
-    host::memory::FallbackResource fallbackResource{&stackResource};
-    host::memory::SafeResource safeResource{&fallbackResource};
-
-    std::pmr::memory_resource* resource = &safeResource;
-
-    ChiSquare chiSquare{context, testContext.shaderCompiler};
-
-    uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        runTestCase(testContext, testCase, chiSquare, resource);
-        stackResource.reset();
-    }
-
-    testContext.profiler->collect(true, true);
-    SPDLOG_INFO(fmt::format("Profiler results: \n{}",
-                            merian::Profiler::get_report_str(testContext.profiler->get_report())));
-
-    if (failCount == 0) {
-        SPDLOG_INFO("All tests passed");
-    } else {
-        SPDLOG_ERROR(fmt::format("Failed {} out of {} tests", failCount,
-                                 sizeof(TEST_CASES) / sizeof(TestCase)));
+        runTestCase(context, testCase, resource);
     }
 }
 
-} // namespace device::test::wrs
+} // namespace device::wrs

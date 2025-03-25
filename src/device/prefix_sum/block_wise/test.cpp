@@ -2,16 +2,14 @@
 #include "merian/vk/utils/profiler.hpp"
 #include "src/device/prefix_sum/block_scan/BlockScan.hpp"
 #include "src/host/assert/is_prefix.hpp"
-#include "src/host/assert/test.hpp"
 #include "src/host/gen/weight_generator.h"
-#include "src/host/memory/FallbackResource.hpp"
-#include "src/host/memory/SafeResource.hpp"
-#include "src/host/memory/StackResource.hpp"
+#include "src/host/test/context.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
 #include <memory>
+#include <memory_resource>
 #include <spdlog/spdlog.h>
 #include <tuple>
 
@@ -123,6 +121,7 @@ static Results downloadFromStage(Buffers& stage,
 };
 
 static bool runTestCase(const host::test::TestContext& context,
+                        const merian::ProfilerHandle& profiler,
                         const TestCase& testCase,
                         Buffers& buffers,
                         Buffers& stage,
@@ -136,7 +135,7 @@ static bool runTestCase(const host::test::TestContext& context,
 
     bool failed = false;
     for (size_t it = 0; it < testCase.iterations; ++it) {
-        MERIAN_PROFILE_SCOPE(context.profiler, testName);
+        MERIAN_PROFILE_SCOPE(profiler, testName);
         context.queue->wait_idle();
         if (testCase.iterations > 1) {
             if (testCase.N > 1e6) {
@@ -152,55 +151,55 @@ static bool runTestCase(const host::test::TestContext& context,
             (testCase.N + testCase.config.blockSize() - 1) / testCase.config.blockSize();
 
         // 1. Generate input
-        context.profiler->start("Generate test input");
+        profiler->start("Generate test input");
         std::pmr::vector<float> elements =
             host::pmr::generate_weights<float>(testCase.dist, testCase.N, resource);
-        context.profiler->end();
+        profiler->end();
 
         // 2. Begin recoding
         merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
         cmd->begin();
         std::string recordingLabel = fmt::format("Recording : {}", testName);
-        context.profiler->start(recordingLabel);
-        context.profiler->cmd_start(cmd, recordingLabel);
+        profiler->start(recordingLabel);
+        profiler->cmd_start(cmd, recordingLabel);
 
         // 3. Upload test case indices
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
+            MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Upload test case");
             SPDLOG_DEBUG("Uploading test case...");
             uploadTestCase(cmd, buffers, stage, elements);
         }
 
         // 4. Run test case
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Execute algorithm");
+            MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Execute algorithm");
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.N, context.profiler);
+            kernel.run(cmd, buffers, testCase.N, profiler);
         }
 
         // 5. Download results to stage
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
+            MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Download results to stage");
             SPDLOG_DEBUG("Downloading results to stage...");
             downloadToStage(cmd, buffers, stage, testCase.N, partitionCount);
         }
 
         // 6. Submit to device
-        context.profiler->end();
-        context.profiler->cmd_end(cmd);
+        profiler->end();
+        profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
         cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
-        context.profiler->start("Download results from stage");
+        profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
         Results results = downloadFromStage(stage, testCase.N, partitionCount, resource);
-        context.profiler->end();
+        profiler->end();
 
         // 7. Test results
         {
-            MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
+            MERIAN_PROFILE_SCOPE(profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
 
             const auto err = host::test::pmr::assert_is_inclusive_prefix<float>(
@@ -220,41 +219,32 @@ static bool runTestCase(const host::test::TestContext& context,
                 }
             }
         }
-        context.profiler->collect(true, true);
+        profiler->collect(true, true);
     }
     return failed;
 }
 
-void test(const merian::ContextHandle& context) {
+void test(const host::test::TestContext& context) {
     SPDLOG_INFO("Testing Work efficient prefix sum algorithm");
 
-    const host::test::TestContext testContext = host::test::setupTestContext(context);
-
     SPDLOG_DEBUG("Allocating buffers");
-    auto [buffers, stage] = allocateBuffers(testContext);
+    auto [buffers, stage] = allocateBuffers(context);
 
-    host::memory::StackResource stackResource{4096 * 2048};
-    host::memory::FallbackResource fallbackResource{&stackResource};
-    host::memory::SafeResource safeResource{&fallbackResource};
+    merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context.context);
+    merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
+        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context.context);
+    query_pool->reset();
+    profiler->set_query_pool(query_pool);
 
-    std::pmr::memory_resource* resource = &safeResource;
+    std::pmr::memory_resource* resource = std::pmr::get_default_resource();
 
-    uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        runTestCase(testContext, testCase, buffers, stage, resource);
-        stackResource.reset();
+        runTestCase(context, profiler, testCase, buffers, stage, resource);
     }
 
-    testContext.profiler->collect(true, true);
+    profiler->collect(true, true);
     SPDLOG_INFO(fmt::format("Profiler results: \n{}",
-                            merian::Profiler::get_report_str(testContext.profiler->get_report())));
-
-    if (failCount == 0) {
-        SPDLOG_INFO("All tests passed");
-    } else {
-        SPDLOG_ERROR(fmt::format("Failed {} out of {} tests", failCount,
-                                 sizeof(TEST_CASES) / sizeof(TestCase)));
-    }
+                            merian::Profiler::get_report_str(profiler->get_report())));
 }
 
 } // namespace device::test::block_wise

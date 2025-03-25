@@ -121,20 +121,13 @@ class DecoupledMean {
                   const merian::ShaderCompilerHandle& shaderCompiler,
                   DecoupledMeanConfig config)
         : m_blockSize(config.blockSize()) {
-        constexpr bool stable = false;
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             merian::DescriptorSetLayoutBuilder()
                 .add_binding_storage_buffer() // elements
                 .add_binding_storage_buffer() // mean
                 .add_binding_storage_buffer() // decoupled states
                 .build_push_descriptor_layout(context);
-        std::string shaderPath;
-        if (stable) {
-            throw std::runtime_error("Not implemented yet");
-            shaderPath = "src/device/mean/decoupled/float_stable.comp";
-        } else {
-            shaderPath = "src/device/mean/decoupled/float.comp";
-        }
+        std::string shaderPath = "src/device/mean/decoupled/float.comp";
         const merian::ShaderModuleHandle shader = shaderCompiler->find_compile_glsl_to_shadermodule(
             context, shaderPath, vk::ShaderStageFlagBits::eCompute);
 

@@ -28,6 +28,17 @@ static std::string meanConfigName(const MeanConfig& config) {
     }
 }
 
+[[maybe_unused]]
+static std::string meanConfigClass(const MeanConfig& config) {
+    if (std::holds_alternative<AtomicMeanConfig>(config)) {
+        return "AtomicMean";
+    } else if (std::holds_alternative<DecoupledMeanConfig>(config)) {
+        return "DecoupledMean";
+    } else {
+        throw std::runtime_error("NOT-IMPLEMENTED");
+    }
+}
+
 template <typename T>
 concept mean_compatible = std::same_as<float, T>;
 
@@ -105,7 +116,7 @@ template <mean_compatible T> class Mean {
             const auto methodConfig = std::get<DecoupledMeanConfig>(config);
             return DecoupledMean(context, shaderCompiler, methodConfig);
         } else {
-          throw std::runtime_error("NOT-IMPLEMENTED");
+            throw std::runtime_error("NOT-IMPLEMENTED");
         }
     }
 

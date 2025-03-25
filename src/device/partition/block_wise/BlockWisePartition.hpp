@@ -151,9 +151,6 @@ struct BlockWisePartitionConfig {
           blockScanConfig(
               512, 8, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::EXCLUSIVE, 1, true),
           blockCombineConfig(workgroupSize, rows * sequentialScanLength, 1, 1) {
-        // Currently not implemented
-        assert((scanVariant & BlockScanVariant::RANKED_STRIDED) !=
-               BlockScanVariant::RANKED_STRIDED);
     }
 
     constexpr explicit BlockWisePartitionConfig(PartitionBlockScanConfig elementScanConfig,

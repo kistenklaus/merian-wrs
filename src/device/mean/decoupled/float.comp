@@ -33,11 +33,6 @@ layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
 const uint LOOKBACK_STATE_SPIN = 1u;
 const uint LOOKBACK_STATE_DONE = 0u;
 
-// struct DecoupledAgg {
-//     cmonoid aggregate;
-//     cmonoid prefix;
-// };
-//
 
 layout(set = 0, binding = 0) readonly buffer InElements {
     float elements[];
@@ -53,7 +48,7 @@ struct DecoupledPartition {
     state_t state;
 };
 
-layout(set = 0, binding = 2) volatile buffer decoupled_states {
+layout(set = 0, binding = 2) coherent buffer decoupled_states {
     uint counter;
     DecoupledPartition partitions[];
 };
@@ -135,7 +130,7 @@ float decoupledLookback(in uint partID, in float aggregate) {
         // NOTE: gl_SemanticsMakeAvailable is only required if aggregate and prefix
         // are stored in a seperate storage buffer.
         atomicStore(partitions[partID].state, state, gl_ScopeQueueFamily,
-            gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+            gl_StorageSemanticsBuffer, gl_SemanticsRelease | gl_SemanticsMakeAvailable);
     }
     // ================ Decoupled lookback ==================
     float exclusive = 0;
@@ -153,7 +148,7 @@ float decoupledLookback(in uint partID, in float aggregate) {
                 if (invocActive) {
                     uint lookBackIdx = lookBackBase - gl_SubgroupInvocationID;
                     predecessorState = atomicLoad(partitions[lookBackIdx].state,
-                            gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+                            gl_ScopeQueueFamily, gl_StorageSemanticsBuffer, gl_SemanticsAcquire | gl_SemanticsMakeVisible);
 
                     const bool notReady = predecessorState == STATE_NOT_READY;
                     const uvec4 notReadyBallot = subgroupBallot(notReady);

@@ -1,8 +1,9 @@
 #pragma once
 
-#include "merian/vk/context.hpp"
-namespace device::test::prefix_sum {
+#include "src/host/test/context.hpp"
 
-void test(const merian::ContextHandle& context);
+namespace device::prefix_sum {
+
+void test(const host::test::TestContext& context);
 
 }

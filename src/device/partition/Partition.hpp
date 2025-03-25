@@ -39,6 +39,17 @@ static std::string partitionConfigName(PartitionConfig config) {
     }
 }
 
+[[maybe_unused]]
+static std::string partitionConfigClass(PartitionConfig config) {
+    if (std::holds_alternative<DecoupledPartitionConfig>(config)) {
+        return "SingleDispatchPartition";
+    } else if (std::holds_alternative<BlockWisePartitionConfig>(config)) {
+        return "BlockWisePartition";
+    } else {
+        throw std::runtime_error("NOT-IMPLEMENTED");
+    }
+}
+
 class PartitionBuffers {
   public:
     using Self = PartitionBuffers;

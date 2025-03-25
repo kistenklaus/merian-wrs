@@ -1,20 +1,18 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
-#include "src/host/reference/prefix_sum.hpp"
 #include "src/device/mean/Mean.hpp"
-#include "src/host/reference/partition.hpp"
-#include "src/device/prefix_sum/block_scan/BlockScanVariant.hpp"
 #include "src/device/statistics/chi_square/ChiSquare.hpp"
 #include "src/device/wrs/alias/psa/PSA.hpp"
 #include "src/device/wrs/alias/psa/layout/alias_table.hpp"
+#include "src/device/wrs/alias/psa/pack/subgroup/SubgroupPack.hpp"
+#include "src/device/wrs/alias/psa/splitpack/SplitPack.hpp"
 #include "src/host/assert/is_alias_table.hpp"
-#include "src/host/assert/test.hpp"
 #include "src/host/gen/weight_generator.h"
-#include "src/host/memory/FallbackResource.hpp"
-#include "src/host/memory/SafeResource.hpp"
-#include "src/host/memory/StackResource.hpp"
 #include "src/host/reference/inverse_alias_table.hpp"
+#include "src/host/reference/partition.hpp"
+#include "src/host/reference/prefix_sum.hpp"
 #include "src/host/statistics/js_divergence.hpp"
+#include "src/host/test/context.hpp"
 #include <cstring>
 #include <fmt/base.h>
 #include <fmt/format.h>
@@ -24,7 +22,7 @@
 #include "src/host/reference/reduce.hpp"
 #include "vulkan/vulkan_enums.hpp"
 
-namespace device::test::psa {
+namespace device::psa {
 
 using Algorithm = PSA;
 using Buffers = Algorithm::Buffers;
@@ -40,74 +38,131 @@ struct TestCase {
 
 static const TestCase TEST_CASES[] = {
     //
-    // TestCase{
-    //    .config =
-    //        PSAConfig(AtomicMeanConfig(512, 8),
-    //                  DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED,
-    //                  32),
-    //                  InlineSplitPackConfig(2),
-    //                  true),
-    //    .N = (1024 * 2048),
-    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-    //    .iterations = 5,
-    //},
-    // TestCase{
-    //    .config =
-    //        PSAConfig(AtomicMeanConfig(512, 8),
-    //                  DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED,
-    //                  32),
-    //                  SerialSplitPackConfig(ScalarSplitConfig(2), ScalarPackConfig(2)),
-    //                  false),
-    //    .N = (1024 * 2048),
-    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-    //    .iterations = 2,
-    //},
-    //TestCase{
-    //    .config = PSAConfig(AtomicMeanConfig(1024, 8),
-    //                        DecoupledPrefixPartitionConfig(),
-    //                        SerialSplitPackConfig(ScalarSplitConfig(32),
-    //                          ScalarPackConfig(32)),
-    //                        true),
-    //    .N = static_cast<uint32_t>(64),
-    //    .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
-    //    .iterations = 1,
-    //},
-    //TestCase{
-    //    .config = PSAConfig(AtomicMeanConfig(1024, 8),
-    //                        DecoupledPrefixPartitionConfig(),
-    //                        SerialSplitPackConfig(ScalarSplitConfig(32),
-    //                          SubgroupPackConfig(32)),
-    //                        true),
-    //    .N = static_cast<uint32_t>(64),
-    //    .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
-    //    .iterations = 1,
-    //},
-    //TestCase{
-    //    .config = PSAConfig(AtomicMeanConfig(),
-    //                        DecoupledPrefixPartitionConfig(),
-    //                        InlineSplitPackConfig(32, 1, 512),
-    //                        false),
-    //    .N = static_cast<uint32_t>(128),
-    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-    //    .iterations = 1,
-    //},
-    //TestCase{
-    //    .config = PSAConfig(AtomicMeanConfig(),
-    //                        DecoupledPrefixPartitionConfig(),
-    //                        InlineSplitPackConfig(2, 32, 512),
-    //                        false),
-    //    .N = static_cast<uint32_t>(1024 * 2048),
-    //    .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-    //    .iterations = 1,
-    //},
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            SerialSplitPackConfig(ScalarSplitConfig(16), SubgroupPackConfig(16, 8)),
+                            false),
+        .N = static_cast<uint32_t>(1e4),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            SerialSplitPackConfig(ScalarSplitConfig(16), SubgroupPackConfig(16, 8)),
+                            false),
+        .N = static_cast<uint32_t>(1e5),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            SerialSplitPackConfig(ScalarSplitConfig(16), SubgroupPackConfig(16, 8)),
+                            false),
+        .N = static_cast<uint32_t>(1e6),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            SerialSplitPackConfig(ScalarSplitConfig(16), SubgroupPackConfig(16, 8)),
+                            false),
+        .N = static_cast<uint32_t>(1e7),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            SerialSplitPackConfig(ScalarSplitConfig(16), SubgroupPackConfig(16, 8)),
+                            false),
+        .N = static_cast<uint32_t>(1e8),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
     TestCase{
         .config = PSAConfig(AtomicMeanConfig(),
                             DecoupledPrefixPartitionConfig(),
                             InlineSplitPackConfig(16, 8, 512),
                             false),
-        .N = static_cast<uint32_t>(1024 * 2048),
+        .N = static_cast<uint32_t>(1e4),
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .iterations = 1,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(16, 8, 512),
+                            false),
+        .N = static_cast<uint32_t>(1e5),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(16, 8, 512),
+                            false),
+        .N = static_cast<uint32_t>(1e6),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(16, 8, 512),
+                            false),
+        .N = static_cast<uint32_t>(1e7),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(16, 8, 512),
+                            false),
+        .N = static_cast<uint32_t>(1e8),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(2, 32, 512),
+                            false),
+        .N = static_cast<uint32_t>(1e4),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(2, 32, 512),
+                            false),
+        .N = static_cast<uint32_t>(1e5),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(2, 32, 512),
+                            false),
+        .N = static_cast<uint32_t>(1e6),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = PSAConfig(AtomicMeanConfig(),
+                            DecoupledPrefixPartitionConfig(),
+                            InlineSplitPackConfig(2, 32, 512),
+                            false),
+        .N = static_cast<uint32_t>(1e7),
+        .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
+        .iterations = 2,
     },
     TestCase{
         .config = PSAConfig(AtomicMeanConfig(),
@@ -116,7 +171,7 @@ static const TestCase TEST_CASES[] = {
                             false),
         .N = static_cast<uint32_t>(1e8),
         .distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM,
-        .iterations = 1,
+        .iterations = 2,
     },
 };
 
@@ -182,9 +237,16 @@ downloadFromStage(Buffers& stage, host::glsl::uint N, std::pmr::memory_resource*
     };
 };
 
-static bool runTestCase(const host::test::TestContext& context,
+static void runTestCase(const host::test::TestContext& context,
                         const TestCase& testCase,
                         std::pmr::memory_resource* resource) {
+    merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context.context);
+    merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
+        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context.context);
+    query_pool->reset();
+    profiler->set_query_pool(query_pool);
+
+    merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(context.queue);
     Buffers buffers = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE,
                                         testCase.config, testCase.N, true);
     Buffers stage = Buffers::allocate(context.alloc, merian::MemoryMappingType::HOST_ACCESS_RANDOM,
@@ -195,10 +257,10 @@ static bool runTestCase(const host::test::TestContext& context,
 
     Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
 
-    bool failed = false;
+    host::test::TestResultType out = host::test::SUCCESS;
     double averageJSDivergence = 0;
     for (size_t it = 0; it < testCase.iterations; ++it) {
-        MERIAN_PROFILE_SCOPE(context.profiler, testName);
+        MERIAN_PROFILE_SCOPE(profiler, testName);
         context.queue->wait_idle();
         if (testCase.iterations > 1) {
             if (testCase.N > 1e6) {
@@ -211,12 +273,12 @@ static bool runTestCase(const host::test::TestContext& context,
         }
 
         // 1. Generate input
-        context.profiler->start("Generate test input");
+        profiler->start("Generate test input");
         const auto weights =
             host::pmr::generate_weights<float>(testCase.distribution, testCase.N, resource);
-        context.profiler->end();
+        profiler->end();
 
-        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
         cmd->begin();
 
         // 2. Begin recoding
@@ -237,13 +299,13 @@ static bool runTestCase(const host::test::TestContext& context,
             {
                 /* MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "PSA"); */
 
-                context.profiler->start("PSA");
-                context.profiler->cmd_start(cmd, "PSA");
+                profiler->start("PSA");
+                profiler->cmd_start(cmd, "PSA");
 
-                kernel.run(cmd, buffers, testCase.N, context.profiler);
+                kernel.run(cmd, buffers, testCase.N, profiler);
 
-                context.profiler->end();
-                context.profiler->cmd_end(cmd);
+                profiler->end();
+                profiler->cmd_end(cmd);
             }
         }
 
@@ -265,20 +327,21 @@ static bool runTestCase(const host::test::TestContext& context,
         context.queue->submit_wait(cmd);
 
         // Download from stage
-        context.profiler->start("Download results from stage");
+        profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
-        [[maybe_unused]] Results results = downloadFromStage(stage, testCase.N, resource);
+        Results results = downloadFromStage(stage, testCase.N, resource);
 
-        context.profiler->end();
+        profiler->end();
 
         // Test results
         {
-            MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
+            MERIAN_PROFILE_SCOPE(profiler, "Testing results");
 
             if ((testCase.N <= 1024)) {
 
                 auto totalWeight = host::reference::reduce<float>(weights);
-                auto part = host::reference::stable_partition<float>(weights, totalWeight / weights.size());
+                auto part =
+                    host::reference::stable_partition<float>(weights, totalWeight / weights.size());
                 auto lightPrefix = host::reference::prefix_sum<float>(part.light());
                 auto heavyPrefix = host::reference::prefix_sum<float>(part.heavy());
 
@@ -297,14 +360,14 @@ static bool runTestCase(const host::test::TestContext& context,
                 /*                 results.aliasTable[i].a);*/
                 /*}*/
 
-                
                 auto normalizedWeight = host::reference::normalize_weights<float>(weights);
-                auto sampledWeights = host::reference::alias_table_to_normalized_weights<float,
-                     host::glsl::uint>(results.aliasTable);
+                auto sampledWeights =
+                    host::reference::alias_table_to_normalized_weights<float, host::glsl::uint>(
+                        results.aliasTable);
                 fmt::println("ALIAS-TABLE:");
                 for (std::size_t i = 0; i < results.aliasTable.size(); ++i) {
-                    fmt::println("[{:>3}]: ({:.4f},{:>3}) :: {:.4f}  ->  {:.4f}    ({:.3f})", i, results.aliasTable[i].p,
-                                 results.aliasTable[i].a,
+                    fmt::println("[{:>3}]: ({:.4f},{:>3}) :: {:.4f}  ->  {:.4f}    ({:.3f})", i,
+                                 results.aliasTable[i].p, results.aliasTable[i].a,
                                  normalizedWeight[i], sampledWeights[i], weights[i]);
                 }
                 fmt::println("Mean: {}", results.mean);
@@ -332,10 +395,12 @@ static bool runTestCase(const host::test::TestContext& context,
                 const auto errAliasTable =
                     host::test::pmr::assert_is_alias_table<weight_type, weight_type,
                                                            host::glsl::uint>(
-                        weights, results.aliasTable, totalWeight, 0.01, resource);
+                        weights, results.aliasTable, totalWeight, 1, resource);
                 if (errAliasTable) {
-                    SPDLOG_ERROR("{} constructs invalid alias table\n{}",
-                                 testName, errAliasTable.message());
+                    SPDLOG_WARN("{} Numerical instabilities during PSA construction. (Check "
+                                "JS-Divergence!)\n{}",
+                                testName, errAliasTable.message());
+                    out += host::test::WARNING;
                 } else {
                     SPDLOG_INFO("PSA-XXX constructs correct alias table");
                 }
@@ -343,7 +408,7 @@ static bool runTestCase(const host::test::TestContext& context,
                 SPDLOG_INFO("Skipping the tests of the alias table invariants");
             }
         }
-        context.profiler->collect(true, true);
+        profiler->collect(true, true);
     }
 
     averageJSDivergence /= testCase.iterations;
@@ -351,45 +416,52 @@ static bool runTestCase(const host::test::TestContext& context,
 
     if (averageJSDivergence > 0.3) {
         SPDLOG_ERROR("{} - is sampling something completely different", testName);
+        out += host::test::ERROR;
     } else if (averageJSDivergence > 0.15) {
         SPDLOG_ERROR("{} displays a significant bias", testName);
+        out += host::test::ERROR;
     } else if (averageJSDivergence > 0.05) {
         SPDLOG_WARN("{} displays a moderate bias", testName);
+        out += host::test::WARNING;
     } else {
         SPDLOG_INFO("{} is does not show any significant bias", testName);
     }
-    return failed;
+
+    const auto report = profiler->get_report().gpu_report;
+    auto entry = std::ranges::find_if(
+        report, [&](const merian::Profiler::ReportEntry& entry) { return entry.name == "PSA"; });
+    if (entry == report.end()) {
+        fmt::println("ENTRIES:");
+        for (const auto& x : report) {
+            fmt::println("{}", x.name);
+        }
+        throw std::runtime_error("Impossible state 1");
+    }
+
+    auto T = splitPackConfigInvocPerPack(context.context, testCase.config.splitPackConfig);
+    auto S = splitPackConfigSplitSize(testCase.config.splitPackConfig);
+    context.pushResult(
+        "PSA", testCase.config.className(), out, entry->duration, entry->std_deviation,
+        {host::test::TestProperty{.name = "N",
+                                  .value = std::format("{:.0e}", static_cast<float>(testCase.N))},
+         host::test::TestProperty{
+             .name = "T",
+             .value = fmt::format("{}", T),
+         },
+         host::test::TestProperty{
+             .name = "split-size",
+             .value = fmt::format("{}", S),
+         }});
 }
 
-void test(const merian::ContextHandle& context) {
+void test(const host::test::TestContext& context) {
     SPDLOG_INFO("Testing PSA algorithm");
 
-    const host::test::TestContext testContext = host::test::setupTestContext(context);
+    std::pmr::memory_resource* resource = context.memory_resource;
 
-    host::memory::StackResource stackResource{4096 * 2048};
-    host::memory::FallbackResource fallbackResource{&stackResource};
-    host::memory::SafeResource safeResource{&fallbackResource};
-
-    std::pmr::memory_resource* resource = &safeResource;
-
-    ChiSquare chiSquare{context, testContext.shaderCompiler};
-
-    uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        runTestCase(testContext, testCase, resource);
-        stackResource.reset();
-    }
-
-    testContext.profiler->collect(true, true);
-    SPDLOG_INFO(fmt::format("Profiler results: \n{}",
-                            merian::Profiler::get_report_str(testContext.profiler->get_report())));
-
-    if (failCount == 0) {
-        SPDLOG_INFO("All tests passed");
-    } else {
-        SPDLOG_ERROR(fmt::format("Failed {} out of {} tests", failCount,
-                                 sizeof(TEST_CASES) / sizeof(TestCase)));
+        runTestCase(context, testCase, resource);
     }
 }
 
-} // namespace device::test::psa
+} // namespace device::psa

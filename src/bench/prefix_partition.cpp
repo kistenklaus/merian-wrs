@@ -17,6 +17,11 @@
 
 namespace device::partition_scan {
 
+static constexpr std::size_t N = (1 << 26);
+static constexpr std::size_t N_min = (1 << 16);
+static constexpr std::size_t ticks = 100;
+static constexpr std::size_t iterations = 2;
+
 using weight_type = float;
 using Buffers = PrefixPartition<weight_type>::Buffers;
 struct NamedConfig {
@@ -27,92 +32,166 @@ struct NamedConfig {
     bool flushL2;
 };
 
-constexpr bool WRITE_PARTITION = true;
-
 static const NamedConfig CONFIGURATIONS[] = {
     NamedConfig{//
                 .name = "SingleDispatch-RANKED-STRIDED-8",
                 .group = "SingleDispatch-RANKED-STRIDED",
                 .config = DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = false}, //
     NamedConfig{                   //
                 .name = "SingleDispatch-RANKED-STRIDED-8",
                 .group = "SingleDispatch-RANKED-STRIDED",
                 .config = DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = true}, //
     NamedConfig{                  //
                 .name = "SingleDispatch-RANKED-STRIDED-4",
                 .group = "SingleDispatch-RANKED-STRIDED",
                 .config = DecoupledPrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = false}, //
     NamedConfig{                   //
                 .name = "SingleDispatch-RANKED-STRIDED-4",
                 .group = "SingleDispatch-RANKED-STRIDED",
                 .config = DecoupledPrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = true}, //
     NamedConfig{                  //
                 .name = "SingleDispatch-RANKED-STRIDED-2",
                 .group = "SingleDispatch-RANKED-STRIDED",
                 .config = DecoupledPrefixPartitionConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = false}, //
     NamedConfig{                   //
                 .name = "SingleDispatch-RANKED-STRIDED-2",
                 .group = "SingleDispatch-RANKED-STRIDED",
                 .config = DecoupledPrefixPartitionConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = true}, //
     NamedConfig{.name = "BlockWise-RANKED-STRIDED-8",
                 .group = "BlockWise-RANKED-STRIDED",
                 .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 8),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = false},
     NamedConfig{.name = "BlockWise-RANKED-STRIDED-8",
                 .group = "BlockWise-RANKED-STRIDED",
                 .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 8),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = true},
     NamedConfig{.name = "BlockWise-RANKED-STRIDED-8",
                 .group = "BlockWise-RANKED-STRIDED",
                 .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = false},
     NamedConfig{.name = "BlockWise-RANKED-STRIDED-8",
                 .group = "BlockWise-RANKED-STRIDED",
                 .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = true},
     NamedConfig{.name = "BlockWise-RANKED-STRIDED-4",
                 .group = "BlockWise-RANKED-STRIDED",
                 .config = BlockWisePrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = false},
     NamedConfig{.name = "BlockWise-RANKED-STRIDED-4",
                 .group = "BlockWise-RANKED-STRIDED",
                 .config = BlockWisePrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = true},
     NamedConfig{.name = "BlockWise-RANKED-STRIDED-2",
                 .group = "BlockWise-RANKED-STRIDED",
                 .config = BlockWisePrefixPartitionConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
                 .flushL2 = false},
     NamedConfig{.name = "BlockWise-RANKED-STRIDED-2",
                 .group = "BlockWise-RANKED-STRIDED",
                 .config = BlockWisePrefixPartitionConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
-                .writePartition = WRITE_PARTITION,
+                .writePartition = true,
+                .flushL2 = true},
+
+
+
+
+
+    NamedConfig{//
+                .name = "SingleDispatch-RANKED-STRIDED-8",
+                .group = "SingleDispatch-RANKED-STRIDED",
+                .config = DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = false}, //
+    NamedConfig{                   //
+                .name = "SingleDispatch-RANKED-STRIDED-8",
+                .group = "SingleDispatch-RANKED-STRIDED",
+                .config = DecoupledPrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = true}, //
+    NamedConfig{                  //
+                .name = "SingleDispatch-RANKED-STRIDED-4",
+                .group = "SingleDispatch-RANKED-STRIDED",
+                .config = DecoupledPrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = false}, //
+    NamedConfig{                   //
+                .name = "SingleDispatch-RANKED-STRIDED-4",
+                .group = "SingleDispatch-RANKED-STRIDED",
+                .config = DecoupledPrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = true}, //
+    NamedConfig{                  //
+                .name = "SingleDispatch-RANKED-STRIDED-2",
+                .group = "SingleDispatch-RANKED-STRIDED",
+                .config = DecoupledPrefixPartitionConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = false}, //
+    NamedConfig{                   //
+                .name = "SingleDispatch-RANKED-STRIDED-2",
+                .group = "SingleDispatch-RANKED-STRIDED",
+                .config = DecoupledPrefixPartitionConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = true}, //
+    NamedConfig{.name = "BlockWise-RANKED-STRIDED-8",
+                .group = "BlockWise-RANKED-STRIDED",
+                .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 8),
+                .writePartition = false,
+                .flushL2 = false},
+    NamedConfig{.name = "BlockWise-RANKED-STRIDED-8",
+                .group = "BlockWise-RANKED-STRIDED",
+                .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED, 8),
+                .writePartition = false,
+                .flushL2 = true},
+    NamedConfig{.name = "BlockWise-RANKED-STRIDED-8",
+                .group = "BlockWise-RANKED-STRIDED",
+                .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = false},
+    NamedConfig{.name = "BlockWise-RANKED-STRIDED-8",
+                .group = "BlockWise-RANKED-STRIDED",
+                .config = BlockWisePrefixPartitionConfig(512, 8, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = true},
+    NamedConfig{.name = "BlockWise-RANKED-STRIDED-4",
+                .group = "BlockWise-RANKED-STRIDED",
+                .config = BlockWisePrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = false},
+    NamedConfig{.name = "BlockWise-RANKED-STRIDED-4",
+                .group = "BlockWise-RANKED-STRIDED",
+                .config = BlockWisePrefixPartitionConfig(512, 4, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = true},
+    NamedConfig{.name = "BlockWise-RANKED-STRIDED-2",
+                .group = "BlockWise-RANKED-STRIDED",
+                .config = BlockWisePrefixPartitionConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
+                .flushL2 = false},
+    NamedConfig{.name = "BlockWise-RANKED-STRIDED-2",
+                .group = "BlockWise-RANKED-STRIDED",
+                .config = BlockWisePrefixPartitionConfig(512, 2, BlockScanVariant::RANKED_STRIDED),
+                .writePartition = false,
                 .flushL2 = true},
 
 };
-
-static constexpr std::size_t N = (1 << 28);
-static constexpr std::size_t N_min = (1 << 16);
-static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 100;
 
 struct ConfigResult {
     std::size_t N;
@@ -268,6 +347,7 @@ void benchmark(const merian::ContextHandle& context) {
 
     merian::ShaderCompilerHandle shaderCompiler =
         std::make_shared<merian::SystemGlslcCompiler>(context);
+    SPDLOG_INFO("Benchmarking scan-partition");
 
     BenchmarkResults results;
     std::size_t i = 0;
@@ -288,10 +368,11 @@ void benchmark(const merian::ContextHandle& context) {
 
     // export
 
-    std::string path = "partition_scan_benchmark.csv";
+    std::string path = "export/scan_partition/partition_scan_benchmark.csv";
     host::exp::CSVWriter<9> csv({"N", "method", "group", "latency", "std_derivation", "throughput",
                                  "memory_throughput", "write-partition", "flushL2"},
                                 path);
+    SPDLOG_INFO("Writing result to {}", path);
     for (const auto& r1 : results.entries) {
         std::string method = r1.configuration.name;
         for (const auto& r2 : r1.results.entries) {

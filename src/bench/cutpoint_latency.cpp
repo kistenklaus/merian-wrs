@@ -43,8 +43,8 @@ static const NamedConfig CONFIGURATIONS[] = {
 
 static constexpr std::size_t N = (1 << 28);
 static constexpr std::size_t N_min = (1 << 16);
-static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 100;
+static constexpr std::size_t ticks = 100;
+static constexpr std::size_t iterations = 10;
 static constexpr std::size_t S = 1e7;
 static constexpr std::size_t flushSize = 1e7;
 
@@ -252,7 +252,7 @@ void benchmark(const merian::ContextHandle& context) {
 
     // export
 
-    std::string path = "cutpoint_benchmark_latency.csv";
+    std::string path = "export/cutpoint/cutpoint_benchmark_latency.csv";
     host::exp::CSVWriter<11> csv({"N", "S", "method", "group", "scan_latency",
                                   "scan_std_derivation", "guide_latency", "guide_std_derivation",
                                   "sample_latency", "sample_std_derivation", "flushL2"},

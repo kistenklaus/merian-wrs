@@ -1,8 +1,8 @@
 #pragma once
 
-#include "merian/vk/context.hpp"
-namespace device::test::partition {
+#include "src/host/test/context.hpp"
+namespace device::partition {
 
-void test(const merian::ContextHandle& context);
+void test(const host::test::TestContext& context);
 
 }

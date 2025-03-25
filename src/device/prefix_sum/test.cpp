@@ -1,11 +1,7 @@
 #include "./test.hpp"
 #include "merian/vk/utils/profiler.hpp"
 #include "src/host/assert/is_prefix.hpp"
-#include "src/host/assert/test.hpp"
 #include "src/host/gen/weight_generator.h"
-#include "src/host/memory/FallbackResource.hpp"
-#include "src/host/memory/SafeResource.hpp"
-#include "src/host/memory/StackResource.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fmt/base.h>
@@ -14,8 +10,13 @@
 
 #include "src/device/prefix_sum/PrefixSum.hpp"
 #include "src/device/prefix_sum/test.hpp"
+#include "src/host/test/context.hpp"
 
-namespace device::test::prefix_sum {
+#ifndef MERIAN_PROFILER_ENABLE
+#define MERIAN_PROFILER_ENABLE
+#endif
+
+namespace device::prefix_sum {
 
 using base = host::glsl::f32;
 using Algorithm = PrefixSum<base>;
@@ -46,30 +47,66 @@ static TestCase TEST_CASES[] = {
     /*     .distribution = host::Distribution::UNIFORM, */
     /*     .iterations = 1, */
     /* }, */
-    //TestCase{
-    //    .config = BlockWiseScanConfig(
-    //        BlockScanConfig(512, // workgroups size
-    //                        2,   // rows
-    //                        BlockScanVariant::RANKED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC,
-    //                        1, // sequential block scan length
-    //                        true),
-    //        BlockScanConfig(512,
-    //                        4,
-    //                        BlockScanVariant::RANKED | BlockScanVariant::SUBGROUP_SCAN_INTRINSIC |
-    //                            BlockScanVariant::EXCLUSIVE,
-    //                        4,
-    //                        false),
-    //        BlockCombineConfig(512, 2, 1, 2)),
-    //    .N = static_cast<host::glsl::uint>((1 << 21)),
-    //    .distribution = host::Distribution::UNIFORM,
-    //    .iterations = 1,
-    //},
+    TestCase{
+        .config = BlockWiseScanConfig(512, 8),
+        .N = static_cast<host::glsl::uint>(1e4),
+        .distribution = host::Distribution::UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = BlockWiseScanConfig(512, 8),
+        .N = static_cast<host::glsl::uint>(1e5),
+        .distribution = host::Distribution::UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = BlockWiseScanConfig(512, 16),
+        .N = static_cast<host::glsl::uint>(1e6),
+        .distribution = host::Distribution::UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = BlockWiseScanConfig(512, 16),
+        .N = static_cast<host::glsl::uint>(1e7),
+        .distribution = host::Distribution::UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = BlockWiseScanConfig(512, 16, 4),
+        .N = static_cast<host::glsl::uint>(1e8),
+        .distribution = host::Distribution::UNIFORM,
+        .iterations = 2,
+    },
 
     TestCase{
         .config = DecoupledPrefixSumConfig(),
-        .N = static_cast<host::glsl::uint>((1e8 / 2)),
+        .N = static_cast<host::glsl::uint>((1e4)),
         .distribution = host::Distribution::UNIFORM,
-        .iterations = 1,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = DecoupledPrefixSumConfig(),
+        .N = static_cast<host::glsl::uint>((1e5)),
+        .distribution = host::Distribution::UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = DecoupledPrefixSumConfig(),
+        .N = static_cast<host::glsl::uint>((1e6)),
+        .distribution = host::Distribution::UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = DecoupledPrefixSumConfig(),
+        .N = static_cast<host::glsl::uint>((1e7)),
+        .distribution = host::Distribution::UNIFORM,
+        .iterations = 2,
+    },
+    TestCase{
+        .config = DecoupledPrefixSumConfig(),
+        .N = static_cast<host::glsl::uint>((1e8)),
+        .distribution = host::Distribution::UNIFORM,
+        .iterations = 2,
     },
 };
 
@@ -109,9 +146,17 @@ downloadFromStage(Buffers& stage, std::size_t N, std::pmr::memory_resource* reso
     };
 };
 
-static bool runTestCase(const host::test::TestContext& context,
+static void runTestCase(const host::test::TestContext& context,
                         const TestCase& testCase,
                         std::pmr::memory_resource* resource) {
+
+    merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context.context);
+    merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
+        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context.context);
+    query_pool->reset();
+    profiler->set_query_pool(query_pool);
+
+    merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(context.queue);
 
     Buffers buffers = Buffers::allocate(context.alloc, merian::MemoryMappingType::NONE,
                                         testCase.config, testCase.N);
@@ -123,9 +168,15 @@ static bool runTestCase(const host::test::TestContext& context,
 
     Algorithm kernel{context.context, context.shaderCompiler, testCase.config};
 
-    bool failed = false;
+    if (kernel.maxElementCount() < testCase.N) {
+      throw std::runtime_error("Input size is to large");
+    }
+
+    std::string recordingLabel = fmt::format("Recording : {}", testName);
+
+    host::test::TestResultType out = host::test::SUCCESS;
     for (size_t it = 0; it < testCase.iterations; ++it) {
-        MERIAN_PROFILE_SCOPE(context.profiler, testName);
+        MERIAN_PROFILE_SCOPE(profiler, testName);
         context.queue->wait_idle();
         if (testCase.iterations > 1) {
             if (testCase.N > 1e6) {
@@ -138,57 +189,54 @@ static bool runTestCase(const host::test::TestContext& context,
         }
 
         // 1. Generate input
-        context.profiler->start("Generate test input");
+        profiler->start("Generate test input");
         auto weights = host::pmr::generate_weights(testCase.distribution, testCase.N);
-        context.profiler->end();
+        profiler->end();
 
         // 2. Begin recoding
-        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(context.cmdPool);
+        merian::CommandBufferHandle cmd = std::make_shared<merian::CommandBuffer>(cmdPool);
         cmd->begin();
-        std::string recordingLabel = fmt::format("Recording : {}", testName);
-        context.profiler->start(recordingLabel);
-        context.profiler->cmd_start(cmd, recordingLabel);
+        profiler->start(recordingLabel);
+        profiler->cmd_start(cmd, recordingLabel);
 
         // 3. Upload test case indices
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Upload test case");
+            MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Upload test case");
             SPDLOG_DEBUG("Uploading test case...");
             uploadTestCase(cmd, buffers, stage, weights);
         }
 
         // 4. Run test case
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, fmt::format("Execute algorithm"));
+            MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, fmt::format("Execute algorithm"));
             SPDLOG_DEBUG("Execute algorithm");
-            kernel.run(cmd, buffers, testCase.N, context.profiler);
+            kernel.run(cmd, buffers, testCase.N, profiler);
         }
 
         // 5. Download results to stage
         {
-            MERIAN_PROFILE_SCOPE_GPU(context.profiler, cmd, "Download results to stage");
+            MERIAN_PROFILE_SCOPE_GPU(profiler, cmd, "Download results to stage");
             SPDLOG_DEBUG("Downloading results to stage...");
             downloadToStage(cmd, buffers, stage, testCase.N);
         }
 
         // 6. Submit to device
-        context.profiler->end();
-        context.profiler->cmd_end(cmd);
+        profiler->end();
+        profiler->cmd_end(cmd);
         SPDLOG_DEBUG("Submitting to device...");
         cmd->end();
         context.queue->submit_wait(cmd);
 
         // 7. Download from stage
-        context.profiler->start("Download results from stage");
+        profiler->start("Download results from stage");
         SPDLOG_DEBUG("Downloading results from stage...");
         Results results = downloadFromStage(stage, testCase.N, resource);
-        context.profiler->end();
+        profiler->end();
 
         // 7. Test results
         {
-            MERIAN_PROFILE_SCOPE(context.profiler, "Testing results");
+            MERIAN_PROFILE_SCOPE(profiler, "Testing results");
             SPDLOG_DEBUG("Testing results");
-            auto err = host::test::pmr::assert_is_inclusive_prefix<float>(
-                weights, results.prefixSum, resource);
 
             if (testCase.N <= 1024) {
                 for (std::size_t i = 0;
@@ -196,43 +244,52 @@ static bool runTestCase(const host::test::TestContext& context,
                     fmt::println("[{}] = {}", i, results.prefixSum[i]);
                 }
             }
+            auto err = host::test::pmr::assert_is_inclusive_prefix<float>(
+                weights, results.prefixSum, resource);
 
             if (err) {
-                SPDLOG_ERROR("Invalid prefix: \n{}", err.message());
+                SPDLOG_WARN("Invalid prefix: \n{}", err.message());
+                out += host::test::WARNING;
             }
         }
-        context.profiler->collect(true, true);
+        profiler->collect(true, true);
     }
-    return failed;
+
+    const auto report = profiler->get_report().gpu_report;
+    auto recordingEntry =
+        std::ranges::find_if(report, [&](const merian::Profiler::ReportEntry& entry) {
+            return entry.name == recordingLabel;
+        });
+    if (recordingEntry == report.end()) {
+        fmt::println("ENTRIES:");
+        for (const auto& x : report) {
+            fmt::println("{}", x.name);
+        }
+        throw std::runtime_error("Impossible state 1");
+    }
+    auto entry = std::ranges::find_if(recordingEntry->children,
+                                      [&](const merian::Profiler::ReportEntry& entry) {
+                                          return entry.name == "Execute algorithm";
+                                      });
+    if (entry == recordingEntry->children.end()) {
+        throw std::runtime_error("Impossible state 2");
+    }
+
+    context.pushResult(
+        "Scan", prefixSumConfigClass(testCase.config), out, entry->duration,
+        entry->std_deviation,
+        {host::test::TestProperty{.name = "N",
+                                  .value = std::format("{:.0e}", static_cast<float>(testCase.N))}});
 }
 
-void test(const merian::ContextHandle& context) {
-    SPDLOG_INFO("Testing Decoupled prefix sum algorithm");
+void test(const host::test::TestContext& context) {
+    SPDLOG_INFO("Testing Scan algorithm");
 
-    const host::test::TestContext testContext = host::test::setupTestContext(context);
+    std::pmr::memory_resource* resource = context.memory_resource;
 
-    host::memory::StackResource stackResource{4096 * 2048};
-    host::memory::FallbackResource fallbackResource{&stackResource};
-    host::memory::SafeResource safeResource{&fallbackResource};
-
-    std::pmr::memory_resource* resource = &safeResource;
-
-    uint32_t failCount = 0;
     for (const auto& testCase : TEST_CASES) {
-        runTestCase(testContext, testCase, resource);
-        stackResource.reset();
-    }
-
-    testContext.profiler->collect(true, true);
-    SPDLOG_INFO(fmt::format("Profiler results (PrefixSum): \n{}",
-                            merian::Profiler::get_report_str(testContext.profiler->get_report())));
-
-    if (failCount == 0) {
-        SPDLOG_INFO("All tests passed");
-    } else {
-        SPDLOG_ERROR(fmt::format("Failed {} out of {} tests", failCount,
-                                 sizeof(TEST_CASES) / sizeof(TestCase)));
+        runTestCase(context, testCase, resource);
     }
 }
 
-} // namespace device::test::prefix_sum
+} // namespace device::prefix_sum

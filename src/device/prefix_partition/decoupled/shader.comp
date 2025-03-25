@@ -2,7 +2,6 @@
 
 #extension GL_KHR_shader_subgroup_arithmetic : enable
 #extension GL_KHR_memory_scope_semantics : enable
-// #extension GL_EXT_shader_atomic_float : enable
 #extension GL_KHR_shader_subgroup_vote : enable
 #extension GL_KHR_shader_subgroup_ballot : enable
 #pragma use_vulkan_memory_model
@@ -59,7 +58,16 @@ struct DecoupledState {
     state_t state;
 };
 
-layout(set = 0, binding = 2) nonprivate buffer DecoupledStates {
+// NOTE: coherent implies nonprivate and gl_SemanticsMakeAvailable 
+// and gl_SemanticsMakeVisible on all atomic operations. 
+// coherent is not part of the VMM instead it is a glsl qualifier.
+// As glsl compilers are better optimized for working with glsl qualifiers 
+// this can sometimes make a difference as the compiler might be better at 
+// optimizing with coherent compared to nonprivate.
+// Execution should theoretically still be correct, but if the shader doesn't 
+// terminate try to change it to nonprivate and add the availablity / visiblity 
+// semantics explicitly.
+layout(set = 0, binding = 2) coherent buffer DecoupledStates {
     uint counter;
     DecoupledState partitions[];
 } g_states;
@@ -292,6 +300,7 @@ ExclusivePrefix decoupledLookback(in uint partID, in WorkgroupAggregate aggregat
                 g_states.partitions[partID].heavyCountInclusivePrefix = inclusiveCount;
                 sh_exclusive = exclusive;
                 sh_exclusiveCount = exclusiveCount;
+
                 atomicStore(g_states.partitions[partID].state, STATE_PREFIX_PUBLISHED,
                     gl_ScopeQueueFamily, gl_StorageSemanticsBuffer,
                     gl_SemanticsRelease | gl_SemanticsMakeAvailable);
@@ -299,7 +308,7 @@ ExclusivePrefix decoupledLookback(in uint partID, in WorkgroupAggregate aggregat
         }
         // WTF NVIDIA Driver? (Probably some bugs related to Independent Thread Scheduling)
         subgroupBarrier();
-        controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
+        barrier();
 
         exclusive = sh_exclusive;
         exclusiveCount = sh_exclusiveCount;

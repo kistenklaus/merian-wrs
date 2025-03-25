@@ -41,6 +41,48 @@ static std::string wrsConfigName(WRSConfig config) {
     }
 }
 
+[[maybe_unused]]
+static std::string wrsConfigClass(WRSConfig config) {
+    if (std::holds_alternative<ITS::Config>(config)) {
+        auto methodConfig = std::get<ITS::Config>(config);
+        if (methodConfig.samplingConfig.cooperativeSamplingSize == 0) {
+            return fmt::format("ITS");
+        } else {
+            if (methodConfig.samplingConfig.pArraySearch) {
+                return fmt::format("ITS-PARRAY-COOP");
+            } else {
+                return fmt::format("ITS-BINARY-COOP");
+            }
+        }
+    } else if (std::holds_alternative<AliasTable::Config>(config)) {
+        return "PSA";
+    } else if (std::holds_alternative<Cutpoint::Config>(config)) {
+        return "Cutpoint";
+    } else {
+        throw std::runtime_error("NOT-IMPLEMENTED");
+    }
+}
+
+[[maybe_unused]]
+static std::size_t wrsConfigSectionSize(WRSConfig config) {
+    if (std::holds_alternative<ITS::Config>(config)) {
+        auto methodConfig = std::get<ITS::Config>(config);
+        if (methodConfig.samplingConfig.cooperativeSamplingSize == 0) {
+            return 1;
+        } else {
+            return methodConfig.samplingConfig.cooperativeSamplingSize;
+        }
+    } else if (std::holds_alternative<AliasTable::Config>(config)) {
+        auto methodConfig = std::get<AliasTable::Config>(config);
+        return std::max<std::size_t>(1, methodConfig.samplingConfig.cooperativeSampleSize);
+    } else if (std::holds_alternative<Cutpoint::Config>(config)) {
+        auto methodConfig = std::get<Cutpoint::Config>(config);
+        return methodConfig.guidingEntrySize;
+    } else {
+        throw std::runtime_error("NOT-IMPLEMENTED");
+    }
+}
+
 struct WRSBuffers {
   public:
     using Self = WRSBuffers;

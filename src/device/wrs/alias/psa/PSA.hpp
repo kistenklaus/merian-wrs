@@ -13,6 +13,8 @@
 #include "vulkan/vulkan_enums.hpp"
 #include <cassert>
 #include <fmt/base.h>
+#include <fmt/format.h>
+#include <variant>
 
 namespace device {
 
@@ -37,6 +39,14 @@ struct PSAConfig {
         return fmt::format("PSA-[{}]-[{}]-[{}]", meanConfigName(meanConfig),
                            prefixPartitionConfigName(prefixPartitionConfig),
                            splitPackConfigName(splitPackConfig));
+    }
+
+    inline std::string className() const {
+        if (std::holds_alternative<SerialSplitPackConfig>(splitPackConfig)) {
+            return "PSA-SplitThenPack";
+        } else {
+            return "PSA-SplitPacking";
+        }
     }
 };
 

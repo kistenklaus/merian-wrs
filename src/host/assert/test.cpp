@@ -1,18 +1,11 @@
 #include "./test.hpp"
 
 #include "./is_prefix.hpp"
-#include "merian/vk/extension/extension_resources.hpp"
-#include "merian/vk/memory/resource_allocator.hpp"
-#include "merian/vk/shader/shader_compiler_system_glslc.hpp"
-#include "merian/vk/utils/profiler.hpp"
 #include "src/host/assert/is_alias_table.hpp"
 #include "src/host/assert/is_partition.hpp"
 #include "src/host/assert/is_split.hpp"
 #include "src/host/export/csv.hpp"
 #include "src/host/gen/weight_generator.h"
-#include "src/host/memory/FallbackResource.hpp"
-#include "src/host/memory/SafeResource.hpp"
-#include "src/host/memory/StackResource.hpp"
 #include "src/host/reference/partition.hpp"
 #include "src/host/reference/prefix_sum.hpp"
 #include "src/host/reference/psa_alias_table.hpp"
@@ -20,6 +13,7 @@
 #include "src/host/reference/split.hpp"
 #include "src/host/reference/sweeping_alias_table.hpp"
 #include "src/host/statistics/chi_square.hpp"
+#include "src/host/test/context.hpp"
 #include "src/host/types/alias_table.hpp"
 #include "src/host/types/split.hpp"
 #include <cassert>
@@ -32,31 +26,6 @@
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
-host::test::TestContext host::test::setupTestContext(const merian::ContextHandle& context) {
-
-    auto resources = context->get_extension<merian::ExtensionResources>();
-    merian::ResourceAllocatorHandle alloc = resources->resource_allocator();
-    merian::QueueHandle queue = context->get_queue_GCT();
-    merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context);
-    merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
-        std::make_shared<merian::QueryPool<vk::QueryType::eTimestamp>>(context);
-    query_pool->reset(); // LOL THIS WAS HARD TO FIND shared_ptr also defines a reset function =^).
-    profiler->set_query_pool(query_pool);
-
-    merian::ShaderCompilerHandle shaderCompiler =
-        std::make_shared<merian::SystemGlslcCompiler>(context);
-
-    merian::CommandPoolHandle cmdPool = std::make_shared<merian::CommandPool>(queue);
-
-    return {
-        .context = context,
-        .alloc = alloc,
-        .queue = queue,
-        .cmdPool = cmdPool,
-        .profiler = profiler,
-        .shaderCompiler = shaderCompiler,
-    };
-}
 using namespace host;
 
 static void testPartitionTests(std::pmr::memory_resource* resource) {
@@ -357,8 +326,6 @@ static void testChiSquare(std::pmr::memory_resource* resource) {
     std::random_device deviceRng;
     std::uniform_int_distribution<long long> seedDist;
     std::mt19937 rng(seedDist(deviceRng));
-    /* std::uniform_int_distribution<host::glsl::uint> dist( */
-    /*     0, static_cast<host::glsl::uint>(weights.size() - 1)); */
     std::discrete_distribution<host::glsl::uint> dist{weights.begin(), weights.end()};
 
     std::pmr::vector<uint32_t> samples(S, resource);
@@ -373,31 +340,24 @@ static void testChiSquare(std::pmr::memory_resource* resource) {
     fmt::println("zScore : {}", host::chi_square_z_score(chi2, weights.size() - 1));
 }
 
-void host::test::testTests() {
+void host::assertions::testTests(const host::test::TestContext& context) {
     SPDLOG_INFO("Testing tests...");
-    host::memory::StackResource stackResource{10000 * sizeof(float)};
-    host::memory::FallbackResource fallbackResource{&stackResource};
-    host::memory::SafeResource resource{&fallbackResource};
+    std::pmr::memory_resource* resource = context.memory_resource;
 
     SPDLOG_INFO("Testing reduce reference");
-    stackResource.reset();
-    testReduceReference(&resource);
+    testReduceReference(resource);
 
     SPDLOG_INFO("Testing partition assertions tests");
-    stackResource.reset();
-    testPartitionTests(&resource);
+    testPartitionTests(resource);
 
     SPDLOG_INFO("Testing inclusive prefix assertion tests");
-    stackResource.reset();
-    testPrefixTests(&resource);
+    testPrefixTests(resource);
 
     SPDLOG_INFO("Testing split assertion tests");
-    stackResource.reset();
-    testSplitTests(&resource);
+    testSplitTests(resource);
 
     SPDLOG_INFO("Testing alias table assertion tests");
-    stackResource.reset();
-    testAliasTableTest(&resource);
+    testAliasTableTest(resource);
 
     /* SPDLOG_INFO("Testing chi square tests"); */
     /* stackResource.reset(); */

@@ -31,7 +31,7 @@ Method methods[]{
 };
 
 std::size_t min_N = (1 << 16);
-std::size_t max_N = (1 << 24);
+std::size_t max_N = (1 << 28);
 std::size_t ticks = 100;
 
 void errorOfMethod(Method method,
@@ -41,7 +41,7 @@ void errorOfMethod(Method method,
                    const merian::ContextHandle& context) {
     switch (method) {
     case Sequential: {
-        SPDLOG_INFO("Compute error of SequentialScan");
+        SPDLOG_INFO("Compute error of SequentialScan (CPU)");
         for (std::size_t n : host::exp::log10scale(min_N, max_N, ticks)) {
             std::span subset{weights.begin(), weights.begin() + n};
             const auto scan = host::reference::sequential_prefix_sum<float>(subset);
@@ -58,13 +58,12 @@ void errorOfMethod(Method method,
             float totalWeight = host::reference::reduce<float>(subset);
             float rel_error = abs_error / totalWeight;
             float rel_error2 = abs_error2 / totalWeight;
-            csv.pushRow(n, "sequential-scan", abs_error, rel_error,
-                abs_error2, rel_error2);
+            csv.pushRow(n, "sequential-scan", abs_error, rel_error, abs_error2, rel_error2);
         }
         break;
     }
     case SequentialKahan: {
-        SPDLOG_INFO("Compute error of SequentialScan-Kahan");
+        SPDLOG_INFO("Compute error of SequentialScan-Kahan (CPU)");
         for (std::size_t n : host::exp::log10scale(min_N, max_N, ticks)) {
             std::span subset{weights.begin(), weights.begin() + n};
             const auto scan = host::reference::prefix_sum<float>(subset);
@@ -81,13 +80,12 @@ void errorOfMethod(Method method,
             float totalWeight = host::reference::reduce<float>(subset);
             float rel_error = abs_error / totalWeight;
             float rel_error2 = abs_error2 / totalWeight;
-            csv.pushRow(n, "sequential-scan-kahan", abs_error, rel_error,
-                abs_error2, rel_error2);
+            csv.pushRow(n, "sequential-scan-kahan", abs_error, rel_error, abs_error2, rel_error2);
         }
         break;
     }
     case SingleDispatch: {
-        SPDLOG_INFO("Compute error of Single-dispatch");
+        SPDLOG_INFO("Compute error of Single-dispatch (GPU)");
         merian::QueueHandle queue = context->get_queue_GCT();
         merian::ShaderCompilerHandle shaderCompiler =
             std::make_shared<merian::SystemGlslcCompiler>(context);
@@ -146,8 +144,7 @@ void errorOfMethod(Method method,
             float totalWeight = host::reference::reduce<float>(subset);
             float rel_error = abs_error / totalWeight;
             float rel_error2 = abs_error2 / totalWeight;
-            csv.pushRow(n, "single-dispatch", abs_error, rel_error,
-                abs_error2, rel_error2);
+            csv.pushRow(n, "single-dispatch", abs_error, rel_error, abs_error2, rel_error2);
         }
 
         break;
@@ -157,10 +154,11 @@ void errorOfMethod(Method method,
 
 void benchmark(const merian::ContextHandle& context) {
     // Setup vulkan resources
+    SPDLOG_INFO("Benchmarking scan error");
 
-    std::string path = "scan_error.csv";
-    host::exp::CSVWriter<6> csv({"N", "method", "abs_error", "rel_error",
-        "abs_error2", "rel_error2"}, path);
+    std::string path = "export/scan/error.csv";
+    host::exp::CSVWriter<6> csv(
+        {"N", "method", "abs_error", "rel_error", "abs_error2", "rel_error2"}, path);
 
     auto weights = host::generate_weights<float>(host::Distribution::PSEUDO_RANDOM_UNIFORM, max_N);
 
@@ -169,6 +167,8 @@ void benchmark(const merian::ContextHandle& context) {
     for (const auto& method : methods) {
         errorOfMethod(method, weights, reference, csv, context);
     }
+
+    SPDLOG_INFO("Writing results to {}", path);
 }
 
 } // namespace device::scan_error

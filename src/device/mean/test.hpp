@@ -1,8 +1,8 @@
 #pragma once
 
-#include "merian/vk/context.hpp"
-namespace device::test::mean {
+#include "src/host/test/context.hpp"
+namespace device::mean {
 
-void test(const merian::ContextHandle& context);
+void test(const host::test::TestContext& context);
 
 }

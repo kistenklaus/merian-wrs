@@ -115,7 +115,7 @@ static const NamedConfig CONFIGURATIONS[] = {
 
 static constexpr std::size_t N = (1 << 28);
 static constexpr std::size_t N_min = (1 << 16);
-static constexpr std::size_t ticks = 500;
+static constexpr std::size_t ticks = 100;
 static constexpr std::size_t iterations = 10;
 
 struct ConfigResult {
@@ -178,8 +178,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
         Memcpy<weight_type> memcpy{context, shaderCompiler, MemcpyConfig(512, rows)};
 
         for (const std::size_t n : host::exp::log10scale<std::size_t>(N_min, N, ticks)) {
-
-            SPDLOG_INFO("N = {}", n);
 
             merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context);
             merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
@@ -250,7 +248,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
             }
 
             profiler->collect(true, true);
-            fmt::println("{}", merian::Profiler::get_report_str(profiler->get_report()));
 
             auto report = profiler->get_report();
             auto entry = std::ranges::find_if(
@@ -278,8 +275,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
 
         for (const std::size_t n : host::exp::log10scale<std::size_t>(N_min, N, ticks)) {
             queue->wait_idle();
-
-            SPDLOG_INFO("N = {}", n);
 
             merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context);
             merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
@@ -387,19 +382,30 @@ void benchmark(const merian::ContextHandle& context) {
     merian::ShaderCompilerHandle shaderCompiler =
         std::make_shared<merian::SystemGlslcCompiler>(context);
 
+    SPDLOG_INFO("Benchmarking Memcpy compute shader");
+
     BenchmarkResults results;
+
+    std::size_t i = 0;
     for (const auto& config : CONFIGURATIONS) {
+        SPDLOG_INFO(
+            "[{}%] Benchmarking {}-{}",
+            (i / static_cast<float>(sizeof(CONFIGURATIONS) / (float)sizeof(CONFIGURATIONS[0]))) *
+                100.0f,
+            config.name, config.ROWS);
+
         auto configBenchmark = benchmarkConfiguration(context, shaderCompiler, queue,
                                                       config.variant, config.ROWS, config.flushL2);
         results.entries.push_back(BenchmarkResult{
             .configuration = config,
             .results = configBenchmark,
         });
+        ++i;
     }
 
     // export
 
-    std::string path = "memcpy_benchmark.csv";
+    std::string path = "export/memcpy/memcpy_benchmark.csv";
     host::exp::CSVWriter<7> csv(
         {"N", "bytes", "method", "latency", "std_derivation", "throughput", "memory_throughput"},
         path);

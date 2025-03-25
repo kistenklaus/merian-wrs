@@ -70,9 +70,9 @@ struct BlockWiseScanConfig {
     const BlockCombineConfig blockCombineConfig;
 
     constexpr explicit BlockWiseScanConfig(host::glsl::uint workgroupSize,
-                                           host::glsl::uint rows,
-                                           host::glsl::uint sequentialScanLength,
-                                           BlockScanVariant scanVariant)
+                                           host::glsl::uint rows = 8,
+                                           host::glsl::uint sequentialScanLength = 1,
+                                           BlockScanVariant scanVariant = BlockScanVariant::RANKED_STRIDED)
         : elementScanConfig(workgroupSize, rows, scanVariant, sequentialScanLength, true),
           blockScanConfig(
               512, 8, BlockScanVariant::RANKED_STRIDED | BlockScanVariant::EXCLUSIVE, 1, false),
@@ -182,7 +182,7 @@ class BlockWiseScan {
                      vk::PipelineStageFlagBits::eComputeShader,
                      {buffers.reductions->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
                                                          vk::AccessFlagBits::eShaderRead),
-                      buffers.prefixSum->buffer_barrier(vk::AccessFlagBits::eShaderRead,
+                      buffers.prefixSum->buffer_barrier(vk::AccessFlagBits::eShaderWrite,
                                                         vk::AccessFlagBits::eShaderWrite)});
 
         // Combine scan over blocks with scan over elements
