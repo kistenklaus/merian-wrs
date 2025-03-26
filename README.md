@@ -1,16 +1,15 @@
-# Merian Example: Compute Sum
-
-This is a minimal example demonstrating how to compute a sum of an array on the GPU using [Merian](https://github.com/LDAP/merian).
+# Alias Table Construction & Sampling
 
 ### Compile and run
-
 ```bash
+# Dont pull new changes just init
+git submodule update --init --recursive
+# Setup build directory
 meson setup build
-# optionally for time measurements
-meson configure build -Dmerian:performance_profiling=true
+# Compile 
 meson compile -C build
-
-./build/merian-example
+# And go
+./build/merian-alias-table
 ```
 
 
