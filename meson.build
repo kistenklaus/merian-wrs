@@ -6,11 +6,10 @@ project(
         'warning_level=3',
         'cpp_std=c++20',
         'b_ndebug=if-release',
+        'merian:performance_profiling=true',
         'buildtype=release',
     ]
 )
-
-# add_global_arguments('-fconcepts-diagnostics-depth=5', language : 'cpp')
 
 # Debug configuration
 if get_option('buildtype').startswith('debug')

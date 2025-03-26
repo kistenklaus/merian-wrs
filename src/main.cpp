@@ -54,8 +54,8 @@ int main() {
      * will perform large benchmarks and write the results in the export/ directory.
      * We attach some python scripts for easy plotting of the results.
      */
-    constexpr bool ENABLE_TESTS = false;
-    constexpr bool ENABLE_BENCHMARKS = true;
+    constexpr bool ENABLE_TESTS = true;
+    constexpr bool ENABLE_BENCHMARKS = false;
 
     if (ENABLE_TESTS) {
         const auto testContext = host::test::setupTestContext(context);

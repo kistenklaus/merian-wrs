@@ -66,12 +66,17 @@ void host::test::TestContext::printPrettyLog() const {
     // Pretty printing
 
     for (const auto& suitName : suites) {
-        fmt::println("{:=^120}", suitName);
+        fmt::println("{:=^90}", suitName);
         auto tests = g_testSuitResults | std::views::filter([&suitName](const auto& test) {
                          return test.suitName == suitName;
                      });
         std::size_t maxTestNameLength = std::ranges::max(
             tests | std::views::transform([](const auto& t) { return t.testName.size(); }));
+        std::size_t timeSize = 0;
+        for (const auto& test : tests) {
+          timeSize = std::max(timeSize, fmt::formatted_size("({:.3f}ms ± {:.3f})", test.duration, test.std_derivation));
+        }
+
         for (const auto& test : tests) {
             switch (test.type) {
             case SUCCESS:
@@ -84,8 +89,9 @@ void host::test::TestContext::printPrettyLog() const {
                 fmt::print("\x1B[31m ERROR \x1B[0m");
                 break;
             }
-            fmt::print(" : {:<{}} ({:.3f}ms ± {:.3f})", test.testName, maxTestNameLength,
-                       test.duration, test.std_derivation);
+            std::string time = fmt::format("({:.3f}ms ± {:.3f})", test.duration, test.std_derivation);
+            fmt::print(" : {:<{}} {:<{}}", test.testName, maxTestNameLength,
+                       time, timeSize);
 
             if (!test.properties.empty()) {
                 fmt::print(" [");

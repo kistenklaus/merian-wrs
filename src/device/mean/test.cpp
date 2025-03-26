@@ -17,6 +17,11 @@
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_structs.hpp>
 
+// NOTE: Bad quick hack
+#ifndef MERIAN_PROFILER_ENABLE
+#define MERIAN_PROFILER_ENABLE
+#endif
+
 namespace device::mean {
 
 using namespace device;

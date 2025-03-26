@@ -22,6 +22,10 @@
 #include "src/host/reference/reduce.hpp"
 #include "vulkan/vulkan_enums.hpp"
 
+#ifndef MERIAN_PROFILER_ENABLE
+#define MERIAN_PROFILER_ENABLE
+#endif
+
 namespace device::psa {
 
 using Algorithm = PSA;

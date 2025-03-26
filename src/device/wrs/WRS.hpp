@@ -49,9 +49,9 @@ static std::string wrsConfigClass(WRSConfig config) {
             return fmt::format("ITS");
         } else {
             if (methodConfig.samplingConfig.pArraySearch) {
-                return fmt::format("ITS-PARRAY-COOP");
+                return fmt::format("its-parray-coop");
             } else {
-                return fmt::format("ITS-BINARY-COOP");
+                return fmt::format("ITS-coop");
             }
         }
     } else if (std::holds_alternative<AliasTable::Config>(config)) {
@@ -67,14 +67,10 @@ static std::string wrsConfigClass(WRSConfig config) {
 static std::size_t wrsConfigSectionSize(WRSConfig config) {
     if (std::holds_alternative<ITS::Config>(config)) {
         auto methodConfig = std::get<ITS::Config>(config);
-        if (methodConfig.samplingConfig.cooperativeSamplingSize == 0) {
-            return 1;
-        } else {
-            return methodConfig.samplingConfig.cooperativeSamplingSize;
-        }
+        return methodConfig.samplingConfig.cooperativeSamplingSize;
     } else if (std::holds_alternative<AliasTable::Config>(config)) {
         auto methodConfig = std::get<AliasTable::Config>(config);
-        return std::max<std::size_t>(1, methodConfig.samplingConfig.cooperativeSampleSize);
+        return methodConfig.samplingConfig.cooperativeSampleSize;
     } else if (std::holds_alternative<Cutpoint::Config>(config)) {
         auto methodConfig = std::get<Cutpoint::Config>(config);
         return methodConfig.guidingEntrySize;

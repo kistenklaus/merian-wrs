@@ -16,6 +16,10 @@
 #include "src/host/why.hpp"
 #include "vulkan/vulkan_enums.hpp"
 
+#ifndef MERIAN_PROFILER_ENABLE
+#define MERIAN_PROFILER_ENABLE
+#endif
+
 namespace device::wrs {
 
 using Algorithm = WRS;
@@ -32,6 +36,28 @@ struct TestCase {
 
 static const TestCase TEST_CASES[] = {
     //
+    TestCase{
+        .config = ITSConfig(DecoupledPrefixSumConfig(), InverseTransformSamplingConfig(512, 0)),
+        .N = static_cast<uint32_t>(1e4),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = ITSConfig(DecoupledPrefixSumConfig(), InverseTransformSamplingConfig(512, 0)),
+        .N = static_cast<uint32_t>(1e5),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = ITSConfig(DecoupledPrefixSumConfig(), InverseTransformSamplingConfig(512, 0)),
+        .N = static_cast<uint32_t>(1e6),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+
     TestCase{
         .config = ITSConfig(DecoupledPrefixSumConfig(), InverseTransformSamplingConfig(512, 32)),
         .N = static_cast<uint32_t>(1e4),
@@ -91,6 +117,7 @@ static const TestCase TEST_CASES[] = {
         .iterations = 1,
     },
 
+
     TestCase{
         .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
                                              DecoupledPrefixPartitionConfig(),
@@ -131,6 +158,28 @@ static const TestCase TEST_CASES[] = {
                                              false),
                                    SampleAliasTableConfig(128)),
         .N = static_cast<uint32_t>(1e7),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                             DecoupledPrefixPartitionConfig(),
+                                             InlineSplitPackConfig(2, 32, 512),
+                                             false),
+                                   SampleAliasTableConfig(0)),
+        .N = static_cast<uint32_t>(1e4),
+        .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
+        .S = static_cast<uint32_t>(1e8),
+        .iterations = 1,
+    },
+    TestCase{
+        .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                             DecoupledPrefixPartitionConfig(),
+                                             InlineSplitPackConfig(2, 32, 512),
+                                             false),
+                                   SampleAliasTableConfig(0)),
+        .N = static_cast<uint32_t>(1e5),
         .distribution = host::Distribution::SEEDED_RANDOM_UNIFORM,
         .S = static_cast<uint32_t>(1e8),
         .iterations = 1,
@@ -350,11 +399,11 @@ static void runTestCase(const host::test::TestContext& context,
                        {
                            host::test::TestProperty{
                                .name = "N",
-                               .value = fmt::format("{}", testCase.N),
+                               .value = fmt::format("{:.0e}", static_cast<float>(testCase.N)),
                            },
                            host::test::TestProperty{
                                .name = "S",
-                               .value = fmt::format("{}", testCase.S),
+                               .value = fmt::format("{:.0e}", static_cast<float>(testCase.S)),
                            },
                            host::test::TestProperty{
                                .name = "section-size",
