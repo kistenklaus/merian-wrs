@@ -1,8 +1,6 @@
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/shader/shader_compiler_system_glslc.hpp"
-#include "merian/vk/utils/profiler.hpp"
 #include "src/device/prefix_sum/PrefixSum.hpp"
-#include "src/device/prng/PRNG.hpp"
 #include "src/device/prng/philox/Philox.hpp"
 #include "src/device/wrs/WRS.hpp"
 #include "src/device/wrs/its/ITS.hpp"
@@ -10,7 +8,6 @@
 #include "src/host/export/logscale.hpp"
 #include "src/host/gen/weight_generator.h"
 #include "src/host/statistics/rmse.hpp"
-#include "vulkan/vulkan_enums.hpp"
 #include <csignal>
 #include <fmt/base.h>
 #include <random>
@@ -61,8 +58,8 @@ static constexpr std::size_t min_N = (1 << 16);
 static constexpr std::size_t max_N = (1 << 26);
 static constexpr auto weight_distribution = host::Distribution::PSEUDO_RANDOM_UNIFORM;
 static constexpr std::size_t min_S = (1 << 16);
-static constexpr std::size_t max_S = (1 << 28);
-static constexpr std::size_t ticks = 1000;
+static constexpr std::size_t max_S = (1 << 26);
+static constexpr std::size_t ticks = 250;
 static constexpr std::size_t flushSize = 1e7;
 
 struct ConfigResult {
@@ -169,9 +166,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
             ++x;
         }
 
-        /* SPDLOG_INFO("Sectioned Sampling: {}/{} ~ {:.3}%", max_S - s, max_S, */
-        /*             100 * ((max_S - s) / static_cast<float>(max_S))); */
-
         cmd->end();
         queue->submit_wait(cmd);
     }
@@ -203,7 +197,7 @@ void benchmark(const merian::ContextHandle& context) {
     BenchmarkResults results;
     std::size_t i = 0;
 
-    std::string path = "wrs_rmse_sweep.csv";
+    std::string path = "export/rmse/sweep.csv";
     host::exp::CSVWriter<5> csv({"N", "S", "method", "group", "rmse"}, path);
     for (const auto& config : CONFIGURATIONS) {
         for (const auto n : host::exp::log10scale(min_N, max_N, ticks)) {
@@ -220,6 +214,7 @@ void benchmark(const merian::ContextHandle& context) {
             ++i;
         }
     }
+SPDLOG_INFO("Writing results to {}", path);
 }
 
 } // namespace device::wrs_rmse_sweep

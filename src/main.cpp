@@ -12,9 +12,13 @@
 #include "src/bench/psa_split.hpp"
 #include "src/bench/psa_split_latency.hpp"
 #include "src/bench/psa_splitpack_sweep.hpp"
+#include "src/bench/sample_throughput.hpp"
+#include "src/bench/sample_throughput2.hpp"
 #include "src/bench/scan.hpp"
 #include "src/bench/scan_error.hpp"
 #include "src/bench/wrs_rmse.hpp"
+#include "src/bench/wrs_rmse_sweep.hpp"
+#include "src/bench/wrs_sweep.hpp"
 #include "src/device/mean/test.hpp"
 #include "src/device/partition/test.hpp"
 #include "src/device/prefix_partition/test.hpp"
@@ -50,8 +54,8 @@ int main() {
      * will perform large benchmarks and write the results in the export/ directory.
      * We attach some python scripts for easy plotting of the results.
      */
-    constexpr bool ENABLE_TESTS = true;
-    constexpr bool ENABLE_BENCHMARKS = false;
+    constexpr bool ENABLE_TESTS = false;
+    constexpr bool ENABLE_BENCHMARKS = true;
 
     if (ENABLE_TESTS) {
         const auto testContext = host::test::setupTestContext(context);
@@ -92,8 +96,6 @@ int main() {
          * NOTE: Anything ending with sweep takes a eternity because it
          * sweeps a lot of different shader configurations which requires constructing
          * a new pipelines, which takes ages.
-         * The sweeps are not reconfigured to run faster as they only really make sense
-         * when we sweep large.
          */
 
         // =========== simple and fast ==============
@@ -104,8 +106,8 @@ int main() {
         device::cutpoint_latency::benchmark(context);
         device::psa_split::benchmark(context);
         device::psa_split_latency::benchmark(context);
-        // TODO sample throughput
-        // TODO sample throughput2
+        device::sample_throughput::benchmark(context);
+        device::sample_throughput2::benchmark(context);
 
         // =========== error metrics =================
         device::scan_error::benchmark(context);
@@ -115,8 +117,8 @@ int main() {
         device::psa_splitpack_sweep::benchmark(context);
 
         // The final Figure of the paper comes from these two sweeps
-        // TODO wrs.cpp
-        // TODO wrs_rmse_sweep.cpp
+        device::wrs_sweep::benchmark(context); 
+        device::wrs_rmse_sweep::benchmark(context);
     }
 }
 

@@ -3,35 +3,43 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import matplotlib.patches as mpatches
 from matplotlib.colors import to_rgb
+import os
 
-# ------------------------------------------------------
-# 1) Load data, compute throughput, select best method
-# ------------------------------------------------------
-# bench_its_cutpoint = pd.read_csv("./wrs_benchmark_its_cutpoint_heatmap.csv")
-#
-# bench_its = bench_its_cutpoint.loc[
-#     (bench_its_cutpoint["group"] == "ITS-0") |
-#     (bench_its_cutpoint["group"] == "ITS-128") |
-#     (bench_its_cutpoint["group"] == "ITS-128-pArray")
-# ]
-# bench_its.loc[bench_its["group"] == "ITS-128-pArray", "group"] = "ITS-128"
-#
-# bench_psa = pd.read_csv("./wrs_benchmark_psa_e28.csv")
-#
-# bench_cutpoint = bench_its_cutpoint[
-#     bench_its_cutpoint["group"] == "Cutpoint-128"
-# ]
+numPoints = 125
 
-# bench_psa = pd.read_csv("./wrs_benchmark_psa_e28.csv")
-bench0 = pd.read_csv("./wrs_benchmark_baseline.csv")
-bench1 = pd.read_csv("./wrs_benchmark_psa0.csv")
-bench2 = pd.read_csv("./wrs_benchmark_psa128.csv")
+dirname = os.path.dirname(__file__)
+bench = pd.read_csv(os.path.join(dirname, "./sweep.csv"))
 
-bench = pd.concat([bench0, bench1, bench2], ignore_index=True)
+# bench = bench[bench["N"] < 2e7]
 
-# bench = bench[bench["N"] < 264002431]
+latencyBase = "latency"
+bench["latency"] = bench["build_latency"] + bench["sampling_latency"]
+bench["throughput"] = bench["S"] / (bench[latencyBase] * 1e-3) * 1e-9
 
 print(bench["group"].unique())
+
+maxLatency = np.min(bench.groupby(["N", "group"])[latencyBase].max())
+minLatency = np.min(bench[latencyBase])
+print(f"maxLatency:{maxLatency}ms,   minLatency:{minLatency}ms");
+
+bench = bench[bench[latencyBase] < maxLatency]
+
+latencyBucketMargin = 0.01
+bench["bin_latency"] = (bench[latencyBase] / latencyBucketMargin).astype(int);
+
+print(bench["group"].unique())
+
+
+dirname = os.path.dirname(__file__)
+rmseBench = pd.read_csv(os.path.join(dirname, "../rmse/sweep.csv"))
+
+print(rmseBench)
+
+merged = pd.merge(bench, rmseBench, how="inner", on=["group", "N", "S"])
+
+best = merged.loc[merged.groupby(["bin_latency", "N"])["rmse"].idxmin()].reset_index();
+
+print(best[[latencyBase, "N", "rmse", "group", "S"]])
 
 # For each (N, group), average build_latency
 # bench["build_latency"] = (
@@ -39,14 +47,7 @@ print(bench["group"].unique())
 # )
 
 # Compute total latency + throughput
-latencyBase = "latency"
-bench["latency"] = bench["build_latency"] + bench["sampling_latency"]
-bench["throughput"] = bench["S"] / (bench[latencyBase] * 1e-3) * 1e-9
 
-# Choose best method per (N, S)
-best_bench = bench.loc[bench.groupby(["N","S"])["throughput"].idxmax()]
-
-best_bench = best_bench[(best_bench["N"] < 2e7) & (best_bench["S"] < 2e8)]
 
 def foo(df, xAxis, yAxis, property, colormap, labels, xscale, yscale, xPixels, yPixels, xticks, yticks,
         xlabel, ylabel):
@@ -100,7 +101,7 @@ def foo(df, xAxis, yAxis, property, colormap, labels, xscale, yscale, xPixels, y
     print("\nAggregated DataFrame by bin:\n", grouped_df)
 
     # Create a blank image with a white background.
-    image = np.ones((yPixels, xPixels, 3))
+    image = np.zeros((yPixels, xPixels, 3))
     
     # Convert the colormap to RGB.
     color_map_rgb = {key: to_rgb(color) for key, color in colormap.items()}
@@ -141,7 +142,8 @@ def foo(df, xAxis, yAxis, property, colormap, labels, xscale, yscale, xPixels, y
 
     # Create the plot, using extent to map pixel coordinates to data coordinates.
     plt.figure(figsize=(14, 8))
-    plt.imshow(image, origin='lower', extent=(extent_x_min, extent_x_max, extent_y_min, extent_y_max), aspect=((extent_x_max - extent_x_min) / (extent_y_max - extent_y_min)))
+    plt.imshow(image, origin='lower', extent=(extent_x_min, extent_x_max, extent_y_min, extent_y_max),
+               interpolation="none",aspect=(extent_x_max - extent_x_min) / (extent_y_max - extent_y_min))
     
     # Build the legend: one entry per key in the colormap.
     legend_handles = []
@@ -177,7 +179,8 @@ def foo(df, xAxis, yAxis, property, colormap, labels, xscale, yscale, xPixels, y
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
 
-plt.rcParams.update({'font.size': 20})
+
+plt.rcParams.update({'font.size': 24})
 
 colormap = {
         "ITS-128" : "tab:orange",
@@ -192,9 +195,9 @@ labels ={
         "PSA2-128" : "psa-sectioned",
         }
 # Call the function to plot the image.
-foo(best_bench, "N", "S", "group", colormap, labels, "log", "log", 250, 250,
-    [1e5,1e6,1e7], [1e5,1e6,1e7, 1e8], xlabel="Amount of Items (N)", ylabel="Amount of Samples (S)")
+foo(best, "N", latencyBase, "group", colormap, labels, "log", "linear", numPoints, numPoints,
+    [1e5,1e6,1e7], [0.1,0.2,0.3,0.4,0.5,0.6,0.7], xlabel="Amount of Items (N)", ylabel="Latency (ms)")
 
 
-plt.savefig(f'wrs_throughput_heatmap.pdf', format="pdf")
+plt.savefig(f'wrs_rmse_convergence_heatmap.pdf', format="pdf")
 plt.show()

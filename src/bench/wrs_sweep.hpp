@@ -1,7 +1,7 @@
 #pragma once
 
 #include "merian/vk/context.hpp"
-namespace device::wrs {
+namespace device::wrs_sweep {
 
 void benchmark(const merian::ContextHandle& context);
 

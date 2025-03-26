@@ -1,4 +1,4 @@
-#include "./wrs.hpp"
+#include "./wrs_sweep.hpp"
 #include "merian/vk/extension/extension_resources.hpp"
 #include "merian/vk/shader/shader_compiler_system_glslc.hpp"
 #include "merian/vk/utils/profiler.hpp"
@@ -12,7 +12,7 @@
 #include <spdlog/spdlog.h>
 #include <tuple>
 
-namespace device::wrs {
+namespace device::wrs_sweep {
 
 struct NamedConfig {
     std::string name;
@@ -20,73 +20,19 @@ struct NamedConfig {
 };
 
 static const NamedConfig CONFIGURATIONS[] = {
-    // NamedConfig{
-    //    .name = "PSA-InlineSplitPack",
-    //    .config = AliasTableConfig(               //*/
-    //        PSAConfig(                            //*/
-    //            AtomicMeanConfig(),               //*/
-    //            DecoupledPrefixPartitionConfig(), //*/
-    //            InlineSplitPackConfig(2),         //*/
-    //            false),                           //*/
-    //        SampleAliasTableConfig(32)),          //*/
-    //},                                            //*/
-    // NamedConfig{
-    //    .name = "PSA-SerialSplitSubgroupPack",
-    //    .config = AliasTableConfig(               //
-    //        PSAConfig(                            //
-    //            AtomicMeanConfig(),               //
-    //            DecoupledPrefixPartitionConfig(), //
-    //            SerialSplitPackConfig(ScalarSplitConfig(16),
-    //                                  SubgroupPackConfig(16)), //
-    //            false),                                        //
-    //        SampleAliasTableConfig(32)),                       //
-    //},                                                         //
-    // NamedConfig{
-    //    .name = "PSA-SerialSplitSubgroupPack",
-    //    .config = AliasTableConfig(               //
-    //        PSAConfig(                            //
-    //            AtomicMeanConfig(),               //
-    //            DecoupledPrefixPartitionConfig(), //
-    //            SerialSplitPackConfig(ScalarSplitConfig(32),
-    //                                  SubgroupPackConfig(32)), //
-    //            false),                                        //
-    //        SampleAliasTableConfig(32)),                       //
-    //},                                                         //
-    /* NamedConfig{ */
-    /*     .name = "PSA-SerialSplitSubgroupPack-16-2/32", */
-    /*     .config = AliasTableConfig(               // */
-    /*         PSAConfig(                            // */
-    /*             AtomicMeanConfig(),               // */
-    /*             DecoupledPrefixPartitionConfig(), // */
-    /*             SerialSplitPackConfig(ScalarSplitConfig(16), */
-    /*                                   SubgroupPackConfig(16,2)), // */
-    /*             true),                                        // */
-    /*         SampleAliasTableConfig(32)),                       // */
-    /* },                                                         // */
-    /* NamedConfig{ */
-    /*     .name = "PSA-SerialSplitSubgroupPack-32-2/32", */
-    /*     .config = AliasTableConfig(               // */
-    /*         PSAConfig(                            // */
-    /*             AtomicMeanConfig(),               // */
-    /*             DecoupledPrefixPartitionConfig(), // */
-    /*             SerialSplitPackConfig(ScalarSplitConfig(32), */
-    /*                                   SubgroupPackConfig(32, 2)), // */
-    /*             true),                                        // */
-    /*         SampleAliasTableConfig(32)),                       // */
-    /* },                                                         // */
-    // NamedConfig{.name = "ITS-0",
-    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
-    //                                InverseTransformSamplingConfig(512, 0, false))},
-    //NamedConfig{.name = "ITS-128",
-    //            .config = ITSConfig(DecoupledPrefixSumConfig(),
-    //                                InverseTransformSamplingConfig(512, 128, false))},
-    //NamedConfig{.name = "Cutpoint-128", .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
-    //NamedConfig{.name = "PSA2-0",
-    //            .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
-    //                                                 DecoupledPrefixPartitionConfig(),
-    //                                                 InlineSplitPackConfig(2, 32),
-    //                                                 false),
-    //                                       SampleAliasTableConfig(0))},
+    NamedConfig{.name = "ITS-0",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(512, 0, false))},
+    NamedConfig{.name = "ITS-128",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(512, 128, false))},
+    NamedConfig{.name = "Cutpoint-128", .config = CutpointConfig(DecoupledPrefixSumConfig(), 128)},
+    NamedConfig{.name = "PSA2-0",
+                .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
+                                                     DecoupledPrefixPartitionConfig(),
+                                                     InlineSplitPackConfig(2, 32),
+                                                     false),
+                                           SampleAliasTableConfig(0))},
     NamedConfig{.name = "PSA2-128",
                 .config = AliasTableConfig(PSAConfig(AtomicMeanConfig(),
                                                      DecoupledPrefixPartitionConfig(),
@@ -97,13 +43,13 @@ static const NamedConfig CONFIGURATIONS[] = {
 };
 
 static constexpr std::size_t N = (1 << 26);
-static constexpr std::size_t S = (1 << 28);
+static constexpr std::size_t S = (1 << 26);
 
 static constexpr std::size_t N_min = (1 << 16);
 static constexpr std::size_t S_min = (1 << 16);
 
-static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 1;
+static constexpr std::size_t ticks = 250;
+static constexpr std::size_t iterations = 10;
 
 struct ConfigResult {
     std::size_t N;
@@ -182,7 +128,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
 
     std::size_t x = 0;
     for (const std::size_t n : host::exp::log10scale<std::size_t>(N_min, N, N_ticks)) {
-        SPDLOG_INFO("N = {} ({})", n, ++x);
 
         merian::ProfilerHandle profiler = std::make_shared<merian::Profiler>(context);
         merian::QueryPoolHandle<vk::QueryType::eTimestamp> query_pool =
@@ -248,7 +193,6 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
             }
         }
 
-
         for (const auto& report : samplingReport) {
             results.entries.push_back(ConfigResult{
                 .N = n,
@@ -260,7 +204,11 @@ ConfigBenchmark benchmarkConfiguration(const merian::ContextHandle& context,
                 .totalLatency = buildLatency + std::get<1>(report),
             });
         }
-        SPDLOG_INFO("GPU-Time {:.4f}ms  CPU-Time: {:.4f}ms", report.gpu_total(), report.cpu_total());
+
+        if (x % 10 == 0) {
+            SPDLOG_INFO("N = {} (tick: {})      GPU-Time {:.4f}ms  CPU-Time: {:.4f}ms", n, x++,
+                        report.gpu_total(), report.cpu_total());
+        }
     }
 
     return results;
@@ -277,7 +225,7 @@ void benchmark(const merian::ContextHandle& context) {
 
     BenchmarkResults results;
 
-    std::string path = "wrs_benchmark.csv";
+    std::string path = "export/sample_throughput/sweep.csv";
     host::exp::CSVWriter<8> csv({"N", "S", "method", "group", "build_latency",
                                  "build_std_derivation", "sampling_latency",
                                  "sampling_std_derivation"},
@@ -292,4 +240,4 @@ void benchmark(const merian::ContextHandle& context) {
     }
 }
 
-} // namespace device::wrs
+} // namespace device::wrs_sweep

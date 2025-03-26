@@ -27,39 +27,35 @@ struct NamedConfig {
 };
 
 static const NamedConfig CONFIGURATIONS[] = {
-    //NamedConfig{.name = "ITS-0",
-    //            .group = "ITS-0",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(),
-    //                          InverseTransformSamplingConfig(128, 0, false)),
-    //            .flushL2 = true},
-    //NamedConfig{.name = "ITS-0",
-    //            .group = "ITS-0",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(),
-    //                          InverseTransformSamplingConfig(128, 0, false)),
-    //            .flushL2 = false},
-    //NamedConfig{.name = "ITS-128",
-    //            .group = "ITS-128",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(),
-    //                          InverseTransformSamplingConfig(128, 128, false)),
-    //            .flushL2 = true},
-    //NamedConfig{.name = "ITS-128",
-    //            .group = "ITS-128",
-    //            .config =
-    //                ITSConfig(DecoupledPrefixSumConfig(),
-    //                          InverseTransformSamplingConfig(128, 128, false)),
-    //            .flushL2 = false},
+    NamedConfig{.name = "ITS-0",
+                .group = "ITS-0",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(128, 0, false)),
+                .flushL2 = true},
+    NamedConfig{.name = "ITS-0",
+                .group = "ITS-0",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(128, 0, false)),
+                .flushL2 = false},
+    NamedConfig{.name = "ITS-128",
+                .group = "ITS-128",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(128, 128, false)),
+                .flushL2 = true},
+    NamedConfig{.name = "ITS-128",
+                .group = "ITS-128",
+                .config = ITSConfig(DecoupledPrefixSumConfig(),
+                                    InverseTransformSamplingConfig(128, 128, false)),
+                .flushL2 = false},
 
-    //NamedConfig{.name = "Cutpoint-128",
-    //            .group = "Cutpoint-128",
-    //            .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
-    //            .flushL2 = true},
-    //NamedConfig{.name = "Cutpoint-128",
-    //            .group = "Cutpoint-128",
-    //            .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
-    //            .flushL2 = false},
+    NamedConfig{.name = "Cutpoint-128",
+                .group = "Cutpoint-128",
+                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
+                .flushL2 = true},
+    NamedConfig{.name = "Cutpoint-128",
+                .group = "Cutpoint-128",
+                .config = CutpointConfig(DecoupledPrefixSumConfig(), 128),
+                .flushL2 = false},
 
     NamedConfig{.name = "PSA2-0",
                 .group = "PSA2-0",
@@ -100,8 +96,8 @@ static const NamedConfig CONFIGURATIONS[] = {
 static constexpr std::size_t min_S = (1 << 16);
 static constexpr std::size_t max_S = (1 << 28);
 static constexpr std::size_t N = 1e6;
-static constexpr std::size_t ticks = 1000;
-static constexpr std::size_t iterations = 100;
+static constexpr std::size_t ticks = 100;
+static constexpr std::size_t iterations = 2;
 static constexpr std::size_t flushSize = 1e7;
 
 struct ConfigResult {
@@ -295,6 +291,7 @@ void benchmark(const merian::ContextHandle& context) {
 
     merian::ShaderCompilerHandle shaderCompiler =
         std::make_shared<merian::SystemGlslcCompiler>(context);
+    SPDLOG_INFO("Benchmarking sample throughput with fixed amount of items");
 
     BenchmarkResults results;
     std::size_t i = 0;
@@ -315,7 +312,7 @@ void benchmark(const merian::ContextHandle& context) {
 
     // export
 
-    std::string path = "wrs_benchmark_sample_throughput2.csv";
+    std::string path = "export/sample_throughput/benchmark2.csv";
     host::exp::CSVWriter<10> csv({"N", "S", "method", "group", "build_latency",
                                   "build_std_derivation", "sample_latency", "sample_std_derivation",
                                   "sample_throughput", "flushL2"},
@@ -328,6 +325,7 @@ void benchmark(const merian::ContextHandle& context) {
                         r1.configuration.flushL2);
         }
     }
+    SPDLOG_INFO("Writing results to {}", path);
 }
 
-} // namespace device::sample_throughput
+} // namespace device::sample_throughput2

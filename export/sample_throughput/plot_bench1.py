@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import os
 
 # Configuration
 latencyBase = "sample_latency"
@@ -12,15 +13,15 @@ max_S = 1 << 28
 
 l2_size = 36e6;
 
-chosen_S = 10**7  # e.g., 1 million
+chosen_S = 1e7  # e.g., 1 million
 
 memory_requirements_alias_table_entry = 8
 
 # Load evaluation results
 # bench_unserious = pd.read_csv("./wrs_benchmark_sample_throughput2_psa2-0.csv")
-bench_unserious = pd.read_csv("./wrs_benchmark_sample_throughput.csv")
+dirname = os.path.dirname(__file__)
+bench = pd.read_csv(os.path.join(dirname, "./benchmark1.csv"))
 
-bench = pd.concat([bench_unserious])
 print(bench["method"].unique())
 print(bench["S"].unique())
 
@@ -63,11 +64,11 @@ def plotMe(df, label,color, method):
     plt.plot(fully_cached['N'], fully_cached[property], "--", color=color)  # marker optional
     plt.plot(not_cached['N'], not_cached[property], "-",color=color, label=label)  # marker optional
 
-plotMe(subset, "psa-baseline", "tab:blue", "PSA2-0")
-plotMe(subset, "psa-sectioned", "tab:orange", "PSA2-128")
-# plotMe(subset, "its-baseline", "tab:green", "ITS-0")
-# plotMe(subset, "its-coop", "tab:red", "ITS-128")
-# plotMe(subset, "cutpoint", "tab:brown", "Cutpoint-128")
+plotMe(subset, "its-baseline", "tab:blue", "ITS-0")
+plotMe(subset, "its-coop", "tab:orange", "ITS-128")
+plotMe(subset, "cutpoint", "tab:green", "Cutpoint-128")
+plotMe(subset, "psa-baseline", "tab:red", "PSA2-0")
+plotMe(subset, "psa-sectioned", "tab:brown", "PSA2-128")
 
 
 
