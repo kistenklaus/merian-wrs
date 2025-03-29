@@ -46,7 +46,6 @@ struct AliasTableEntry {
 struct Split {
     uint i;
     uint j;
-    float spill;
 };
 
 layout(set = 0, binding = 0, std430) readonly buffer in_Distribution {
@@ -114,13 +113,9 @@ Split computeSplit(uint n, float mean, uint heavyCount, uint lightCount, uint li
     j = a - 1;
     i = min(n - j, lightCount);
 
-    light = i == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - (i - 1)];
-    float heavy2 = g_partitionPrefix.heavyLight[j]; // weight of j+1 elements (inclusive prefix) and j represents a count!
-    float sigma2 = heavy2 + light;
     Split split;
     split.i = i;
     split.j = j;
-    split.spill = sigma2 - target;
     return split;
 }
 shared uvec2 workgroupShuffleScratch[MAX_SUBGROUP_COUNT];
@@ -164,10 +159,10 @@ void scalarPack(uint i0, uint i1, uint j0, uint j1, float spill,
         bool packHeavy;
         // Checking bounds before the numerical comparision avoids
         // Floating point inaccuracies while comparing!
-        if (j == j1) {
+        if (j >= j1) {
             // Only light buckets left.
             packHeavy = false;
-        } else if (i == i1) {
+        } else if (i >= i1) {
             // Only heavy buckets left.
             packHeavy = true;
         } else {
@@ -211,148 +206,6 @@ void scalarPack(uint i0, uint i1, uint j0, uint j1, float spill,
         g_result.table[idx].p = p;
         g_result.table[idx].a = a;
         w = (w + weight) - averageWeight;
-    }
-}
-
-void subgroupPackOld(uint i0, uint i1, uint j0, uint j1,
-    float spill,
-    float averageWeight,
-    uint lastLightIndex,
-    uint baseInvoc,
-    uint relativeSubInvoc,
-    uint k
-) {
-    // =========== PACKING ===========
-
-    // init Heavy
-    j1 += 1;
-    uint j = j0 + relativeSubInvoc;
-    uint jx = 0;
-    int remainingHeavy = int(j1 - j0);
-    uint h2;
-    float hw;
-    AliasTableEntry he;
-    if (j < j1) {
-        h2 = g_partitionIndices.heavyLight[j];
-        #ifdef USE_PARTITION_ELEMENTS
-        hw = g_partitionIndices.heavyLight[j];
-        #else
-        hw = g_distribution.weights[h2];
-        #endif
-    }
-
-    // init light
-    uint i = i0 + relativeSubInvoc;
-    uint ix = 0;
-    int remainingLight = int(i1 - i0);
-    uint l2;
-    float lw = 0;
-    AliasTableEntry le;
-    if (i < i1) {
-        l2 = g_partitionIndices.heavyLight[lastLightIndex - i];
-        #ifdef USE_PARTITION_ELEMENTS
-        lw = g_partitionIndices.heavyLight[lastLightIndex - i];
-        #else
-        lw = g_distribution.weights[l2];
-        // lw = 0;
-        #endif
-    }
-
-    float w = spill;
-    uint h;
-    if (k == 0) {
-        uvec2 temp = subgroupBroadcast(uvec2(h2, floatBitsToUint(hw)), baseInvoc + jx);
-        h = temp.x;
-        w = uintBitsToFloat(temp.y);
-    } else {
-        h = subgroupBroadcast(h2, baseInvoc + jx);
-    }
-    jx += 1;
-    remainingHeavy -= 1;
-
-    bool hasLight = remainingLight > 0;
-    bool hasHeavy = remainingHeavy > 0;
-    bool packHeavy;
-
-    uint x = 0;
-    while (hasLight || hasHeavy) {
-        // Checking bounds before the numerical comparision avoids
-        // Floating point inaccuracies while comparing!
-        packHeavy = hasHeavy && (w <= (averageWeight));
-        uint weightIdx;
-        float weight;
-        uvec2 v;
-        uint owner;
-        if (packHeavy) {
-            v = uvec2(h2, floatBitsToUint(hw));
-            owner = jx++;
-            remainingHeavy--;
-        } else {
-            v = uvec2(l2, floatBitsToUint(lw));
-            owner = ix++;
-            remainingLight--;
-        }
-        v = subgroupBroadcast(v, baseInvoc + owner);
-
-        if (packHeavy) {
-            // Pack heavy bucket!
-            if (relativeSubInvoc == jx - 2) {
-                he.a = v.x;
-                he.p = w / averageWeight;
-            }
-
-            h = v.x;
-        } else {
-            // Pack light bucket
-            if (relativeSubInvoc == ix - 1) {
-                le.p = uintBitsToFloat(v.y) / averageWeight;
-                le.a = h;
-            }
-        }
-
-        if (owner == (THREADS_PER_SUBPROBLEM - 1)) {
-            if (packHeavy) {
-                if (relativeSubInvoc < (THREADS_PER_SUBPROBLEM)) {
-                    g_result.table[h2] = he;
-                }
-                j += THREADS_PER_SUBPROBLEM - 1;
-                jx = 1;
-                if (j < j1) {
-                    h2 = g_partitionIndices.heavyLight[j];
-                    #ifdef USE_PARTITION_ELEMENTS
-                    hw = g_partitionIndices.heavyLight[j];
-                    #else
-                    hw = g_distribution.weights[h2];
-                    #endif
-                }
-            } else {
-                if (relativeSubInvoc < (THREADS_PER_SUBPROBLEM)) {
-                    g_result.table[l2] = le;
-                }
-                i += THREADS_PER_SUBPROBLEM;
-                ix = 0;
-                if (i < i1) {
-                    l2 = g_partitionIndices.heavyLight[lastLightIndex - i];
-                    #ifdef USE_PARTITION_ELEMENTS
-                    lw = g_partitionIndices.heavyLight[lastLightIndex - i];
-                    #else
-                    lw = g_distribution.weights[l2];
-                    // lw = 0;
-                    #endif
-                }
-            }
-        }
-
-        hasLight = remainingLight > 0;
-        hasHeavy = remainingHeavy > 0;
-        w += uintBitsToFloat(v.y) - averageWeight;
-    }
-    if (relativeSubInvoc < ix) {
-        g_result.table[l2] = le;
-    }
-
-    if (relativeSubInvoc < jx - 1) {
-        g_result.table[h2] = he;
     }
 }
 
@@ -606,8 +459,8 @@ void subgroupPackCyclicBuffer(
                 if (relativeSubInvoc == nextHeavyOwner) {
                     shfl_writebackHeavy.p = currentHeavyWeight / averageWeight;
                     shfl_writebackHeavy.a = shfl_heavyIndex;
+                    // NOTE: writeback, buffering may improve performance on AMD or intel, but not tested.
                     g_result.table[currentHeavyIndex] = shfl_writebackHeavy;
-
                     // g_result.table[currentHeavyIndex].p = currentHeavyWeight / averageWeight;
                     // g_result.table[currentHeavyIndex].a = shfl_heavyIndex;
                     shfl_heavyWeight = (shfl_heavyWeight - averageWeight) + currentHeavyWeight;
@@ -634,7 +487,8 @@ void subgroupPackCyclicBuffer(
                 if (relativeSubInvoc == shfl_heavyOwner) {
                     shfl_writebackLight.p = currentLightWeight / averageWeight;
                     shfl_writebackLight.a = shfl_heavyIndex;
-                    g_result.table[currentLightIndex] = shfl_writebackLight;
+                    // NOTE: writeback, buffering may improve performance on AMD or intel, but not tested.
+                    g_result.table[currentLightIndex] = shfl_writebackLight; 
                     // g_result.table[currentLightIndex].p = currentLightWeight / averageWeight;
                     // g_result.table[currentLightIndex].a = shfl_heavyIndex;
                     shfl_heavyWeight = (shfl_heavyWeight - averageWeight) + currentLightWeight;
@@ -675,6 +529,7 @@ uint SubgroupClusteredBallotBitCountForSplitCoop(bool
     return count;
 }
 
+// Uncompetitive and uselessly complicated.
 Split computeSplitCoop(uint n, float mean, uint heavyCount, uint lightCount, uint lightPrefixFirst,
     uint baseInvoc, uint relativeSubInvoc) {
     // Implement cooperative binary search with THREADS_PER_SUBPROBLEM invocations within.
@@ -735,27 +590,9 @@ Split computeSplitCoop(uint n, float mean, uint heavyCount, uint lightCount, uin
     }
     j = b; //lower bound still
     i = min(n - j, lightCount - 1);
-
-    light = i == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - i + 1];
-    float heavy2 = g_partitionPrefix.heavyLight[j];
-    float sigma2 = heavy2 + light;
     Split split;
     split.i = i;
     split.j = j;
-    split.spill = sigma2 - target;
-    // split.spill = 0;
-
-    // uvec4 ballot = subgroupBallot(gl_SubgroupInvocationID < 16);
-    // uint amountOfInvocWhichAreLower = 0;
-    // amountOfInvocWhichAreLower += bitCount(ballot.x
-    //             & (
-    //             ((1 << THREADS_PER_SPLIT) - 1) << baseInvoc
-    //             )
-    //     );
-    //
-    // split.i = amountOfInvocWhichAreLower;
-    // split.j = ballot.x;
-    // split.spill = 0;
     return split;
 }
 
@@ -800,7 +637,6 @@ void subgroupSplitPack() {
     if (shuffleK == 0) {
         s0.i = 0;
         s0.j = 0;
-        s0.spill = 0;
     } else if (shuffleK == K) {
         s0.i = lightCount;
         s0.j = heavyCount;
@@ -813,42 +649,24 @@ void subgroupSplitPack() {
     }
 
     // shuffle splits between xor related invocations
-    uvec3 s0Repr = uvec3(s0.i, s0.j, floatBitsToUint(s0.spill));
-    uvec3 s1Repr = subgroupShuffleXor(s0Repr, SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK);
+    uvec2 s0Repr = uvec2(s0.i, s0.j);
+    uvec2 s1Repr = subgroupShuffleXor(s0Repr, SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK);
 
     if ((relativeSubInvoc & SUBGROUP_SPLITPACK_XOR_SHUFFLE_MASK) != 0) {
         s0.i = s1Repr.x;
         s0.j = s1Repr.y;
-        s0.spill = uintBitsToFloat(s1Repr.z);
         s1Repr.xy = s0Repr.xy;
     }
 
-    // g_result.table[k * 4].a =     s0.i;
-    // g_result.table[k * 4 + 1].a = s0.j;
-    // g_result.table[k * 4 + 1].p = s0.spill;
-    // g_result.table[k * 4 + 2].a = s1Repr.x;
-    // g_result.table[k * 4 + 3].a = s1Repr.y;
-    //
-    // g_result.table[k * 4].p = 10;
-    // g_result.table[k * 4 + 1].p = s0.spill;
-    // g_result.table[k * 4].a = s0.i;
-    // g_result.table[k * 4 + 1].a = s0.j;
-    // g_result.table[k * 4 + 2].a = s1Repr.x;
-    // g_result.table[k * 4 + 3].a = s1Repr.y;
-    //
-    // return;
+    float spill = 0;
 
     if (OPTIMIZE_PACK_FOR_MEMORY_COALESCING) {
         subgroupPackCoalesced(
-            min(s0.i, s1Repr.x),
-            max(s0.i, s1Repr.x),
-            min(s0.j, s1Repr.y),
-            max(s0.j, s1Repr.y),
-            // s0.i,
-            // s1Repr.x,
-            // s0.j,
-            // s1Repr.y,
-            s0.spill,
+            s0.i,
+            s1Repr.x,
+            s0.j,
+            s1Repr.y,
+            spill,
             mean,
             lastLightIndex,
             baseInvoc,
@@ -857,15 +675,11 @@ void subgroupSplitPack() {
         );
     } else {
         subgroupPackCyclicBuffer(
-            min(s0.i, s1Repr.x),
-            max(s0.i, s1Repr.x),
-            min(s0.j, s1Repr.y),
-            max(s0.j, s1Repr.y),
-            // s0.i,
-            // s1Repr.x,
-            // s0.j,
-            // s1Repr.y,
-            s0.spill,
+            s0.i,
+            s1Repr.x,
+            s0.j,
+            s1Repr.y,
+            spill,
             mean,
             lastLightIndex,
             baseInvoc,
@@ -918,14 +732,6 @@ void scalarSplitPackEdge(uint i0, uint i1, uint j0, uint j1, float spill,
     g_result.table[idx].p = p;
     g_result.table[idx].a = a;
 }
-uint ceilMulDiv(uint a, uint b, uint c) {
-    return uint((uint64_t(a) * uint64_t(b) + c - 1) / c);
-    // uint div = a / c;
-    // uint rem = a % c;
-    // uint safe_part = div * b;
-    // uint rem_part = (rem * b + c - 1) / c;
-    // return safe_part + rem_part;
-}
 
 void scalarSplitPack() {
     const uint N = pc.N;
@@ -949,14 +755,22 @@ void scalarSplitPack() {
     if (k == 0) {
         split.i = 0;
         split.j = 0;
-        split.spill = 0;
     } else if (k == K) {
         split.i = lightCount;
         split.j = heavyCount;
-        split.spill = 0;
     } else {
         split = computeSplit(n, mean, heavyCount, lightCount, lightPrefixFirst);
     }
+
+    // NOTE (1): there was a idea here: 
+    // We tried to fix the nonmonotone sequence of i and j with subgroupInclusiveMax
+    // and this also kind of does what it should however we do not find that it 
+    // really improves the numerical stability. The only 
+    // option that really seems sensible is to use block-wise scans instead of 
+    // a large prefix sum over the heavy / light elements to avoid the 
+    // floating-point cancelation. 2 floats better than 1 float =^).
+    // split.i = subgroupInclusiveMax(split.i);
+    // split.j = subgroupInclusiveMax(split.j);
 
     uvec2 ij1 = shuffleNextSplit(k, split);
 
@@ -967,7 +781,11 @@ void scalarSplitPack() {
     if (gl_LocalInvocationID.x == gl_WorkGroupSize.x - 1) {
         return;
     }
-
+    // NOTE : see NOTE (1):
+    // uint i0 = subgroupInclusiveMax(split.i);
+    // uint j0 = subgroupInclusiveMax(split.j);
+    // uint i1 = subgroupInclusiveMax(ij1.x);
+    // uint j1 = subgroupInclusiveMax(ij1.y);
     // uint i0 = min(split.i, ij1.x);
     // uint j0 = min(split.j, ij1.y);
     // uint i1 = max(ij1.x, split.i);
@@ -978,20 +796,12 @@ void scalarSplitPack() {
     uint i1 = ij1.x;
     uint j1 = ij1.y;
 
-    float spill = split.spill;
+    float light = i0 == 0 ? 0 : g_partitionPrefix.heavyLight[lightPrefixFirst - (i0 - 1)];
+    float heavy2 = g_partitionPrefix.heavyLight[j0]; // weight of j+1 elements (inclusive prefix) and j represents a count!
+    float sigma2 = heavy2 + light;
+    float target = (i0 + j0) * mean;
 
-    // if (k == 510) {
-    //     g_result.table[0].a = i0;
-    //     g_result.table[0].p = g_partitionIndices.heavyLight[lightPrefixFirst - i0];
-    //     g_result.table[1].a = j0;
-    //     g_result.table[1].p = g_partitionIndices.heavyLight[j0];
-    //     g_result.table[2].a = i1;
-    //     g_result.table[3].a = j1;
-    //     g_result.table[4].a = lightCount;
-    //     g_result.table[5].a = heavyCount;
-    //     g_result.table[5].p = spill;
-    // }
-    // return;
+    float spill = sigma2 - target;
 
     scalarPack(i0, i1, j0, j1, spill, mean, lightPrefixFirst, lightCount, heavyCount, k);
 }

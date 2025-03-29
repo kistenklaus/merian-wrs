@@ -78,7 +78,7 @@ class InlineSplitPack {
         const merian::DescriptorSetLayoutHandle descriptorSet0Layout =
             setBuilder.build_push_descriptor_layout(context);
 
-        const std::string shaderPath = "src/device/wrs/alias/psa/splitpack/inline/shader2.comp";
+        const std::string shaderPath = "src/device/wrs/alias/psa/splitpack/inline/shader.comp";
 
         std::map<std::string, std::string> defines;
         if (m_usePartitionElements) {
